@@ -194,3 +194,24 @@ jobs:
           fail_on_unmatched_files: false
           body_path: notes.md
           generate_release_notes: true
+
+  homebrew:
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Update tap formula
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          scripts/gen-brew-formula.sh "$VER" > discodrive-daemon.rb
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/kosmosoid/homebrew-tap.git" tap
+          mv discodrive-daemon.rb tap/Formula/discodrive-daemon.rb
+          cd tap
+          git config user.name  "kosmosoid"
+          git config user.email "kosmosoid@users.noreply.github.com"
+          git add Formula/discodrive-daemon.rb
+          git diff --cached --quiet || git commit -m "discodrive-daemon $VER"
+          git push
