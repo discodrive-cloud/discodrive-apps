@@ -52,6 +52,23 @@
 - **macOS** (`.dmg`) и **Windows** (`.exe` + установщик) **не подписаны**. При первом запуске Gatekeeper (macOS) или SmartScreen (Windows) покажут предупреждение.
 - **iOS** в релизы не входит (нужно собрать самостоятельно и установить на iPhone с помощью xcode).
 
+### 🍺 Homebrew (демон — macOS и Linux)
+
+Демон синхронизации можно также установить из нашего Homebrew tap:
+
+```sh
+brew tap kosmosoid/tap
+brew trust kosmosoid/tap   # только для свежих версий Homebrew
+brew install discodrive-daemon
+```
+
+Затем подключите демон к серверу и включите автозапуск:
+
+```sh
+discodrive pair --server https://your-server.example
+discodrive install    # либо `discodrive run` — запуск в консоли
+```
+
 ---
 
 ## Сборка из исходников

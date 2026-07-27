@@ -52,6 +52,23 @@ Fertige Binärdateien für Linux, Windows und macOS (Daemon und Desktop-Client) 
 - **macOS** (`.dmg`) und **Windows** (`.exe` + Installer) sind **nicht signiert**. Beim ersten Start zeigen Gatekeeper (macOS) bzw. SmartScreen (Windows) eine Warnung.
 - **iOS** ist nicht in den Releases enthalten (du musst es selbst bauen und per Xcode auf einem iPhone installieren).
 
+### 🍺 Homebrew (Daemon — macOS und Linux)
+
+Der Sync-Daemon lässt sich auch aus unserem Homebrew-Tap installieren:
+
+```sh
+brew tap kosmosoid/tap
+brew trust kosmosoid/tap   # nur bei neueren Homebrew-Versionen nötig
+brew install discodrive-daemon
+```
+
+Danach den Daemon mit dem Server koppeln und den Autostart aktivieren:
+
+```sh
+discodrive pair --server https://dein-server.example
+discodrive install    # oder `discodrive run` für den Vordergrund
+```
+
 ---
 
 ## Aus dem Quellcode bauen

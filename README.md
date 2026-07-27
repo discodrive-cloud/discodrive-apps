@@ -52,6 +52,23 @@ Prebuilt binaries for Linux, Windows and macOS (daemon and desktop client) and a
 - **macOS** (`.dmg`) and **Windows** (`.exe` + installer) are **unsigned**. On first launch Gatekeeper (macOS) or SmartScreen (Windows) will show a warning.
 - **iOS** is not included in releases (you need to build it yourself and install it on an iPhone via Xcode).
 
+### 🍺 Homebrew (daemon — macOS and Linux)
+
+The sync daemon can also be installed from our Homebrew tap:
+
+```sh
+brew tap kosmosoid/tap
+brew trust kosmosoid/tap   # newer Homebrew versions only
+brew install discodrive-daemon
+```
+
+Then pair the daemon with your server and enable autostart:
+
+```sh
+discodrive pair --server https://your-server.example
+discodrive install    # or `discodrive run` to run in the foreground
+```
+
 ---
 
 ## Building from source

@@ -52,6 +52,23 @@ Des binaires prêts à l’emploi pour Linux, Windows et macOS (démon et client
 - **macOS** (`.dmg`) et **Windows** (`.exe` + installateur) ne sont **pas signés**. Au premier lancement, Gatekeeper (macOS) ou SmartScreen (Windows) afficheront un avertissement.
 - **iOS** n’est pas inclus dans les releases (il faut le compiler soi-même et l’installer sur un iPhone via Xcode).
 
+### 🍺 Homebrew (démon — macOS et Linux)
+
+Le démon de synchronisation peut aussi être installé depuis notre tap Homebrew :
+
+```sh
+brew tap kosmosoid/tap
+brew trust kosmosoid/tap   # uniquement pour les versions récentes de Homebrew
+brew install discodrive-daemon
+```
+
+Ensuite, appairez le démon avec votre serveur et activez le démarrage automatique :
+
+```sh
+discodrive pair --server https://votre-serveur.example
+discodrive install    # ou `discodrive run` pour l’exécuter au premier plan
+```
+
 ---
 
 ## Compilation depuis les sources

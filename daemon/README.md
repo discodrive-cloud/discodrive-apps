@@ -4,6 +4,9 @@ Cross-platform DiscoDrive sync client (Dropbox model: folder ↔ server) with a 
 
 ## Daemon
 
+Install on macOS/Linux via Homebrew: `brew install kosmosoid/tap/discodrive-daemon`
+(newer Homebrew asks to `brew trust kosmosoid/tap` first).
+
 ```
 discodrive pair --server https://files.example.com --dir ~/discodrive   # pair via browser
 discodrive run        # background bidirectional sync (push→pull, fsnotify+SSE)

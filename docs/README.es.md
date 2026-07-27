@@ -52,6 +52,23 @@ Los binarios ya compilados para Linux, Windows y macOS (demonio y cliente de esc
 - **macOS** (`.dmg`) y **Windows** (`.exe` + instalador) **no están firmados**. En el primer arranque, Gatekeeper (macOS) o SmartScreen (Windows) mostrarán una advertencia.
 - **iOS** no se incluye en las releases (hay que compilarlo uno mismo e instalarlo en un iPhone mediante Xcode).
 
+### 🍺 Homebrew (demonio — macOS y Linux)
+
+El demonio de sincronización también puede instalarse desde nuestro tap de Homebrew:
+
+```sh
+brew tap kosmosoid/tap
+brew trust kosmosoid/tap   # solo en versiones recientes de Homebrew
+brew install discodrive-daemon
+```
+
+Después, empareja el demonio con tu servidor y activa el arranque automático:
+
+```sh
+discodrive pair --server https://tu-servidor.example
+discodrive install    # o `discodrive run` para ejecutarlo en primer plano
+```
+
 ---
 
 ## Compilar desde el código fuente
