@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"discodrive.org/daemon/internal/engine"
 	"discodrive.org/daemon/internal/index"
@@ -22,9 +23,9 @@ type ServerAPI interface {
 	RenameNode(ctx context.Context, nodeID, newName string) error
 	MoveNode(ctx context.Context, nodeID, newParentID string) error
 	DeleteNode(ctx context.Context, nodeID string) error
-	UploadFile(ctx context.Context, parentID, name string, r io.Reader) error
+	UploadFile(ctx context.Context, parentID, name string, r io.Reader, modTime time.Time) error
 	EnsureDir(ctx context.Context, relPath string) (engine.RemoteNode, error)
-	PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader) (engine.RemoteNode, bool, error)
+	PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader, modTime time.Time) (engine.RemoteNode, bool, error)
 }
 
 // Entry is one row in a directory listing: the indexed node plus its local state.
@@ -274,7 +275,8 @@ func (c *Controller) Delete(ctx context.Context, nodeID string) error {
 	return c.srv.DeleteNode(ctx, nodeID)
 }
 
-// Upload streams a new file into parentID on the server.
-func (c *Controller) Upload(ctx context.Context, parentID, name string, r io.Reader) error {
-	return c.srv.UploadFile(ctx, parentID, name, r)
+// Upload streams a new file into parentID on the server. modTime is the content's own
+// date; pass the zero time when the caller has none and the server should date it.
+func (c *Controller) Upload(ctx context.Context, parentID, name string, r io.Reader, modTime time.Time) error {
+	return c.srv.UploadFile(ctx, parentID, name, r, modTime)
 }

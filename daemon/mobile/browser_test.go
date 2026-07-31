@@ -28,7 +28,7 @@ func browseMux(changes, fileBody string) *httptest.Server {
 }
 
 type entry struct {
-	ID, Name, LocalPath string
+	ID, Name, LocalPath   string
 	IsDir, Cached, Pinned bool
 }
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // uploadTestServer parses POST /files/upload as real multipart and records the file part.
@@ -69,7 +70,7 @@ func TestUploadFileStreamsExactBytes(t *testing.T) {
 
 	srv, files, lengths := uploadTestServer(t, false)
 	c := New(srv.URL, "kfd")
-	if err := c.UploadFile(context.Background(), "p1", "pic.bin", f); err != nil {
+	if err := c.UploadFile(context.Background(), "p1", "pic.bin", f, time.Time{}); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
@@ -104,7 +105,7 @@ func TestUploadFileResendsWholeBodyAfterUnauthorized(t *testing.T) {
 
 	srv, files, _ := uploadTestServer(t, true)
 	c := New(srv.URL, "kfd")
-	if err := c.UploadFile(context.Background(), "", "r.bin", f); err != nil {
+	if err := c.UploadFile(context.Background(), "", "r.bin", f, time.Time{}); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 	if len(*files) != 1 {
@@ -158,7 +159,7 @@ func TestUploadFileReportsSourceReadError(t *testing.T) {
 	c := New(srv.URL, "kfd")
 
 	src := &failingSeeker{size: 500_000, fail: 100_000}
-	err := c.UploadFile(context.Background(), "", "broken.bin", src)
+	err := c.UploadFile(context.Background(), "", "broken.bin", src, time.Time{})
 	if err == nil {
 		t.Fatal("upload of a source that fails mid-read must return an error")
 	}

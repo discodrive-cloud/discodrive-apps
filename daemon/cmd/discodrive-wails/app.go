@@ -355,7 +355,7 @@ func (a *App) uploadFile(parentID, p string) {
 		return
 	}
 	var lastEmit int64
-	err = NewUploader(a.up).Upload(a.ctx, parentID, name, f, fi.Size(), func(sent, total int64) {
+	err = NewUploader(a.up).Upload(a.ctx, parentID, name, f, fi.Size(), fi.ModTime(), func(sent, total int64) {
 		if sent-lastEmit < 512*1024 && sent != total {
 			return // throttle: emit at most every ~512 KiB (plus the final byte)
 		}

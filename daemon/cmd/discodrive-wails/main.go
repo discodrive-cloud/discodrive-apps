@@ -55,9 +55,9 @@ func main() {
 	trayStart()
 
 	_ = wails.Run(&options.App{
-		Title:             "DiscoDrive",
-		Width:             1000,
-		Height:            700,
+		Title:            "DiscoDrive",
+		Width:            1000,
+		Height:           700,
 		MinWidth:         720,
 		MinHeight:        480,
 		AssetServer:      &assetserver.Options{Assets: assets},

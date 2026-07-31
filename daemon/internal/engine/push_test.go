@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"discodrive.org/daemon/internal/index"
 )
@@ -21,7 +22,7 @@ type fakeSink struct {
 
 func newFakeSink() *fakeSink { return &fakeSink{pushed: map[string]*int64{}} }
 
-func (s *fakeSink) PushFile(_ context.Context, rel string, base *int64, r io.Reader) (RemoteNode, bool, error) {
+func (s *fakeSink) PushFile(_ context.Context, rel string, base *int64, r io.Reader, _ time.Time) (RemoteNode, bool, error) {
 	b, _ := io.ReadAll(r)
 	s.pushed[rel] = base
 	s.ops = append(s.ops, "push "+rel)

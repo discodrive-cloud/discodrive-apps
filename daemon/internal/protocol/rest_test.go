@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRestMutations(t *testing.T) {
@@ -51,7 +52,7 @@ func TestRestMutations(t *testing.T) {
 	if err := c.CreateFolder(ctx, "", "docs"); err != nil || hits["folder"] != "docs" {
 		t.Fatalf("folder: %v %v", err, hits)
 	}
-	if err := c.UploadFile(ctx, "p1", "a.txt", strings.NewReader("hi")); err != nil || hits["upload"] != "a.txt" {
+	if err := c.UploadFile(ctx, "p1", "a.txt", strings.NewReader("hi"), time.Time{}); err != nil || hits["upload"] != "a.txt" {
 		t.Fatalf("upload: %v %v", err, hits)
 	}
 	if err := c.RenameNode(ctx, "n9", "b.txt"); err != nil || hits["rename"] != "n9:b.txt" {

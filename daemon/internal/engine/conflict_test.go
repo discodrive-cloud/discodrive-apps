@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"discodrive.org/daemon/internal/index"
 )
@@ -13,7 +14,7 @@ import (
 // conflictSink: PushFile always returns conflicted=true.
 type conflictSink struct{ pushed []string }
 
-func (s *conflictSink) PushFile(_ context.Context, rel string, _ *int64, r io.Reader) (RemoteNode, bool, error) {
+func (s *conflictSink) PushFile(_ context.Context, rel string, _ *int64, r io.Reader, _ time.Time) (RemoteNode, bool, error) {
 	io.Copy(io.Discard, r)
 	s.pushed = append(s.pushed, rel)
 	return RemoteNode{NodeID: "conflict-copy", Version: 0}, true, nil

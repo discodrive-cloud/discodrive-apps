@@ -8,6 +8,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"discodrive.org/daemon/internal/index"
 )
@@ -21,7 +22,9 @@ type RemoteNode struct {
 
 // Sink receives local changes (implemented by the HTTP protocol client).
 type Sink interface {
-	PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader) (RemoteNode, bool, error)
+	// modTime is the local file's own modification time, so the server can date the
+	// content instead of the upload. Zero means "unknown" and leaves it to the server.
+	PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader, modTime time.Time) (RemoteNode, bool, error)
 	EnsureDir(ctx context.Context, relPath string) (RemoteNode, error)
 	DeleteRemote(ctx context.Context, relPath string) error
 }
@@ -140,7 +143,13 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) error {
 				v := n.Version
 				base = &v
 			}
-			rn, conflicted, perr := sink.PushFile(ctx, c.RelPath, base, f)
+			// Stat the open handle rather than the path: same file we are about to send,
+			// and no second lookup that could race a concurrent local edit.
+			var modTime time.Time
+			if fi, serr := f.Stat(); serr == nil {
+				modTime = fi.ModTime()
+			}
+			rn, conflicted, perr := sink.PushFile(ctx, c.RelPath, base, f, modTime)
 			f.Close()
 			if perr != nil {
 				return perr

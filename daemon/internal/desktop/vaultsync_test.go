@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"discodrive.org/daemon/internal/engine"
 )
@@ -34,7 +35,7 @@ func (s *vaultTestServer) EnsureDir(_ context.Context, relPath string) (engine.R
 	return engine.RemoteNode{NodeID: nodeID, Version: 1}, nil
 }
 
-func (s *vaultTestServer) PushFile(_ context.Context, relPath string, _ *int64, r io.Reader) (engine.RemoteNode, bool, error) {
+func (s *vaultTestServer) PushFile(_ context.Context, relPath string, _ *int64, r io.Reader, _ time.Time) (engine.RemoteNode, bool, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return engine.RemoteNode{}, false, err
@@ -99,11 +100,11 @@ func (s *vaultTestServer) Changes(_ context.Context, since int64, limit int) ([]
 }
 
 // Stubs for the remaining ServerAPI methods.
-func (s *vaultTestServer) CreateFolder(_ context.Context, _, _ string) error              { return nil }
-func (s *vaultTestServer) RenameNode(_ context.Context, _, _ string) error                { return nil }
-func (s *vaultTestServer) MoveNode(_ context.Context, _, _ string) error                  { return nil }
-func (s *vaultTestServer) DeleteNode(_ context.Context, _ string) error                   { return nil }
-func (s *vaultTestServer) UploadFile(_ context.Context, _, _ string, r io.Reader) error {
+func (s *vaultTestServer) CreateFolder(_ context.Context, _, _ string) error { return nil }
+func (s *vaultTestServer) RenameNode(_ context.Context, _, _ string) error   { return nil }
+func (s *vaultTestServer) MoveNode(_ context.Context, _, _ string) error     { return nil }
+func (s *vaultTestServer) DeleteNode(_ context.Context, _ string) error      { return nil }
+func (s *vaultTestServer) UploadFile(_ context.Context, _, _ string, r io.Reader, _ time.Time) error {
 	_, _ = io.Copy(io.Discard, r)
 	return nil
 }

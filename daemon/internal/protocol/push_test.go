@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientPushFileSendsBaseVersion(t *testing.T) {
@@ -29,7 +30,7 @@ func TestClientPushFileSendsBaseVersion(t *testing.T) {
 
 	c := New(srv.URL, "kfd")
 	base := int64(5)
-	rn, conflicted, err := c.PushFile(context.Background(), "a/b.txt", &base, strings.NewReader("hello"))
+	rn, conflicted, err := c.PushFile(context.Background(), "a/b.txt", &base, strings.NewReader("hello"), time.Time{})
 	if err != nil || conflicted {
 		t.Fatalf("push: err=%v conflicted=%v", err, conflicted)
 	}

@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"discodrive.org/daemon/internal/engine"
 )
@@ -225,7 +226,7 @@ func replayableBody(r io.Reader) (func() (io.Reader, error), int64, error) {
 	return func() (io.Reader, error) { return bytes.NewReader(buf), nil }, int64(len(buf)), nil
 }
 
-func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader) (engine.RemoteNode, bool, error) {
+func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader, modTime time.Time) (engine.RemoteNode, bool, error) {
 	newBody, size, err := replayableBody(r)
 	if err != nil {
 		return engine.RemoteNode{}, false, err
@@ -254,6 +255,11 @@ func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int6
 		}
 		if baseVersion != nil {
 			req.Header.Set("X-Base-Version", strconv.FormatInt(*baseVersion, 10))
+		}
+		// Without this the server dates the file "now", so a synced folder loses every
+		// original timestamp. Absent header keeps the old server-dated behaviour.
+		if !modTime.IsZero() {
+			req.Header.Set("X-Modified-At", modTime.UTC().Format(time.RFC3339Nano))
 		}
 		resp, err := c.hc.Do(req)
 		if err != nil {
@@ -429,10 +435,13 @@ func okClose(resp *http.Response, what string) error {
 // UploadInit opens a chunked upload session. size is the file's full length: the server
 // checks the assembled chunks against it before publishing, so a session that ends short
 // is rejected instead of landing as a truncated file.
-func (c *Client) UploadInit(ctx context.Context, parentID, name string, size int64) (string, int, error) {
+func (c *Client) UploadInit(ctx context.Context, parentID, name string, size int64, modTime time.Time) (string, int, error) {
 	body := map[string]any{"name": name, "size": size}
 	if parentID != "" {
 		body["parent_id"] = parentID
+	}
+	if !modTime.IsZero() {
+		body["modified_at"] = modTime.UTC().Format(time.RFC3339Nano)
 	}
 	resp, err := c.doJSON(ctx, http.MethodPost, "/upload/init", body)
 	if err != nil {
@@ -613,7 +622,10 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // headers and the closing boundary — for a file part carrying no bytes. Adding the file
 // size gives an exact Content-Length, which keeps the upload out of chunked encoding and
 // lets net/http reject a body that ends short instead of sending a truncated file.
-func multipartOverhead(boundary, parentID, name string) (int64, error) {
+// Every field written here must also be written by the goroutine that streams the real
+// body, in the same order — otherwise the declared Content-Length does not match what is
+// sent and the request fails.
+func multipartOverhead(boundary, parentID, name, modifiedAt string) (int64, error) {
 	var n countingWriter
 	mw := multipart.NewWriter(&n)
 	if err := mw.SetBoundary(boundary); err != nil {
@@ -627,6 +639,11 @@ func multipartOverhead(boundary, parentID, name string) (int64, error) {
 	if err := mw.WriteField("name", name); err != nil {
 		return 0, err
 	}
+	if modifiedAt != "" {
+		if err := mw.WriteField("modified_at", modifiedAt); err != nil {
+			return 0, err
+		}
+	}
 	if _, err := mw.CreateFormFile("file", name); err != nil {
 		return 0, err
 	}
@@ -639,10 +656,14 @@ func multipartOverhead(boundary, parentID, name string) (int64, error) {
 // UploadFile uploads a file into parentID ("" = root) via multipart. The body is streamed
 // through an io.Pipe rather than assembled in memory, so uploading a large file from the
 // phone builds does not need a copy of it in RAM.
-func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Reader) error {
+func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Reader, modTime time.Time) error {
 	newBody, size, err := replayableBody(r)
 	if err != nil {
 		return err
+	}
+	var modField string
+	if !modTime.IsZero() {
+		modField = modTime.UTC().Format(time.RFC3339Nano)
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		tok, err := c.token(ctx)
@@ -656,7 +677,7 @@ func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Rea
 
 		pr, pw := io.Pipe()
 		mw := multipart.NewWriter(pw)
-		overhead, err := multipartOverhead(mw.Boundary(), parentID, name)
+		overhead, err := multipartOverhead(mw.Boundary(), parentID, name, modField)
 		if err != nil {
 			_ = pw.Close()
 			_ = pr.Close()
@@ -673,6 +694,11 @@ func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Rea
 				}
 				if err := mw.WriteField("name", name); err != nil {
 					return err
+				}
+				if modField != "" {
+					if err := mw.WriteField("modified_at", modField); err != nil {
+						return err
+					}
 				}
 				fw, err := mw.CreateFormFile("file", name)
 				if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMutationsPassThrough(t *testing.T) {
@@ -23,7 +24,7 @@ func TestMutationsPassThrough(t *testing.T) {
 	if err := c.Delete(ctx, "n"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if err := c.Upload(ctx, "p", "up.txt", strings.NewReader("data")); err != nil {
+	if err := c.Upload(ctx, "p", "up.txt", strings.NewReader("data"), time.Time{}); err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
 

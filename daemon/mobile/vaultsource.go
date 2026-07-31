@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"time"
 
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/protocol"
@@ -60,7 +61,9 @@ func (s serverIO) MakeDir(sp string) error {
 }
 
 func (s serverIO) WriteFile(sp string, data []byte) error {
-	_, _, err := s.client.PushFile(context.Background(), s.full(sp), nil, bytes.NewReader(data))
+	// Ciphertext assembled in memory — there is no source file whose date to carry, so
+	// the server dates it on arrival.
+	_, _, err := s.client.PushFile(context.Background(), s.full(sp), nil, bytes.NewReader(data), time.Time{})
 	return err
 }
 

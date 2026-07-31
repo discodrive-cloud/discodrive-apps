@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"time"
 
 	"discodrive.org/daemon/internal/engine"
 	"discodrive.org/daemon/internal/index"
@@ -63,7 +64,7 @@ func (f *fakeServer) DeleteNode(_ context.Context, nodeID string) error {
 	f.deleted = append(f.deleted, nodeID)
 	return nil
 }
-func (f *fakeServer) UploadFile(_ context.Context, parentID, name string, r io.Reader) error {
+func (f *fakeServer) UploadFile(_ context.Context, parentID, name string, r io.Reader, _ time.Time) error {
 	_, _ = io.Copy(io.Discard, r)
 	f.uploaded = append(f.uploaded, name)
 	return nil
@@ -73,7 +74,7 @@ func (f *fakeServer) EnsureDir(_ context.Context, relPath string) (engine.Remote
 	return engine.RemoteNode{NodeID: "dir-" + relPath, Version: 1}, nil
 }
 
-func (f *fakeServer) PushFile(_ context.Context, relPath string, _ *int64, r io.Reader) (engine.RemoteNode, bool, error) {
+func (f *fakeServer) PushFile(_ context.Context, relPath string, _ *int64, r io.Reader, _ time.Time) (engine.RemoteNode, bool, error) {
 	_, _ = io.Copy(io.Discard, r)
 	return engine.RemoteNode{NodeID: "file-" + relPath, Version: 1}, false, nil
 }

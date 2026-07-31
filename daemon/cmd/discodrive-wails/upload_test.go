@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"testing"
+	"time"
 )
 
 // fakeUploadAPI is an in-memory UploadAPI double: it stores chunks by index and tracks
@@ -15,12 +16,15 @@ type fakeUploadAPI struct {
 	next      int
 	completed bool
 	initSize  int64 // size declared at UploadInit, so tests can assert it is passed through
+	// initModTime is the content date declared at UploadInit, likewise asserted by tests.
+	initModTime time.Time
 }
 
 func newFakeUploadAPI() *fakeUploadAPI { return &fakeUploadAPI{chunks: map[int][]byte{}} }
 
-func (f *fakeUploadAPI) UploadInit(_ context.Context, _, _ string, size int64) (string, int, error) {
+func (f *fakeUploadAPI) UploadInit(_ context.Context, _, _ string, size int64, modTime time.Time) (string, int, error) {
 	f.initSize = size
+	f.initModTime = modTime
 	return "u", 0, nil
 }
 func (f *fakeUploadAPI) UploadChunk(_ context.Context, _ string, n int, r io.Reader, onSent func(int64)) (int, error) {
@@ -68,8 +72,9 @@ func TestUploaderSendsAllChunksAndCompletes(t *testing.T) {
 	u := NewUploader(f)
 	u.chunkSize = 4 << 20 // 5 chunks
 
+	wantMod := time.Date(2019, 6, 15, 12, 30, 0, 0, time.UTC)
 	var lastSent, lastTotal int64
-	err := u.Upload(context.Background(), "p", "a.bin", bytes.NewReader(data), int64(len(data)),
+	err := u.Upload(context.Background(), "p", "a.bin", bytes.NewReader(data), int64(len(data)), wantMod,
 		func(sent, total int64) { lastSent, lastTotal = sent, total })
 	if err != nil {
 		t.Fatalf("Upload: %v", err)
@@ -80,6 +85,10 @@ func TestUploaderSendsAllChunksAndCompletes(t *testing.T) {
 	// The declared size is what lets the server reject a session whose chunks fall short.
 	if f.initSize != int64(len(data)) {
 		t.Fatalf("UploadInit got size=%d, want %d", f.initSize, len(data))
+	}
+	// The content date has to reach Init, or the file lands dated "now" on the server.
+	if !f.initModTime.Equal(wantMod) {
+		t.Fatalf("UploadInit got modTime=%s, want %s", f.initModTime, wantMod)
 	}
 	if !bytes.Equal(f.reassemble(), data) {
 		t.Fatalf("reassembled %d bytes != input %d", len(f.reassemble()), len(data))
@@ -96,7 +105,7 @@ func TestUploaderResumesFromServerNextChunk(t *testing.T) {
 	u := NewUploader(f)
 	u.chunkSize = 4 << 20
 
-	if err := u.Upload(context.Background(), "p", "a.bin", bytes.NewReader(data), int64(len(data)), nil); err != nil {
+	if err := u.Upload(context.Background(), "p", "a.bin", bytes.NewReader(data), int64(len(data)), time.Time{}, nil); err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
 	if _, ok := f.chunks[0]; ok {

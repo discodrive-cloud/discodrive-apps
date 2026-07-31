@@ -4,9 +4,9 @@ import "testing"
 
 func TestShouldDetach(t *testing.T) {
 	cases := []struct {
-		name                     string
-		detach, foreground, tty  bool
-		want                     bool
+		name                    string
+		detach, foreground, tty bool
+		want                    bool
 	}{
 		{"interactive console run auto-detaches", false, false, true, true},
 		{"explicit --foreground keeps the console", false, true, true, false},

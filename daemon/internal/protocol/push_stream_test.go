@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // pushTestServer answers the token endpoint and records every PUT /sync/file body.
@@ -63,7 +64,7 @@ func TestPushFileStreamsFileAndDeclaresLength(t *testing.T) {
 
 	srv, bodies, lengths := pushTestServer(t, false)
 	c := New(srv.URL, "kfd")
-	if _, _, err := c.PushFile(context.Background(), "big.bin", nil, f); err != nil {
+	if _, _, err := c.PushFile(context.Background(), "big.bin", nil, f, time.Time{}); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 
@@ -96,7 +97,7 @@ func TestPushFileResendsWholeBodyAfterUnauthorized(t *testing.T) {
 
 	srv, bodies, _ := pushTestServer(t, true)
 	c := New(srv.URL, "kfd")
-	if _, _, err := c.PushFile(context.Background(), "retry.bin", nil, f); err != nil {
+	if _, _, err := c.PushFile(context.Background(), "retry.bin", nil, f, time.Time{}); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 
@@ -118,7 +119,7 @@ func TestPushFileHandlesNonSeekableReader(t *testing.T) {
 
 	// strings.Reader is seekable; wrapping it in io.NopCloser hides Seek.
 	r := io.NopCloser(strings.NewReader(payload))
-	if _, _, err := c.PushFile(context.Background(), "x.txt", nil, r); err != nil {
+	if _, _, err := c.PushFile(context.Background(), "x.txt", nil, r, time.Time{}); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 	if len(*bodies) != 1 || string((*bodies)[0]) != payload {

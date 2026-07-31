@@ -105,7 +105,7 @@ func (c *Controller) uploadTree(ctx context.Context, localRoot, serverBase strin
 			return err
 		}
 		defer f.Close()
-		_, _, err = c.srv.PushFile(ctx, serverBase+"/"+rel, nil, f)
+		_, _, err = c.srv.PushFile(ctx, serverBase+"/"+rel, nil, f, info.ModTime())
 		return err
 	})
 }

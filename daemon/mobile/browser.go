@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/protocol"
@@ -200,7 +201,12 @@ func (b *Browser) Upload(localPath, parentNodeID string) error {
 		return err
 	}
 	defer f.Close()
-	if err := b.client.UploadFile(context.Background(), parentNodeID, filepath.Base(localPath), f); err != nil {
+	// Carry the file's own date so a photo from 2019 does not land dated today.
+	var modTime time.Time
+	if fi, serr := f.Stat(); serr == nil {
+		modTime = fi.ModTime()
+	}
+	if err := b.client.UploadFile(context.Background(), parentNodeID, filepath.Base(localPath), f, modTime); err != nil {
 		return err
 	}
 	return b.Refresh()
