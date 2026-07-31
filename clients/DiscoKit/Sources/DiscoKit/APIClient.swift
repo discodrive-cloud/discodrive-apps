@@ -125,7 +125,8 @@ public actor APIClient {
     // Shared authorized request with a body and a single 401 retry.
     @discardableResult
     private func send(_ method: String, path: String, query: [URLQueryItem] = [],
-                      body: Data? = nil, contentType: String? = nil, ok: Set<Int>) async throws -> Data {
+                      body: Data? = nil, contentType: String? = nil,
+                      extraHeaders: [String: String] = [:], ok: Set<Int>) async throws -> Data {
         for attempt in 0..<2 {
             let tok = try await token()
             var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
@@ -134,6 +135,7 @@ public actor APIClient {
             req.httpMethod = method
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             if let contentType { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+            for (k, v) in extraHeaders { req.setValue(v, forHTTPHeaderField: k) }
             req.httpBody = body
             let (data, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -144,10 +146,54 @@ public actor APIClient {
         throw APIError.notAuthenticated
     }
 
-    // Upload or replace a file by its relative path.
-    public func uploadFile(relPath: String, data: Data) async throws {
+    // Upload or replace a file by its relative path, holding the whole thing in memory.
+    // Prefer the fileURL overload for anything that came off disk; this one is for content
+    // that only exists in memory anyway (vault ciphertext).
+    public func uploadFile(relPath: String, data: Data, modifiedAt: Date? = nil) async throws {
         try await send("PUT", path: "sync/file", query: [.init(name: "path", value: relPath)],
-                       body: data, contentType: "application/octet-stream", ok: [201])
+                       body: data, contentType: "application/octet-stream",
+                       extraHeaders: Self.modifiedAtHeader(modifiedAt), ok: [201])
+    }
+
+    // Upload a file straight from disk. URLSession streams it and sets Content-Length
+    // itself, so a multi-gigabyte file never has to sit in memory — and a read failure
+    // surfaces as a thrown error instead of being swallowed before the call.
+    //
+    // modifiedAt travels in X-Modified-At so the server dates the content rather than the
+    // upload; nil sends no header and leaves the server's own date in place.
+    public func uploadFile(relPath: String, fileURL: URL, modifiedAt: Date? = nil) async throws {
+        for attempt in 0..<2 {
+            let tok = try await token()
+            var comps = URLComponents(url: baseURL.appendingPathComponent("sync/file"),
+                                      resolvingAgainstBaseURL: false)!
+            comps.queryItems = [.init(name: "path", value: relPath)]
+            var req = URLRequest(url: comps.url!)
+            req.httpMethod = "PUT"
+            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            for (k, v) in Self.modifiedAtHeader(modifiedAt) { req.setValue(v, forHTTPHeaderField: k) }
+            // Re-reads the file from disk on the retry, so the 401 path stays whole-body.
+            let (_, resp) = try await session.upload(for: req, fromFile: fileURL)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 401 && attempt == 0 { jwt = nil; continue }
+            guard code == 201 else { throw APIError.http(code) }
+            return
+        }
+        throw APIError.notAuthenticated
+    }
+
+    // RFC3339 with fractional seconds — what the server parses, and what the Go clients send.
+    private static func modifiedAtHeader(_ date: Date?) -> [String: String] {
+        guard let date else { return [:] }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return ["X-Modified-At": f.string(from: date)]
+    }
+
+    // The file's own modification date, or nil when the filesystem will not say.
+    public static func contentModificationDate(of url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
     // Create a folder.

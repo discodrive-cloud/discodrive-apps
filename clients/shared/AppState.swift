@@ -230,10 +230,14 @@ final class AppState: ObservableObject {
     func upload(_ urls: [URL], toFolderPath folderPath: String) async {
         guard let client else { return }
         for url in urls {
-            guard let data = try? Data(contentsOf: url) else { continue }
             let rel = folderPath + "/" + url.lastPathComponent
-            do { try await client.uploadFile(relPath: rel, data: data) }
-            catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
+            // Streamed from disk: a big file no longer has to fit in memory, and a read
+            // failure throws here instead of silently skipping the file the way the old
+            // `try? Data(contentsOf:)` did — that left the user thinking it had uploaded.
+            do {
+                try await client.uploadFile(relPath: rel, fileURL: url,
+                                            modifiedAt: APIClient.contentModificationDate(of: url))
+            } catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
         }
         await refresh()
     }
@@ -412,9 +416,10 @@ final class AppState: ObservableObject {
         }
         guard !newFiles.isEmpty else { return }
         for f in newFiles {
-            guard let data = try? Data(contentsOf: f.url) else { continue }
-            do { try await client.uploadFile(relPath: f.rel, data: data) }
-            catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
+            do {
+                try await client.uploadFile(relPath: f.rel, fileURL: f.url,
+                                            modifiedAt: APIClient.contentModificationDate(of: f.url))
+            } catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
         }
         await refresh()
         // Register uploaded files as local copies (show them as cached, skip re-downloading).
