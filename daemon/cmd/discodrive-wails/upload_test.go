@@ -14,11 +14,13 @@ type fakeUploadAPI struct {
 	chunks    map[int][]byte
 	next      int
 	completed bool
+	initSize  int64 // size declared at UploadInit, so tests can assert it is passed through
 }
 
 func newFakeUploadAPI() *fakeUploadAPI { return &fakeUploadAPI{chunks: map[int][]byte{}} }
 
-func (f *fakeUploadAPI) UploadInit(_ context.Context, _, _ string) (string, int, error) {
+func (f *fakeUploadAPI) UploadInit(_ context.Context, _, _ string, size int64) (string, int, error) {
+	f.initSize = size
 	return "u", 0, nil
 }
 func (f *fakeUploadAPI) UploadChunk(_ context.Context, _ string, n int, r io.Reader, onSent func(int64)) (int, error) {
@@ -74,6 +76,10 @@ func TestUploaderSendsAllChunksAndCompletes(t *testing.T) {
 	}
 	if !f.completed {
 		t.Fatalf("Complete was not called")
+	}
+	// The declared size is what lets the server reject a session whose chunks fall short.
+	if f.initSize != int64(len(data)) {
+		t.Fatalf("UploadInit got size=%d, want %d", f.initSize, len(data))
 	}
 	if !bytes.Equal(f.reassemble(), data) {
 		t.Fatalf("reassembled %d bytes != input %d", len(f.reassemble()), len(data))

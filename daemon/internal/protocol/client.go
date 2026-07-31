@@ -194,7 +194,7 @@ func (c *Client) clearJWT() {
 // through RAM, which matters most on the phone builds. Only a source that cannot be
 // rewound is buffered, because there is no other way to send it twice.
 //
-// Returns a factory for fresh readers and the body length, or -1 if it is unknown.
+// Returns a factory for fresh readers and the exact body length.
 func replayableBody(r io.Reader) (func() (io.Reader, error), int64, error) {
 	if s, ok := r.(io.Seeker); ok {
 		if start, err := s.Seek(0, io.SeekCurrent); err == nil {
@@ -426,8 +426,11 @@ func okClose(resp *http.Response, what string) error {
 
 // UploadInit starts a chunked upload of name under parentID ("" = root). Returns the
 // server-assigned upload id and the next chunk index to send (0 for a fresh upload).
-func (c *Client) UploadInit(ctx context.Context, parentID, name string) (string, int, error) {
-	body := map[string]any{"name": name}
+// UploadInit opens a chunked upload session. size is the file's full length: the server
+// checks the assembled chunks against it before publishing, so a session that ends short
+// is rejected instead of landing as a truncated file.
+func (c *Client) UploadInit(ctx context.Context, parentID, name string, size int64) (string, int, error) {
+	body := map[string]any{"name": name, "size": size}
 	if parentID != "" {
 		body["parent_id"] = parentID
 	}
@@ -598,25 +601,97 @@ func (c *Client) DeleteNode(ctx context.Context, nodeID string) error {
 	return okClose(resp, "DELETE /files")
 }
 
-// UploadFile uploads a file into parentID ("" = root) via multipart.
-func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Reader) error {
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	if parentID != "" {
-		_ = mw.WriteField("parent_id", parentID)
+// countingWriter counts bytes written and discards them.
+type countingWriter int64
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	*c += countingWriter(len(p))
+	return len(p), nil
+}
+
+// multipartOverhead measures the multipart envelope — the field parts, the file part's
+// headers and the closing boundary — for a file part carrying no bytes. Adding the file
+// size gives an exact Content-Length, which keeps the upload out of chunked encoding and
+// lets net/http reject a body that ends short instead of sending a truncated file.
+func multipartOverhead(boundary, parentID, name string) (int64, error) {
+	var n countingWriter
+	mw := multipart.NewWriter(&n)
+	if err := mw.SetBoundary(boundary); err != nil {
+		return 0, err
 	}
-	_ = mw.WriteField("name", name)
-	fw, _ := mw.CreateFormFile("file", name)
-	if _, err := io.Copy(fw, r); err != nil {
+	if parentID != "" {
+		if err := mw.WriteField("parent_id", parentID); err != nil {
+			return 0, err
+		}
+	}
+	if err := mw.WriteField("name", name); err != nil {
+		return 0, err
+	}
+	if _, err := mw.CreateFormFile("file", name); err != nil {
+		return 0, err
+	}
+	if err := mw.Close(); err != nil {
+		return 0, err
+	}
+	return int64(n), nil
+}
+
+// UploadFile uploads a file into parentID ("" = root) via multipart. The body is streamed
+// through an io.Pipe rather than assembled in memory, so uploading a large file from the
+// phone builds does not need a copy of it in RAM.
+func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Reader) error {
+	newBody, size, err := replayableBody(r)
+	if err != nil {
 		return err
 	}
-	mw.Close()
 	for attempt := 0; attempt < 2; attempt++ {
 		tok, err := c.token(ctx)
 		if err != nil {
 			return err
 		}
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/files/upload", bytes.NewReader(buf.Bytes()))
+		src, err := newBody()
+		if err != nil {
+			return err
+		}
+
+		pr, pw := io.Pipe()
+		mw := multipart.NewWriter(pw)
+		overhead, err := multipartOverhead(mw.Boundary(), parentID, name)
+		if err != nil {
+			_ = pw.Close()
+			_ = pr.Close()
+			return err
+		}
+		// The writer runs alongside the request. Any failure closes the pipe with that
+		// error, so hc.Do reports it rather than the server receiving a half-formed body.
+		go func() {
+			werr := func() error {
+				if parentID != "" {
+					if err := mw.WriteField("parent_id", parentID); err != nil {
+						return err
+					}
+				}
+				if err := mw.WriteField("name", name); err != nil {
+					return err
+				}
+				fw, err := mw.CreateFormFile("file", name)
+				if err != nil {
+					return err
+				}
+				if _, err := io.Copy(fw, src); err != nil {
+					return err
+				}
+				return mw.Close()
+			}()
+			_ = pw.CloseWithError(werr)
+		}()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/files/upload", pr)
+		if err != nil {
+			_ = pr.CloseWithError(err) // unblocks the writer goroutine
+			return err
+		}
+		req.ContentLength = overhead + size
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		if c.sendScope {

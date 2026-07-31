@@ -57,7 +57,7 @@ func TestChunkedUpload(t *testing.T) {
 	c := New(srv.URL, "dt")
 	ctx := context.Background()
 
-	id, next, err := c.UploadInit(ctx, "p1", "a.bin")
+	id, next, err := c.UploadInit(ctx, "p1", "a.bin", 3)
 	if err != nil || id != "u1" || next != 0 {
 		t.Fatalf("init: id=%q next=%d err=%v", id, next, err)
 	}

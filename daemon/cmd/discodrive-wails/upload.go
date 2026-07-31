@@ -8,7 +8,7 @@ import (
 // UploadAPI is the chunked-upload surface the Uploader needs. *protocol.Client
 // satisfies it; tests substitute a fake.
 type UploadAPI interface {
-	UploadInit(ctx context.Context, parentID, name string) (uploadID string, next int, err error)
+	UploadInit(ctx context.Context, parentID, name string, size int64) (uploadID string, next int, err error)
 	UploadChunk(ctx context.Context, uploadID string, n int, r io.Reader, onSent func(sent int64)) (next int, err error)
 	UploadStatus(ctx context.Context, uploadID string) (next int, err error)
 	UploadComplete(ctx context.Context, uploadID string) error
@@ -36,7 +36,7 @@ func NewUploader(api UploadAPI) *Uploader {
 // from the server's next_chunk, sends 8 MiB chunks sequentially, retries a failed
 // chunk a few times (re-syncing next_chunk), reports progress, then completes.
 func (u *Uploader) Upload(ctx context.Context, parentID, name string, ra io.ReaderAt, size int64, progress ProgressFn) error {
-	id, next, err := u.api.UploadInit(ctx, parentID, name)
+	id, next, err := u.api.UploadInit(ctx, parentID, name, size)
 	if err != nil {
 		return err
 	}
