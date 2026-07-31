@@ -186,8 +186,47 @@ func (c *Client) clearJWT() {
 	c.mu.Unlock()
 }
 
+// replayableBody prepares a request body that can be sent more than once — PushFile
+// retries after a 401, and by then the first attempt has already consumed the reader.
+//
+// A seekable source (engine.PushLocal hands us an *os.File) is streamed straight from
+// disk and rewound between attempts: syncing a multi-gigabyte file must not pull it
+// through RAM, which matters most on the phone builds. Only a source that cannot be
+// rewound is buffered, because there is no other way to send it twice.
+//
+// Returns a factory for fresh readers and the body length, or -1 if it is unknown.
+func replayableBody(r io.Reader) (func() (io.Reader, error), int64, error) {
+	if s, ok := r.(io.Seeker); ok {
+		if start, err := s.Seek(0, io.SeekCurrent); err == nil {
+			if end, err := s.Seek(0, io.SeekEnd); err == nil {
+				if _, err := s.Seek(start, io.SeekStart); err == nil {
+					first := true
+					return func() (io.Reader, error) {
+						if first {
+							first = false // already positioned; avoid a redundant syscall
+						} else if _, err := s.Seek(start, io.SeekStart); err != nil {
+							return nil, err
+						}
+						// NopCloser matters: net/http closes a request body that implements
+						// io.Closer, which would shut the caller's *os.File after the first
+						// attempt — breaking the rewind and the caller's own deferred Close.
+						return io.NopCloser(r), nil
+					}, end - start, nil
+				}
+			}
+		}
+		// Seeking failed part-way: the offset may be anywhere now, so fall through to
+		// buffering whatever is still readable rather than sending a truncated body.
+	}
+	buf, err := io.ReadAll(r)
+	if err != nil {
+		return nil, 0, err
+	}
+	return func() (io.Reader, error) { return bytes.NewReader(buf), nil }, int64(len(buf)), nil
+}
+
 func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader) (engine.RemoteNode, bool, error) {
-	body, err := io.ReadAll(r)
+	newBody, size, err := replayableBody(r)
 	if err != nil {
 		return engine.RemoteNode{}, false, err
 	}
@@ -196,8 +235,19 @@ func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int6
 		if err != nil {
 			return engine.RemoteNode{}, false, err
 		}
+		body, err := newBody()
+		if err != nil {
+			return engine.RemoteNode{}, false, err
+		}
 		u := c.baseURL + "/sync/file?path=" + url.QueryEscape(relPath)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, body)
+		if err != nil {
+			return engine.RemoteNode{}, false, err
+		}
+		// Declaring the length keeps the request out of chunked encoding and makes
+		// net/http fail loudly if the body turns out shorter than promised, instead of
+		// letting a short file reach the server looking complete.
+		req.ContentLength = size
 		req.Header.Set("Authorization", "Bearer "+tok)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
