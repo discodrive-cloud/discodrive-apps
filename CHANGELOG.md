@@ -4,8 +4,27 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.0.4
+
+### Added
+
+- Uploads now carry each file's own modification date, so a photo taken in 2019 no
+  longer arrives dated today. Servers that do not understand the date ignore it and
+  keep dating uploads on arrival, as before.
+- Chunked uploads from the desktop app declare the file's total size, letting the
+  server reject an upload whose parts do not add up instead of publishing it as
+  complete.
+
 ### Fixed
 
+- Sync daemon, desktop and mobile apps: uploading a large file no longer holds the
+  whole file in memory. Content is streamed from disk, so a multi-gigabyte upload no
+  longer risks exhausting memory — most noticeably on phones.
+- macOS and iOS apps: a file that could not be read was silently skipped during
+  upload. The upload reported success and the file was simply missing from the
+  server. Read failures are now reported.
+- Uploads declare their exact length, so a transfer that ends early fails instead of
+  quietly storing a truncated file that looks complete.
 - Desktop app: profiles created by pre-0.0.3 versions (no server stamp in the index)
   are now reset on first open — such an index may hold a poisoned merge of two
   servers' trees and previously kept showing ghost folders after re-pairing.
