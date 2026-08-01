@@ -65,4 +65,7 @@
     <string name="cd_actions">Acciones</string>
     <string name="cd_unlock">Desbloquear bóveda</string>
     <string name="cd_lock">Bloquear bóveda</string>
+    <string name="autoupload_channel">Subida automática</string>
+    <string name="autoupload_preparing">Preparando la subida automática…</string>
+    <string name="autoupload_progress">Subiendo %1$d de %2$d</string>
 </resources>

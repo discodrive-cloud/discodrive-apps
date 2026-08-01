@@ -65,4 +65,7 @@
     <string name="cd_actions">Actions</string>
     <string name="cd_unlock">Déverrouiller le coffre</string>
     <string name="cd_lock">Verrouiller le coffre</string>
+    <string name="autoupload_channel">Envoi automatique</string>
+    <string name="autoupload_preparing">Préparation de l’envoi automatique…</string>
+    <string name="autoupload_progress">Envoi %1$d sur %2$d</string>
 </resources>

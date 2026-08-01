@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mobile.Browser
 import org.discodrive.android.autoupload.AutoUploadRunner
+import org.discodrive.android.autoupload.AutoUploadService
 import org.discodrive.android.autoupload.Block
 import org.discodrive.android.autoupload.Conditions
 import org.discodrive.android.autoupload.RunResult
@@ -241,8 +242,20 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     val autoUploadStatus: StateFlow<String?> = _autoUpload.asStateFlow()
 
     /**
-     * Runs one auto-upload pass by hand so the flow can be verified on a real device before
-     * any background plumbing exists. Replaced by "Upload now" on the auto-upload screen.
+     * Starts a pass in the foreground service — the same path the background triggers will
+     * use, so what gets verified on a device is what actually ships. Temporary entry point
+     * until the auto-upload screen lands.
+     */
+    fun startAutoUploadService() {
+        val ctx = getApplication<Application>()
+        prefs.autoUpload = true
+        AutoUploadService.start(ctx)
+        _autoUpload.value = "service started — see the notification"
+    }
+
+    /**
+     * Runs one auto-upload pass in-process. Kept alongside the service path because it
+     * surfaces the outcome directly in the UI, which is what makes a failure debuggable.
      */
     fun runAutoUploadNow() {
         val b = browser ?: return

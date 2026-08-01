@@ -65,4 +65,7 @@
     <string name="cd_actions">Дії</string>
     <string name="cd_unlock">Розблокувати сховище</string>
     <string name="cd_lock">Заблокувати сховище</string>
+    <string name="autoupload_channel">Автозавантаження</string>
+    <string name="autoupload_preparing">Підготовка автозавантаження…</string>
+    <string name="autoupload_progress">Завантаження %1$d з %2$d</string>
 </resources>

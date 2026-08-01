@@ -65,4 +65,7 @@
     <string name="cd_actions">Радње</string>
     <string name="cd_unlock">Откључај сеф</string>
     <string name="cd_lock">Закључај сеф</string>
+    <string name="autoupload_channel">Аутоматско отпремање</string>
+    <string name="autoupload_preparing">Припрема аутоматског отпремања…</string>
+    <string name="autoupload_progress">Отпремање %1$d од %2$d</string>
 </resources>

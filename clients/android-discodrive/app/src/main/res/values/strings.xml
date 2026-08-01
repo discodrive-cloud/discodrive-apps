@@ -87,4 +87,7 @@
     <string name="cd_actions">Actions</string>
     <string name="cd_unlock">Unlock vault</string>
     <string name="cd_lock">Lock vault</string>
+    <string name="autoupload_channel">Auto-upload</string>
+    <string name="autoupload_preparing">Preparing auto-upload…</string>
+    <string name="autoupload_progress">Uploading %1$d of %2$d</string>
 </resources>

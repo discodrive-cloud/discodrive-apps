@@ -65,4 +65,7 @@
     <string name="cd_actions">Aktionen</string>
     <string name="cd_unlock">Tresor entsperren</string>
     <string name="cd_lock">Tresor sperren</string>
+    <string name="autoupload_channel">Automatischer Upload</string>
+    <string name="autoupload_preparing">Automatischer Upload wird vorbereitet…</string>
+    <string name="autoupload_progress">Lade %1$d von %2$d hoch</string>
 </resources>
