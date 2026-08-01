@@ -20,6 +20,9 @@ type Browser struct {
 	client  *protocol.Client
 	idx     *index.Index
 	rootDir string
+	// chunkSize is the chunked-upload chunk length; tests shrink it to exercise
+	// multi-chunk paths without writing megabytes.
+	chunkSize int64
 }
 
 type browseEntry struct {
@@ -45,7 +48,8 @@ func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath string, insecure bo
 	if err != nil {
 		return nil, err
 	}
-	return &Browser{client: protocol.NewUnscoped(serverURL, deviceToken), idx: idx, rootDir: rootDir}, nil
+	return &Browser{client: protocol.NewUnscoped(serverURL, deviceToken), idx: idx, rootDir: rootDir,
+		chunkSize: defaultChunkSize}, nil
 }
 
 // Refresh pulls all change-feed metadata into the index (no file content downloaded).
@@ -259,6 +263,64 @@ func (b *Browser) Upload(localPath, parentNodeID string) error {
 		return err
 	}
 	return b.Refresh()
+}
+
+// UploadAs uploads localPath into parentNodeID ("" = root) under an explicit server-side
+// name, using the resumable chunked protocol — a dropped connection continues from the
+// server's next_chunk instead of restarting a multi-gigabyte video.
+//
+// Unlike Upload it does NOT refresh the index: a batch (auto-upload sending a hundred
+// photos) pays one Refresh at the end instead of one change-feed pass per file.
+//
+// A rejected size surfaces as ErrUploadSizeMismatch — the file changed while it was being
+// sent, so the caller should re-stat and start over rather than retry the same session.
+func (b *Browser) UploadAs(localPath, parentNodeID, name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), uploadDeadline)
+	defer cancel()
+	return uploadFile(ctx, b.client, localPath, parentNodeID, name, b.chunkSize)
+}
+
+// EnsureFolder returns the node id of the child folder called name under parentNodeID
+// ("" = root), creating it when it is not there yet. Idempotent: an existing folder is
+// answered straight from the index, without a round trip.
+func (b *Browser) EnsureFolder(parentNodeID, name string) (string, error) {
+	parentPath := ""
+	if parentNodeID != "" {
+		n, ok, err := b.idx.Get(parentNodeID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", fmt.Errorf("unknown parent node %q", parentNodeID)
+		}
+		parentPath = n.RelPath
+	}
+	rel := name
+	if parentPath != "" {
+		rel = parentPath + "/" + name
+	}
+	if n, ok, err := b.idx.GetByPath(rel); err != nil {
+		return "", err
+	} else if ok {
+		if !n.IsDir {
+			return "", fmt.Errorf("%q is a file, not a folder", rel)
+		}
+		return n.NodeID, nil
+	}
+	if err := b.client.CreateFolder(context.Background(), parentNodeID, name); err != nil {
+		return "", err
+	}
+	if err := b.Refresh(); err != nil {
+		return "", err
+	}
+	n, ok, err := b.idx.GetByPath(rel)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("created %q but it is missing from the change feed", rel)
+	}
+	return n.NodeID, nil
 }
 
 // Rename renames a node, then refreshes.
