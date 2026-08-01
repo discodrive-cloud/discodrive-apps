@@ -25,10 +25,6 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <service
-            android:name=".autoupload.AutoUploadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync"/>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="org.discodrive.android.fileprovider"

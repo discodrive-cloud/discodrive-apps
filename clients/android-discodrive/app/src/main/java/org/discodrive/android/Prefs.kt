@@ -41,13 +41,15 @@ class Prefs(context: Context) {
     /** Adds a folder if it is not already covered; returns whether it was added. */
     fun addRule(rule: Rule): Boolean {
         val current = rules
-        if (current.any { it.sourcePath == rule.sourcePath }) return false
+        val path = Rule.normalize(rule.sourcePath)
+        if (current.any { it.sourcePath == path }) return false
         rules = current + rule
         return true
     }
 
     fun removeRule(sourcePath: String) {
-        rules = rules.filterNot { it.sourcePath == sourcePath }
+        val path = Rule.normalize(sourcePath)
+        rules = rules.filterNot { it.sourcePath == path }
     }
 
     var wifiOnly: Boolean

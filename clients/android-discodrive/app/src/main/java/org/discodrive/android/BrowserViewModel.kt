@@ -16,9 +16,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mobile.Browser
 import org.discodrive.android.autoupload.AutoUploadRunner
-import org.discodrive.android.autoupload.AutoUploadService
 import org.discodrive.android.autoupload.Block
+import org.discodrive.android.autoupload.AutoUploadWorker
 import org.discodrive.android.autoupload.Conditions
+import org.discodrive.android.autoupload.FolderObservers
 import org.discodrive.android.autoupload.RunResult
 import org.discodrive.android.autoupload.Rule
 import org.discodrive.android.autoupload.UploadJournal
@@ -67,7 +68,9 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(loading = true, error = null)
             try {
                 val b = withContext(Dispatchers.IO) {
-                    val br = Core.newBrowser(server, token, rootDir.path, indexDbPath, insecure)
+                    // One browser per process: the auto-upload service shares it, and a
+                    // second handle on the index file fails with SQLITE_BUSY.
+                    val br = BrowserHolder.get(getApplication()) ?: error("not paired")
                     br.refresh()
                     br
                 }
@@ -231,7 +234,8 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun unpair() {
-        try { browser?.close() } catch (_: Exception) {}
+        disableAutoUploadTriggers()
+        BrowserHolder.close()
         browser = null
         prefs.clear()
         _ui.value = BrowseState()
@@ -247,12 +251,33 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
      * use, so what gets verified on a device is what actually ships. Temporary entry point
      * until the auto-upload screen lands.
      */
-    fun startAutoUploadService() {
+    fun startAutoUploadPass() {
         val ctx = getApplication<Application>()
         prefs.autoUpload = true
         ensureDefaultRule()
-        AutoUploadService.start(ctx)
-        _autoUpload.value = "service started — see the notification"
+        enableAutoUploadTriggers()
+        AutoUploadWorker.runNow(ctx, prefs.wifiOnly)
+        _autoUpload.value = "pass enqueued — see the notification"
+    }
+
+    /** Watches the rule folders and schedules the periodic catch-up run. */
+    fun enableAutoUploadTriggers() {
+        val ctx = getApplication<Application>()
+        AutoUploadWorker.schedule(ctx, prefs.wifiOnly)
+        observers.start()
+    }
+
+    fun disableAutoUploadTriggers() {
+        val ctx = getApplication<Application>()
+        AutoUploadWorker.cancel(ctx)
+        observers.stop()
+    }
+
+    private val observers = FolderObservers(app)
+
+    override fun onCleared() {
+        observers.stop()
+        super.onCleared()
     }
 
     /**
@@ -272,7 +297,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         val dir = File(path)
         if (!dir.isDirectory) return false
         return prefs.addRule(
-            Rule(sourcePath = dir.path, destSegments = AutoUploadRunner.defaultDestFor(dir))
+            Rule.of(sourcePath = dir.path, destSegments = AutoUploadRunner.defaultDestFor(dir))
         )
     }
 

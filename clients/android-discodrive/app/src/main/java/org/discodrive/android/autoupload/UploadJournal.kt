@@ -63,12 +63,12 @@ class UploadJournal(context: Context) {
      */
     fun isKnown(file: File): Boolean = helper.readableDatabase.rawQuery(
         "SELECT state FROM sent WHERE path=? AND size=? AND mtime=?",
-        arrayOf(file.path, file.length().toString(), file.lastModified().toString()),
+        arrayOf(key(file), file.length().toString(), file.lastModified().toString()),
     ).use { c -> c.moveToFirst() && c.getString(0) != STATE_DEFERRED }
 
     /** How many attempts this file has already cost, for the give-up rule. */
     fun attempts(file: File): Int = helper.readableDatabase.rawQuery(
-        "SELECT attempts FROM sent WHERE path=?", arrayOf(file.path),
+        "SELECT attempts FROM sent WHERE path=?", arrayOf(key(file)),
     ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
 
     fun markSent(file: File, serverName: String, sha: String?) =
@@ -113,6 +113,10 @@ class UploadJournal(context: Context) {
 
     fun close() = helper.close()
 
+    /** Journal key: the same folder reachable as /sdcard/... and /storage/emulated/0/...
+     *  must not produce two entries for one file. */
+    private fun key(file: File): String = Rule.normalize(file.path)
+
     private fun put(
         file: File,
         serverName: String?,
@@ -123,7 +127,7 @@ class UploadJournal(context: Context) {
         db: SQLiteDatabase = helper.writableDatabase,
     ) {
         val v = ContentValues().apply {
-            put("path", file.path)
+            put("path", key(file))
             put("size", file.length())
             put("mtime", file.lastModified())
             put("sha", sha)

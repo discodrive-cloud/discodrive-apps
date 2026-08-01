@@ -79,7 +79,14 @@ fun SettingsScreen(vm: BrowserViewModel, onBack: () -> Unit) {
                 Text("Auto-upload (debug)", style = MaterialTheme.typography.labelLarge)
                 val status by vm.autoUploadStatus.collectAsState()
                 Button(onClick = { vm.runAutoUploadNow() }) { Text("Run auto-upload now") }
-                Button(onClick = { vm.startAutoUploadService() }) { Text("Run in background service") }
+                Button(onClick = { vm.startAutoUploadPass() }) { Text("Run in background (worker)") }
+                Button(onClick = { vm.addAutoUploadFolder("/sdcard/Documents/Scans") }) {
+                    Text("Add folder: Documents/Scans")
+                }
+                Text(
+                    vm.autoUploadRules().joinToString("\n") { "${it.sourceLabel} → ${it.destLabel}" },
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             HorizontalDivider()

@@ -39,6 +39,19 @@ class RuleTest {
         assertTrue(Rule.listFromJson(null).isEmpty())
     }
 
+    // /sdcard is a symlink to /storage/emulated/0 on a device; storing both spellings would
+    // let the same folder be added twice and the same photo be uploaded twice.
+    @Test
+    fun `paths are normalized when a rule is built`() {
+        val r = Rule.of("/tmp/../tmp/photos", listOf("X"))
+        assertEquals(Rule.normalize("/tmp/photos"), r.sourcePath)
+    }
+
+    @Test
+    fun `normalize survives a path that does not exist`() {
+        assertTrue(Rule.normalize("/definitely/not/here").endsWith("/definitely/not/here"))
+    }
+
     @Test
     fun `defaults match the conservative choice`() {
         // Media only, no subfolders, and NOT seeded: an unseeded rule must not upload an

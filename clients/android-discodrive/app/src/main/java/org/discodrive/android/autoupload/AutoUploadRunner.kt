@@ -39,7 +39,7 @@ class AutoUploadRunner(
             get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera")
 
         /** The rule the app proposes on first run; the user can add or remove any other. */
-        fun defaultRule(): Rule = Rule(
+        fun defaultRule(): Rule = Rule.of(
             sourcePath = cameraDir.path,
             destSegments = listOf(DEST_ROOT, deviceFolder),
         )
