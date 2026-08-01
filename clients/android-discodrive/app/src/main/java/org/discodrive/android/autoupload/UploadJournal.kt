@@ -71,8 +71,13 @@ class UploadJournal(context: Context) {
         "SELECT attempts FROM sent WHERE path=?", arrayOf(key(file)),
     ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
 
-    fun markSent(file: File, serverName: String, sha: String?) =
-        put(file, serverName, sha, STATE_SENT, error = null, attempts = 0)
+    /**
+     * Records a file as sent. [size] and [mtime] must be the ones the upload actually read,
+     * not today's: a file that changed mid-upload would otherwise be stored under its NEW
+     * identity, and the version that changed into would never be sent.
+     */
+    fun markSent(file: File, serverName: String, sha: String?, size: Long, mtime: Long) =
+        put(file, serverName, sha, STATE_SENT, error = null, attempts = 0, size = size, mtime = mtime)
 
     fun markDeferred(file: File, error: String) =
         put(file, serverName = null, sha = null, state = STATE_DEFERRED, error = error, attempts = attempts(file) + 1)
@@ -125,11 +130,13 @@ class UploadJournal(context: Context) {
         error: String?,
         attempts: Int,
         db: SQLiteDatabase = helper.writableDatabase,
+        size: Long = file.length(),
+        mtime: Long = file.lastModified(),
     ) {
         val v = ContentValues().apply {
             put("path", key(file))
-            put("size", file.length())
-            put("mtime", file.lastModified())
+            put("size", size)
+            put("mtime", mtime)
             put("sha", sha)
             put("server_name", serverName)
             put("state", state)

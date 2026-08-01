@@ -158,6 +158,11 @@ class AutoUploadRunner(
 
     private fun uploadOne(file: File, destID: String, claimed: MutableSet<String>): Outcome {
         if (journal.attempts(file) >= MAX_ATTEMPTS) return Outcome.DEFERRED
+        // Snapshot the identity BEFORE reading the file: if it changes while it is being
+        // sent, the journal must remember the version that actually went up, so the new one
+        // still counts as new work.
+        val size = file.length()
+        val mtime = file.lastModified()
         return try {
             val sha = sha256(file)
             val name = NameResolver.resolve(file.name) { candidate ->
@@ -169,12 +174,12 @@ class AutoUploadRunner(
             if (name == null) {
                 // Already on the server byte for byte (or no free name): record it so the
                 // next pass does not hash it again.
-                journal.markSent(file, serverName = file.name, sha = sha)
+                journal.markSent(file, serverName = file.name, sha = sha, size = size, mtime = mtime)
                 return Outcome.SKIPPED
             }
             Core.uploadAs(browser, file.path, destID, name)
             claimed.add(name)
-            journal.markSent(file, serverName = name, sha = sha)
+            journal.markSent(file, serverName = name, sha = sha, size = size, mtime = mtime)
             Outcome.UPLOADED
         } catch (e: Exception) {
             val msg = e.message ?: e.toString()
