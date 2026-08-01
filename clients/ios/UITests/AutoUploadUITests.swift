@@ -90,6 +90,45 @@ final class AutoUploadUITests: XCTestCase {
         XCTAssertEqual(after.deferred, 0, "nothing should fail in a clean back-fill")
     }
 
+    /// Stopping has to arrive between photos, not at the end of the queue: a back-fill of a
+    /// few thousand pictures is precisely what someone needs to be able to interrupt.
+    func test4_StopInterruptsAPassInFlight() throws {
+        let app = launchApp()
+        let toggle = app.switches.firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 30))
+        XCTAssertEqual(toggle.value as? String, "1", "run the earlier phases first")
+
+        guard let before = counters(app) else { return XCTFail("counters never appeared") }
+        try XCTSkipIf(before.skipped == 0, "nothing set aside — nothing long enough to stop")
+
+        let backfill = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'existing' OR label CONTAINS[c] 'старые'")
+        ).firstMatch
+        XCTAssertTrue(backfill.waitForExistence(timeout: 15))
+        backfill.tap()
+        let confirm = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Upload them' OR label CONTAINS[c] 'Загрузить'")
+        ).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        confirm.tap()
+
+        // Stop as soon as the button shows up — that is while a pass is genuinely running.
+        let stop = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Stop' OR label CONTAINS[c] 'Останов'")
+        ).firstMatch
+        guard stop.waitForExistence(timeout: 30) else {
+            throw XCTSkip("the pass finished before it could be stopped — too few photos")
+        }
+        stop.tap()
+
+        // Whatever went up stays up, and the queue must not keep draining afterwards.
+        let settled = counters(app) ?? before
+        usleep(8_000_000)
+        let later = counters(app) ?? settled
+        print("PHASE4 stopped at sent=\(settled.sent); eight seconds later sent=\(later.sent)")
+        XCTAssertEqual(later.sent, settled.sent, "the queue kept going after Stop")
+    }
+
     /// The screen has to be readable before anything is switched on — it is what a user sees
     /// first, and it needs no permission at all.
     func test0_ScreenRendersBeforeEnabling() throws {

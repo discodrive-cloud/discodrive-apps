@@ -26,6 +26,9 @@ final class AutoUploadService: NSObject, ObservableObject {
     private var journal: UploadJournal?
     private var observer: LibraryObserver?
     private var apiProvider: (() -> APIClient?)?
+    /// The pass in flight, so it can be stopped. Cancelling is checked between photos: the
+    /// one being sent finishes, the rest are dropped.
+    private var passTask: Task<RunResult, Never>?
 
     /// Hands the service what it needs from the app: how to reach the server. Called once
     /// the app is paired, and again after re-pairing.
@@ -66,6 +69,9 @@ final class AutoUploadService: NSObject, ObservableObject {
             await runPass()
         } else {
             settings.enabled = false
+            // Switching off has to stop what is happening now, not just what would happen
+            // next: a back-fill of a few thousand photos would otherwise run to completion.
+            stopPass()
             stopObserving()
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
         }
@@ -98,9 +104,17 @@ final class AutoUploadService: NSObject, ObservableObject {
             let journal = try openJournal()
             let runner = AutoUploadRunner(api: api, journal: journal, settings: settings)
             _ = try await runner.seedIfNeeded()
-            let result = await runner.runOnce(progress: { [weak self] done, total, name in
-                Task { @MainActor in self?.progressText = "\(done + 1)/\(total) · \(name)" }
-            })
+            // The pass runs inside a task we keep a handle on, and reports cancellation
+            // through it — that is what makes "stop" arrive between photos rather than at
+            // the end of a several-thousand-photo queue.
+            let task = Task { [weak self] in
+                await runner.runOnce(progress: { done, total, name in
+                    Task { @MainActor in self?.progressText = "\(done + 1)/\(total) · \(name)" }
+                }, isCancelled: { Task.isCancelled })
+            }
+            passTask = task
+            let result = await task.value
+            passTask = nil
             lastResult = result
             return result
         } catch {
@@ -108,6 +122,14 @@ final class AutoUploadService: NSObject, ObservableObject {
             lastResult = r
             return r
         }
+    }
+
+    /// Stops the pass in flight. The photo being sent finishes — cutting a transfer
+    /// mid-chunk would only leave the server to garbage-collect it — and the queue is
+    /// dropped after it.
+    func stopPass() {
+        passTask?.cancel()
+        passTask = nil
     }
 
     /// Turns the photos that were marked "already there" back into work, then runs a pass.

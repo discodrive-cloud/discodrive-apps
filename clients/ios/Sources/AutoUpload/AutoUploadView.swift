@@ -56,7 +56,19 @@ struct AutoUploadView: View {
 
             Section {
                 if let text = service.progressText {
-                    HStack { ProgressView(); Text(text).font(.footnote) }
+                    HStack {
+                        ProgressView()
+                        Text(text).font(.footnote)
+                        Spacer()
+                        // Stopping must not mean switching the whole feature off: a
+                        // back-fill of thousands of photos is exactly what someone wants to
+                        // pause without losing the setting.
+                        Button(app.t("au.stop")) {
+                            service.stopPass()
+                            queuedNote = app.t("au.stopped")
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 } else if let blocked = blockedText {
                     Text(blocked).font(.footnote).foregroundStyle(.orange)
                 } else if let failure = service.lastResult?.error {
