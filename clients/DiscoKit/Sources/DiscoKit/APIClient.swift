@@ -196,6 +196,66 @@ public actor APIClient {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
+    // MARK: - Chunked upload (/upload/*)
+
+    /// An open upload session: where to send chunks, and which one the server wants next.
+    public struct UploadSession: Sendable {
+        public let uploadID: String
+        public let nextChunk: Int
+    }
+
+    /// Opens a session. `size` is the file's full length — the server checks the assembled
+    /// chunks against it and refuses to publish a short upload, so a transfer that dies
+    /// halfway cannot land as a truncated file.
+    public func uploadInit(parentID: String?, name: String, size: Int64,
+                           modifiedAt: Date?) async throws -> UploadSession {
+        var body: [String: Any] = ["name": name, "size": size]
+        if let parentID { body["parent_id"] = parentID }
+        if let modifiedAt { body["modified_at"] = Self.rfc3339(modifiedAt) }
+        let data = try await send("POST", path: "upload/init",
+                                  body: try JSONSerialization.data(withJSONObject: body),
+                                  contentType: "application/json", ok: [200, 201])
+        struct Out: Decodable { let upload_id: String; let next_chunk: Int }
+        let out = try JSONDecoder().decode(Out.self, from: data)
+        return UploadSession(uploadID: out.upload_id, nextChunk: out.next_chunk)
+    }
+
+    /// Sends chunk `index`; returns the next index the server expects. Re-sending an
+    /// already-accepted chunk is safe — the server ignores it and answers the same.
+    public func uploadChunk(uploadID: String, index: Int, data: Data) async throws -> Int {
+        let out = try await send("PUT", path: "upload/\(uploadID)/chunk/\(index)",
+                                 body: data, contentType: "application/octet-stream",
+                                 ok: [200, 201])
+        struct Out: Decodable { let next_chunk: Int }
+        return try JSONDecoder().decode(Out.self, from: out).next_chunk
+    }
+
+    /// Where to resume from.
+    public func uploadStatus(uploadID: String) async throws -> Int {
+        let data = try await get(path: "upload/\(uploadID)")
+        struct Out: Decodable { let next_chunk: Int }
+        return try JSONDecoder().decode(Out.self, from: data).next_chunk
+    }
+
+    /// Publishes the assembled file.
+    public func uploadComplete(uploadID: String) async throws {
+        try await send("POST", path: "upload/\(uploadID)/complete", ok: [200, 201])
+    }
+
+    /// Discards an in-progress session and its staged bytes.
+    public func uploadAbort(uploadID: String) async throws {
+        try await send("DELETE", path: "upload/\(uploadID)", ok: [200, 204])
+    }
+
+    private static func rfc3339(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f.string(from: date)
+    }
+
+    // MARK: - Folders
+
     // Create a folder.
     public func createDir(relPath: String) async throws {
         let body = try JSONEncoder().encode(["path": relPath])
