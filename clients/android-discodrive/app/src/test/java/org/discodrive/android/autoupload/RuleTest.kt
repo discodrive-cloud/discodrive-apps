@@ -3,6 +3,7 @@ package org.discodrive.android.autoupload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class RuleTest {
 
@@ -50,6 +51,17 @@ class RuleTest {
     @Test
     fun `normalize survives a path that does not exist`() {
         assertTrue(Rule.normalize("/definitely/not/here").endsWith("/definitely/not/here"))
+    }
+
+    // A picture folder is filtered to media; anything the user picks by hand is not — adding
+    // Documents and getting only the screenshots in it would be nonsense.
+    @Test
+    fun `media filter follows the folder, not a switch`() {
+        assertTrue(AutoUploadRunner.defaultMediaOnlyFor(File("/storage/emulated/0/DCIM/Camera")))
+        assertTrue(AutoUploadRunner.defaultMediaOnlyFor(File("/storage/emulated/0/Pictures")))
+        assertTrue(AutoUploadRunner.defaultMediaOnlyFor(File("/storage/emulated/0/Pictures/Screenshots")))
+        assertTrue(!AutoUploadRunner.defaultMediaOnlyFor(File("/storage/emulated/0/Documents")))
+        assertTrue(!AutoUploadRunner.defaultMediaOnlyFor(File("/storage/emulated/0/Download")))
     }
 
     @Test

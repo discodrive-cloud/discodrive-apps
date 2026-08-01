@@ -78,7 +78,13 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
     fun addFolder(path: String) {
         val dir = File(path)
         if (!dir.isDirectory) return
-        prefs.addRule(Rule.of(dir.path, AutoUploadRunner.defaultDestFor(dir)))
+        prefs.addRule(
+            Rule.of(
+                dir.path,
+                AutoUploadRunner.defaultDestFor(dir),
+                mediaOnly = AutoUploadRunner.defaultMediaOnlyFor(dir),
+            )
+        )
         if (prefs.autoUpload) observers.start() // watch the new folder too
         reload()
     }
@@ -93,15 +99,13 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
         reload()
     }
 
-    fun setMediaOnly(path: String, on: Boolean) = updateRule(path) { it.copy(mediaOnly = on) }
-
     /**
-     * Turning subfolders on widens the rule, so its extra contents have never been seeded.
-     * Clearing the flag makes the next pass record them as pre-existing instead of uploading
-     * an archive the user did not ask for.
+     * Turning subfolders on means "send what is in them" — the files are new to the journal,
+     * so the next pass uploads them. That is what the switch reads like, and re-seeding them
+     * as pre-existing would make it do nothing at all.
      */
     fun setSubfolders(path: String, on: Boolean) =
-        updateRule(path) { it.copy(includeSubfolders = on, seeded = if (on) false else it.seeded) }
+        updateRule(path) { it.copy(includeSubfolders = on) }
 
     private fun updateRule(path: String, f: (Rule) -> Rule) {
         val target = Rule.normalize(path)

@@ -51,6 +51,17 @@ class AutoUploadRunner(
         fun defaultDestFor(folder: File): List<String> =
             listOf(DEST_ROOT, deviceFolder, folder.name.ifEmpty { "Folder" })
 
+        /**
+         * Whether a folder should be filtered down to photos and videos.
+         *
+         * Only picture folders: someone who adds Documents or Download wants what is in
+         * there, not the two screenshots that happen to sit among the PDFs.
+         */
+        fun defaultMediaOnlyFor(folder: File): Boolean {
+            val p = Rule.normalize(folder.path)
+            return p.contains("/DCIM") || p.endsWith("/Pictures") || p.contains("/Pictures/")
+        }
+
         /** Give up on a file after this many failed passes; it stays visible in the log. */
         const val MAX_ATTEMPTS = 5
     }

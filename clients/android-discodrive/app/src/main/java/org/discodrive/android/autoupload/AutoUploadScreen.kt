@@ -69,7 +69,6 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
                 RuleCard(
                     rule = rule,
                     onRemove = { vm.removeFolder(rule.sourcePath) },
-                    onToggleMedia = { vm.setMediaOnly(rule.sourcePath, it) },
                     onToggleSubfolders = { vm.setSubfolders(rule.sourcePath, it) },
                 )
             }
@@ -125,7 +124,6 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
 private fun RuleCard(
     rule: Rule,
     onRemove: () -> Unit,
-    onToggleMedia: (Boolean) -> Unit,
     onToggleSubfolders: (Boolean) -> Unit,
 ) {
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -135,12 +133,17 @@ private fun RuleCard(
                     Text(rule.sourceLabel, style = MaterialTheme.typography.titleSmall)
                     Text("→ ${rule.destLabel}", style = MaterialTheme.typography.bodySmall)
                     Text(rule.sourcePath, style = MaterialTheme.typography.bodySmall)
+                    // What gets picked up is decided by the folder, not by a switch nobody
+                    // wants to flip: pictures folders take media, everything else takes all.
+                    Text(
+                        stringResource(if (rule.mediaOnly) R.string.au_media_only else R.string.au_all_files),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 IconButton(onClick = onRemove) {
                     Icon(Icons.Default.Close, stringResource(R.string.au_remove))
                 }
             }
-            SwitchRow(stringResource(R.string.au_media_only), rule.mediaOnly, onToggleMedia)
             SwitchRow(stringResource(R.string.au_subfolders), rule.includeSubfolders, onToggleSubfolders)
         }
     }
