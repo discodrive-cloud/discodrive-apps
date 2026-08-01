@@ -13,6 +13,14 @@
   <!-- Documents folder is visible in Files.app (On My iPhone → DiscoDrive) -->
   <key>UIFileSharingEnabled</key><true/>
   <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+  <!-- Auto-upload reads the photo library; it never writes to it or deletes from it. -->
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>DiscoDrive uploads your photos and videos to your own server. Nothing is deleted from your phone.</string>
+  <!-- Background passes: iOS grants the time, usually while the phone is idle and charging. -->
+  <key>UIBackgroundModes</key>
+  <array><string>fetch</string><string>processing</string></array>
+  <key>BGTaskSchedulerPermittedIdentifiers</key>
+  <array><string>org.discodrive.ios.autoupload</string></array>
   <key>NSFaceIDUsageDescription</key><string>Unlock the vault with Face ID</string>
   <key>UILaunchScreen</key><dict/>
   <key>UISupportedInterfaceOrientations</key>

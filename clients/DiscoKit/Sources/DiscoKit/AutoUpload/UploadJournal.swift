@@ -16,12 +16,21 @@ public struct JournalEntry: Sendable {
     public let state: UploadState
     public let error: String?
     public let at: Date
+
+    public init(assetID: String, serverName: String, state: UploadState, error: String?, at: Date) {
+        self.assetID = assetID; self.serverName = serverName
+        self.state = state; self.error = error; self.at = at
+    }
 }
 
 public struct JournalCounts: Sendable {
     public let sent: Int
     public let skipped: Int
     public let deferred: Int
+
+    public init(sent: Int, skipped: Int, deferred: Int) {
+        self.sent = sent; self.skipped = skipped; self.deferred = deferred
+    }
 }
 
 /// Remembers which photos have already been dealt with, so auto-upload never sends the same
