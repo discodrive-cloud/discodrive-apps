@@ -105,6 +105,9 @@ xcrun simctl addmedia "$SIM" "$WORK"/existing_*.png
 cd "$REPO/clients/ios"
 xcodegen generate >/dev/null
 
+# Bring the simulator forward: the prompt is easy to miss behind the editor, and the run
+# stalls for four minutes waiting for a tap nobody saw.
+open -a Simulator 2>/dev/null || true
 say "PHASE 1 — switching auto-upload on. YOU WILL BE ASKED TO TAP \"Allow Full Access\""
 TEST_RUNNER_DD_TEST_SERVER="$SERVER" TEST_RUNNER_DD_TEST_TOKEN="$TOKEN" \
 xcodebuild test -project DiscoDrive.xcodeproj -scheme DiscoDrive \

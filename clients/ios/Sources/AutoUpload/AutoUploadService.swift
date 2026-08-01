@@ -47,17 +47,21 @@ final class AutoUploadService: NSObject, ObservableObject {
     // MARK: - Enabling
 
     func setEnabled(_ on: Bool) async {
-        settings.enabled = on
         if on {
+            // Ask first, store second. Writing the flag up front left the feature marked
+            // "on" whenever the permission prompt was refused — or simply left unanswered,
+            // since the request does not return until the user decides.
             let status = await PhotoLibrarySource.requestAccess()
             guard status == .authorized || status == .limited else {
                 settings.enabled = false
                 return
             }
+            settings.enabled = true
             startObserving()
             scheduleBackgroundPass()
             await runPass()
         } else {
+            settings.enabled = false
             stopObserving()
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
         }

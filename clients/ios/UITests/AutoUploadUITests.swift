@@ -77,6 +77,7 @@ final class AutoUploadUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "0", "auto-upload must start off")
 
         toggle.tap()
+        let started = Date()
 
         print("""
 
@@ -92,8 +93,14 @@ final class AutoUploadUITests: XCTestCase {
         // is what leaves a mark — seeding records the library, so a non-zero counter is the
         // first honest evidence that access was given.
         var counts: (sent: Int, skipped: Int, deferred: Int) = (0, 0, 0)
+        var lastNag = Date()
         let granted = waitUntil(timeout: 240) {
             counts = self.counters(app, timeout: 3) ?? counts
+            if Date().timeIntervalSince(lastNag) > 15 {
+                lastNag = Date()
+                let left = Int(240 - Date().timeIntervalSince(started))
+                print(">>> still waiting for \"Allow Full Access\" in the simulator (\(left)s left)")
+            }
             return counts.skipped > 0 || counts.sent > 0
         }
         if !granted {
