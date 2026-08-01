@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -420,10 +421,34 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (*ht
 	return nil, fmt.Errorf("authorization failed")
 }
 
+// StatusError is a non-2xx response. Upload callers have to tell the failures apart —
+// 404 means the session is gone and must be re-inited, 409 means resync to the server's
+// next_chunk, 400 on complete means the file changed under us — and matching on message
+// text for that is how the wrong branch gets taken.
+type StatusError struct {
+	Op   string // which call failed, e.g. "/upload chunk 3"
+	Code int
+	Body string // the server's payload, trimmed; carries next_chunk on a 409
+}
+
+func (e *StatusError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("%s: %d", e.Op, e.Code)
+	}
+	return fmt.Sprintf("%s: %d: %s", e.Op, e.Code, e.Body)
+}
+
+// statusErr builds a StatusError from a response, consuming a bounded prefix of the body
+// so the server's explanation survives into logs. The caller still owns Body.Close.
+func statusErr(resp *http.Response, what string) *StatusError {
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	return &StatusError{Op: what, Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
+}
+
 func okClose(resp *http.Response, what string) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s: %s", what, resp.Status)
+		return statusErr(resp, what)
 	}
 	return nil
 }
@@ -449,7 +474,7 @@ func (c *Client) UploadInit(ctx context.Context, parentID, name string, size int
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, fmt.Errorf("/upload/init: %s", resp.Status)
+		return "", 0, statusErr(resp, "/upload/init")
 	}
 	var out struct {
 		UploadID  string `json:"upload_id"`
@@ -516,7 +541,7 @@ func (c *Client) UploadChunk(ctx context.Context, uploadID string, n int, r io.R
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return 0, fmt.Errorf("/upload chunk %d: %s", n, resp.Status)
+			return 0, statusErr(resp, fmt.Sprintf("/upload chunk %d", n))
 		}
 		var out struct {
 			NextChunk int `json:"next_chunk"`
@@ -537,7 +562,7 @@ func (c *Client) UploadStatus(ctx context.Context, uploadID string) (int, error)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("/upload status: %s", resp.Status)
+		return 0, statusErr(resp, "/upload status")
 	}
 	var out struct {
 		NextChunk int `json:"next_chunk"`
