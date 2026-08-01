@@ -1,5 +1,7 @@
 package org.discodrive.android
 
+import org.discodrive.android.autoupload.AutoUploadScreen
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +40,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
     val ctx = LocalContext.current
     var hasPerm by remember { mutableStateOf(vm.hasStoragePermission()) }
     var showSettings by remember { mutableStateOf(false) }
+    var showAutoUpload by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         hasPerm = vm.hasStoragePermission()
         vm.refreshAfterPermission()
@@ -51,7 +55,8 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
         vaultUi.open -> VaultScreen(vaultVm, vaultUi)
         vaultUi.loading || vaultUi.error != null ->
             VaultOpeningScreen(vaultUi.loading, vaultUi.error) { vaultVm.dismissError() }
-        ui.paired && showSettings -> SettingsScreen(vm) { showSettings = false }
+        ui.paired && showAutoUpload -> AutoUploadScreen(viewModel()) { showAutoUpload = false }
+        ui.paired && showSettings -> SettingsScreen(vm, onAutoUpload = { showSettings = false; showAutoUpload = true }) { showSettings = false }
         ui.paired -> BrowserScreen(vm, ui,
             onUnlock = { root, pwd ->
                 val tok = vm.token

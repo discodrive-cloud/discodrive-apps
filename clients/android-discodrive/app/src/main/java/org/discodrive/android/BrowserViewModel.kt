@@ -15,14 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mobile.Browser
-import org.discodrive.android.autoupload.AutoUploadRunner
-import org.discodrive.android.autoupload.Block
 import org.discodrive.android.autoupload.AutoUploadWorker
-import org.discodrive.android.autoupload.Conditions
-import org.discodrive.android.autoupload.FolderObservers
-import org.discodrive.android.autoupload.RunResult
-import org.discodrive.android.autoupload.Rule
-import org.discodrive.android.autoupload.UploadJournal
 import org.json.JSONArray
 import java.io.File
 
@@ -234,109 +227,18 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun unpair() {
-        disableAutoUploadTriggers()
+        // Unpairing must also stop auto-upload: its rules point at a server this device no
+        // longer has a token for, and a scheduled pass would keep failing in the background.
+        prefs.autoUpload = false
+        AutoUploadWorker.cancel(getApplication())
         BrowserHolder.close()
         browser = null
         prefs.clear()
         _ui.value = BrowseState()
     }
 
-    // --- auto-upload (temporary manual trigger; the service and its screen land next) ---
-
-    private val _autoUpload = MutableStateFlow<String?>(null)
-    val autoUploadStatus: StateFlow<String?> = _autoUpload.asStateFlow()
-
-    /**
-     * Starts a pass in the foreground service — the same path the background triggers will
-     * use, so what gets verified on a device is what actually ships. Temporary entry point
-     * until the auto-upload screen lands.
-     */
-    fun startAutoUploadPass() {
-        val ctx = getApplication<Application>()
-        prefs.autoUpload = true
-        ensureDefaultRule()
-        enableAutoUploadTriggers()
-        AutoUploadWorker.runNow(ctx, prefs.wifiOnly)
-        _autoUpload.value = "pass enqueued — see the notification"
-    }
-
-    /** Watches the rule folders and schedules the periodic catch-up run. */
-    fun enableAutoUploadTriggers() {
-        val ctx = getApplication<Application>()
-        AutoUploadWorker.schedule(ctx, prefs.wifiOnly)
-        observers.start()
-    }
-
-    fun disableAutoUploadTriggers() {
-        val ctx = getApplication<Application>()
-        AutoUploadWorker.cancel(ctx)
-        observers.stop()
-    }
-
-    private val observers = FolderObservers(app)
-
-    override fun onCleared() {
-        observers.stop()
-        super.onCleared()
-    }
-
-    /**
-     * The camera folder is what the app proposes when auto-upload is first switched on; the
-     * folder picker (next task) adds the rest. Adding it here rather than in the runner keeps
-     * "which folders" a stored user choice instead of something the pass assumes.
-     */
-    private fun ensureDefaultRule() {
-        if (prefs.rules.isEmpty()) prefs.addRule(AutoUploadRunner.defaultRule())
-    }
-
-    /** Folders currently set to upload, for the debug readout and the upcoming screen. */
-    fun autoUploadRules(): List<Rule> = prefs.rules
-
-    /** Adds a folder to auto-upload. Returns false when it is already covered. */
-    fun addAutoUploadFolder(path: String): Boolean {
-        val dir = File(path)
-        if (!dir.isDirectory) return false
-        return prefs.addRule(
-            Rule.of(sourcePath = dir.path, destSegments = AutoUploadRunner.defaultDestFor(dir))
-        )
-    }
-
-    fun removeAutoUploadFolder(path: String) = prefs.removeRule(path)
-
-    /**
-     * Runs one auto-upload pass in-process. Kept alongside the service path because it
-     * surfaces the outcome directly in the UI, which is what makes a failure debuggable.
-     */
-    fun runAutoUploadNow() {
-        val b = browser ?: return
-        val ctx = getApplication<Application>()
-        viewModelScope.launch {
-            ensureDefaultRule()
-            _autoUpload.value = "starting…"
-            val result = withContext(Dispatchers.IO) {
-                val journal = UploadJournal(ctx)
-                try {
-                    val blocked = Conditions.check(ctx, prefs)
-                    if (blocked != Block.NONE) return@withContext RunResult(0, 0, 0, blocked = blocked)
-                    val runner = AutoUploadRunner(b, journal, prefs)
-                    val seeded = runner.seedIfNeeded()
-                    if (seeded > 0) {
-                        _autoUpload.value = "marked $seeded existing files as already handled"
-                    }
-                    runner.runOnce(progress = { done, total, name ->
-                        _autoUpload.value = "$done/$total · $name"
-                    })
-                } finally {
-                    journal.close()
-                }
-            }
-            _autoUpload.value = when {
-                result.error != null -> "error: ${result.error}"
-                result.blocked != Block.NONE -> "waiting: ${result.blocked}"
-                else -> "uploaded ${result.uploaded}, skipped ${result.skipped}, deferred ${result.deferred}"
-            }
-        }
-    }
+    /** Shown on the settings row; the auto-upload screen owns everything else. */
+    val autoUploadOn: Boolean get() = prefs.autoUpload
 }
 
 private fun displayName(ctx: Context, uri: Uri): String {

@@ -14,7 +14,7 @@ import androidx.core.os.LocaleListCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: BrowserViewModel, onBack: () -> Unit) {
+fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onBack: () -> Unit) {
     var langMenu by remember { mutableStateOf(false) }
     var unpairDialog by remember { mutableStateOf(false) }
 
@@ -73,21 +73,12 @@ fun SettingsScreen(vm: BrowserViewModel, onBack: () -> Unit) {
                 )
             }
             HorizontalDivider()
-            // Temporary: drives one auto-upload pass by hand for on-device verification.
-            // Replaced by the auto-upload screen's "Upload now" in the next task.
-            Column {
-                Text("Auto-upload (debug)", style = MaterialTheme.typography.labelLarge)
-                val status by vm.autoUploadStatus.collectAsState()
-                Button(onClick = { vm.runAutoUploadNow() }) { Text("Run auto-upload now") }
-                Button(onClick = { vm.startAutoUploadPass() }) { Text("Run in background (worker)") }
-                Button(onClick = { vm.addAutoUploadFolder("/sdcard/Documents/Scans") }) {
-                    Text("Add folder: Documents/Scans")
-                }
+            Column(Modifier.clickable { onAutoUpload() }) {
+                Text(stringResource(R.string.au_title), style = MaterialTheme.typography.labelLarge)
                 Text(
-                    vm.autoUploadRules().joinToString("\n") { "${it.sourceLabel} → ${it.destLabel}" },
+                    stringResource(if (vm.autoUploadOn) R.string.on else R.string.off),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             HorizontalDivider()
             Button(onClick = { unpairDialog = true }) { Text(stringResource(R.string.settings_unpair)) }

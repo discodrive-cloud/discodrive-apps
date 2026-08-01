@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Auto-upload checks whether the current network is Wi-Fi / roaming before sending. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -25,6 +26,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- WorkManager declares this service without a foregroundServiceType, and promoting
+             a worker to the foreground with one that the manifest does not list throws.
+             Auto-upload is a data sync, so declare it here. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge"/>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="org.discodrive.android.fileprovider"
