@@ -18,7 +18,15 @@ struct DiscoDriveApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
+                #if DEBUG
+                // Automated runs cannot tap: this opens a screen directly so a screenshot
+                // can show it, and is ignored unless the variable is set. Debug only.
+                if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_SCREEN"] == "autoupload", app.paired {
+                    NavigationStack { AutoUploadView() }
+                } else if app.paired { BrowserView() } else { PairingView() }
+                #else
                 if app.paired { BrowserView() } else { PairingView() }
+                #endif
             }
             .environmentObject(app)
             .onAppear {
@@ -27,6 +35,27 @@ struct DiscoDriveApp: App {
                 // needs one, so re-pairing cannot leave it talking to the old server.
                 AutoUploadService.shared.configure { app.client }
                 AutoUploadService.shared.resumeIfEnabled()
+                #if DEBUG
+                // Drives one pass end to end for automated checks, since the simulator
+                // cannot flip the switch by hand.
+                if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_AUTOUPLOAD"] == "1" {
+                    Task {
+                        let status = await PhotoLibrarySource.requestAccess()
+                        await AutoUploadService.shared.setEnabled(true)
+                        let r = await AutoUploadService.shared.runPass()
+                        // A background launch swallows stdout, so the result goes to a file
+                        // the harness can read out of the app container.
+                        let line = """
+                        photos=\(status.rawValue) enabled=\(AutoUploadSettings.shared.enabled) \
+                        uploaded=\(r.uploaded) skipped=\(r.skipped) deferred=\(r.deferred) \
+                        blocked=\(r.blocked) error=\(r.error ?? "-")
+                        """
+                        let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                            .appendingPathComponent("autoupload_result.txt")
+                        try? line.write(to: out, atomically: true, encoding: .utf8)
+                    }
+                }
+                #endif
             }
         }
     }

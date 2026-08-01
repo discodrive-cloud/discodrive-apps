@@ -37,6 +37,19 @@ final class AppState: ObservableObject {
     }
 
     func bootstrap() {
+        #if DEBUG
+        // Lets an automated run pair the app without driving the pairing screen by hand:
+        // the simulator has no way to type a device code, and the E2E checks need a real
+        // paired app against a local server. Debug builds only.
+        let env = ProcessInfo.processInfo.environment
+        if let urlStr = env["DISCODRIVE_TEST_SERVER"], let token = env["DISCODRIVE_TEST_TOKEN"],
+           let url = URL(string: urlStr) {
+            KeychainToken.save(token, service: KeychainToken.tokenService)
+            KeychainToken.save(urlStr, service: KeychainToken.serverService)
+            activate(serverURL: url, token: token)
+            return
+        }
+        #endif
         guard let token = KeychainToken.load(service: KeychainToken.tokenService),
               let urlStr = KeychainToken.load(service: KeychainToken.serverService),
               let url = URL(string: urlStr) else { paired = false; return }

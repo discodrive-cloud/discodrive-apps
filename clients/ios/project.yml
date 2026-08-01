@@ -17,6 +17,16 @@ packages:
   DiscoKit:
     path: ../DiscoKit
 targets:
+  DiscoDriveUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: DiscoDrive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.uitests
+        TEST_TARGET_NAME: DiscoDrive
   DiscoDrive:
     type: application
     platform: iOS
