@@ -87,12 +87,19 @@ final class AutoUploadUITests: XCTestCase {
 
         """)
 
-        // The switch only stays on once access is granted; it flips back on refusal.
-        XCTAssertTrue(waitUntil(timeout: 240) { toggle.value as? String == "1" },
-                      "access was not granted — the switch went back off")
-
-        guard let counts = counters(app, timeout: 120) else {
-            return XCTFail("counters never appeared")
+        // Waiting on the switch would prove nothing: SwiftUI flips it the moment it is
+        // tapped, long before the permission is answered. The pass that follows the grant
+        // is what leaves a mark — seeding records the library, so a non-zero counter is the
+        // first honest evidence that access was given.
+        var counts: (sent: Int, skipped: Int, deferred: Int) = (0, 0, 0)
+        let granted = waitUntil(timeout: 240) {
+            counts = self.counters(app, timeout: 3) ?? counts
+            return counts.skipped > 0 || counts.sent > 0
+        }
+        if !granted {
+            XCTAssertEqual(toggle.value as? String, "1",
+                           "the switch went back off — access was refused")
+            return XCTFail("no pass ran within four minutes — was \"Allow Full Access\" tapped?")
         }
         print("PHASE1 sent=\(counts.sent) skipped=\(counts.skipped) deferred=\(counts.deferred)")
         XCTAssertGreaterThan(counts.skipped, 0,
