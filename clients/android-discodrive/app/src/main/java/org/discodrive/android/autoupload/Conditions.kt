@@ -20,9 +20,15 @@ object Conditions {
     const val MIN_BATTERY_PERCENT = 20
 
     fun check(context: Context, prefs: Prefs): Block {
-        val cm = context.getSystemService(ConnectivityManager::class.java)
-        val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            ?: return Block.NO_NETWORK
+        // A missing ACCESS_NETWORK_STATE throws rather than returning null, and this runs on
+        // a background pass where an uncaught exception takes the whole app down. Treat an
+        // unreadable network as "no network": waiting is recoverable, crashing is not.
+        val caps = try {
+            val cm = context.getSystemService(ConnectivityManager::class.java)
+            cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+        } catch (e: SecurityException) {
+            null
+        } ?: return Block.NO_NETWORK
         if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return Block.NO_NETWORK
 
         val unmetered = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)

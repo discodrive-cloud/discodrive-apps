@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Auto-upload checks whether the current network is Wi-Fi / roaming before sending. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- All Files Access: the sync folder lives at /sdcard/DiscoDrive so it stays visible
          in file managers and survives uninstall (a deliberate, user-facing synced folder,
          mirroring the desktop app). The app is sideloaded via GitHub Releases, not Play

@@ -66,6 +66,17 @@ class AutoUploadRunner(
         progress: (done: Int, total: Int, name: String) -> Unit = { _, _, _ -> },
         isCancelled: () -> Boolean = { false },
     ): RunResult {
+        // Pull the change feed BEFORE deciding any names. The collision check reads the local
+        // index, so a file added from another device or the web UI since the last refresh
+        // would read as "absent" — and uploading under that name replaces it with a new
+        // version. Verified on a device: without this, an existing server file was silently
+        // overwritten.
+        try {
+            browser.refresh()
+        } catch (e: Exception) {
+            return RunResult(0, 0, 0, error = "cannot reach the server: ${e.message}")
+        }
+
         val destID = try {
             resolveDestination()
         } catch (e: Exception) {
@@ -79,10 +90,14 @@ class AutoUploadRunner(
         var uploaded = 0
         var skipped = 0
         var deferred = 0
+        // Names taken earlier in this batch. The index is refreshed once at the end, so
+        // without this a second file could be handed a name the batch already used and
+        // would overwrite it.
+        val claimed = HashSet<String>()
         for ((i, file) in candidates.withIndex()) {
             if (isCancelled()) break
             progress(i, candidates.size, file.name)
-            when (uploadOne(file, destID)) {
+            when (uploadOne(file, destID, claimed)) {
                 Outcome.UPLOADED -> uploaded++
                 Outcome.SKIPPED -> skipped++
                 Outcome.DEFERRED -> deferred++
@@ -95,12 +110,15 @@ class AutoUploadRunner(
 
     private enum class Outcome { UPLOADED, SKIPPED, DEFERRED }
 
-    private fun uploadOne(file: File, destID: String): Outcome {
+    private fun uploadOne(file: File, destID: String, claimed: MutableSet<String>): Outcome {
         if (journal.attempts(file) >= MAX_ATTEMPTS) return Outcome.DEFERRED
         return try {
             val sha = sha256(file)
             val name = NameResolver.resolve(file.name) { candidate ->
-                Core.existsWithHash(browser, destID, candidate, sha)
+                // A name this batch already used is taken, even though the index — refreshed
+                // only at the end — still reports it free.
+                if (candidate in claimed) EXISTS_DIFFERENT
+                else Core.existsWithHash(browser, destID, candidate, sha)
             }
             if (name == null) {
                 // Already on the server byte for byte (or no free name): record it so the
@@ -109,6 +127,7 @@ class AutoUploadRunner(
                 return Outcome.SKIPPED
             }
             Core.uploadAs(browser, file.path, destID, name)
+            claimed.add(name)
             journal.markSent(file, serverName = name, sha = sha)
             Outcome.UPLOADED
         } catch (e: Exception) {
