@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -184,6 +185,54 @@ func (b *Browser) RelPath(nodeID string) string {
 		return ""
 	}
 	return n.RelPath
+}
+
+// Existence answers from ExistsWithHash. Kept as constants so the Kotlin/Swift side can
+// compare against a documented set rather than bare literals.
+const (
+	ExistsAbsent    = "absent"    // nothing lives at that name
+	ExistsSame      = "same"      // a file with the same content is already there
+	ExistsDifferent = "different" // the name is taken by other content (or by a folder)
+)
+
+// ExistsWithHash reports what sits at name inside parentNodeID ("" = root), comparing the
+// server's content hash against sha. It reads the local index only — no network — so a
+// caller uploading a batch pays one Refresh, not one round trip per file.
+//
+// Only a proven match reports ExistsSame: an unknown hash on either side reports
+// ExistsDifferent, because the server treats a same-named upload as a new version of the
+// existing node. Guessing "same" would silently skip a file; guessing "different" only
+// costs a suffixed copy.
+func (b *Browser) ExistsWithHash(parentNodeID, name, sha string) (string, error) {
+	parentPath := ""
+	if parentNodeID != "" {
+		n, ok, err := b.idx.Get(parentNodeID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", fmt.Errorf("unknown parent node %q", parentNodeID)
+		}
+		parentPath = n.RelPath
+	}
+	rel := name
+	if parentPath != "" {
+		rel = parentPath + "/" + name
+	}
+	n, ok, err := b.idx.GetByPath(rel)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case !ok:
+		return ExistsAbsent, nil
+	case n.IsDir:
+		return ExistsDifferent, nil
+	case sha != "" && n.ContentHash == sha:
+		return ExistsSame, nil
+	default:
+		return ExistsDifferent, nil
+	}
 }
 
 // Mkdir creates a folder under parentNodeID ("" = root), then refreshes the index.
