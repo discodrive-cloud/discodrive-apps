@@ -121,8 +121,13 @@ bind-ios:
 	cd $(DAEMON_DIR) && mkdir -p mobile/build && gomobile bind -target=ios -o mobile/build/Kfmobile.xcframework ./mobile
 	@echo "built → daemon/mobile/build/Kfmobile.xcframework"
 
+# -z max-page-size=16384: Android is moving to 16 KB memory pages, and a .so whose LOAD
+# segments are 4 KB-aligned only runs in a compatibility mode there (the system says so in a
+# dialog). Aligning at link time is the whole fix; it costs a little padding in the .so.
 bind-android:
-	cd $(DAEMON_DIR) && mkdir -p mobile/build && gomobile bind -target=android -androidapi 21 -o mobile/build/kfmobile.aar ./mobile
+	cd $(DAEMON_DIR) && mkdir -p mobile/build && gomobile bind -target=android -androidapi 21 \
+		-ldflags="-extldflags=-Wl,-z,max-page-size=16384" \
+		-o mobile/build/kfmobile.aar ./mobile
 	mkdir -p clients/android-discodrive/app/libs clients/android-fastsync/app/libs
 	cp $(DAEMON_DIR)/mobile/build/kfmobile.aar clients/android-discodrive/app/libs/kfmobile.aar
 	cp $(DAEMON_DIR)/mobile/build/kfmobile.aar clients/android-fastsync/app/libs/kfmobile.aar

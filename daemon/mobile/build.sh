@@ -9,6 +9,8 @@ echo "== iOS (.xcframework) =="
 gomobile bind -target=ios -o mobile/build/Kfmobile.xcframework ./mobile
 
 echo "== Android (.aar) =="
-gomobile bind -target=android -androidapi 21 -o mobile/build/kfmobile.aar ./mobile
+gomobile bind -target=android -androidapi 21 \
+  -ldflags="-extldflags=-Wl,-z,max-page-size=16384" \
+  -o mobile/build/kfmobile.aar ./mobile
 
 echo "Done: mobile/build/"
