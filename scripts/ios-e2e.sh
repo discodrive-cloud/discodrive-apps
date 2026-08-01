@@ -21,17 +21,31 @@ trap 'rm -rf "$WORK"' EXIT
 say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
 # --- simulator ---------------------------------------------------------------
-SIM="$(xcrun simctl list devices | grep '(Booted)' | head -1 |
-       sed -E 's/.*\(([0-9A-Fa-f-]{36})\) \(Booted\).*/\1/')"
+# `|| true` on every lookup: a pipeline whose grep matches nothing would otherwise take the
+# whole script down through `set -euo pipefail`, before the fallback below gets a chance.
+SIM="$(xcrun simctl list devices 2>/dev/null | grep '(Booted)' | head -1 |
+       sed -E 's/.*\(([0-9A-Fa-f-]{36})\) \(Booted\).*/\1/' || true)"
+
 if [ -z "${SIM:-}" ]; then
-  SIM="$(xcrun simctl list devices available | grep -E 'iPhone 1[6-9]|iPhone Air' | head -1 |
-         sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')"
-  [ -n "$SIM" ] || { echo "no iOS simulator found — open one in Xcode first"; exit 1; }
-  say "booting simulator $SIM"
-  xcrun simctl boot "$SIM"
-  sleep 20
+  say "no simulator is running — starting one"
+  SIM="$(xcrun simctl list devices available 2>/dev/null |
+         grep -E 'iPhone 1[6-9]|iPhone Air' | head -1 |
+         sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/' || true)"
+  if [ -z "${SIM:-}" ]; then
+    echo "no iOS simulator is installed — add one in Xcode ▸ Settings ▸ Components"
+    exit 1
+  fi
+  xcrun simctl boot "$SIM" 2>/dev/null || true
+  open -a Simulator --args -CurrentDeviceUDID "$SIM" 2>/dev/null || true
+  # Booting takes a while, and the tests need a device that answers.
+  for _ in $(seq 1 40); do
+    state="$(xcrun simctl list devices 2>/dev/null | grep "$SIM" | grep -c Booted || true)"
+    [ "$state" != "0" ] && break
+    sleep 3
+  done
 fi
 say "using simulator $SIM"
+open -a Simulator 2>/dev/null || true
 
 # --- server ------------------------------------------------------------------
 curl -sf -m 5 "$SERVER/health" >/dev/null || { echo "no server at $SERVER"; exit 1; }
@@ -41,13 +55,13 @@ login() {
     -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" |
     python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))'
 }
-JWT="$(login)"
+JWT="$(login || true)"
 if [ -z "$JWT" ]; then
   say "creating the test account $EMAIL"
   curl -s -X POST "$SERVER/auth/register" -H 'Content-Type: application/json' \
     -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" >/dev/null || true
-  JWT="$(login)"
-  [ -n "$JWT" ] || { echo "cannot log in as $EMAIL"; exit 1; }
+  JWT="$(login || true)"
+  [ -n "$JWT" ] || { echo "cannot log in as $EMAIL — check the server at $SERVER"; exit 1; }
 fi
 
 say "pairing a device"
