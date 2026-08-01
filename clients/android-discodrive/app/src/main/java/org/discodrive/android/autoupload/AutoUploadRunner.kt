@@ -8,7 +8,7 @@ import org.discodrive.android.Prefs
 import java.io.File
 import java.security.MessageDigest
 
-/** Outcome of one pass, for the notification and the UI. */
+/** Outcome of one pass, summed over every rule. */
 data class RunResult(
     val uploaded: Int,
     val skipped: Int,
@@ -18,13 +18,8 @@ data class RunResult(
 )
 
 /**
- * One pass of auto-upload: scan the source folder, decide a name for each new file, send it,
- * record it.
- *
- * P1 is deliberately one hard-wired rule — the camera folder into
- * `/Camera Uploads/<device>`, media only, newest first, existing files left alone. Multiple
- * rules and their editor come later; everything here is written so that adding them means
- * looping over rules rather than rewriting the pass.
+ * One pass of auto-upload: for every enabled rule, scan its folder, decide a name for each
+ * new file, send it, record it.
  *
  * Local files are only ever read. Nothing is deleted, moved or renamed on the phone.
  */
@@ -35,32 +30,54 @@ class AutoUploadRunner(
 ) {
     companion object {
         const val DEST_ROOT = "Camera Uploads"
-        val sourceDir: File
-            get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera")
 
-        /** Falls back to the model when the marketing name is missing or a duplicate. */
+        /** Falls back when the model is missing; also what the destination folder is named. */
         val deviceFolder: String
             get() = (Build.MODEL ?: "Android").trim().ifEmpty { "Android" }
+
+        val cameraDir: File
+            get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera")
+
+        /** The rule the app proposes on first run; the user can add or remove any other. */
+        fun defaultRule(): Rule = Rule(
+            sourcePath = cameraDir.path,
+            destSegments = listOf(DEST_ROOT, deviceFolder),
+        )
+
+        /**
+         * Where a freshly picked folder goes by default: under the device folder, keeping
+         * its own name, so two phones and two folders never land on top of each other.
+         */
+        fun defaultDestFor(folder: File): List<String> =
+            listOf(DEST_ROOT, deviceFolder, folder.name.ifEmpty { "Folder" })
 
         /** Give up on a file after this many failed passes; it stays visible in the log. */
         const val MAX_ATTEMPTS = 5
     }
 
     /**
-     * Records the current contents of the source folder as pre-existing, so switching the
-     * feature on does not push a years-old archive over mobile data. Runs once.
+     * Records the current contents of any not-yet-seeded rule as pre-existing, so switching
+     * a folder on does not push its archive over mobile data. Returns how many files were
+     * marked. Runs once per rule.
      */
     fun seedIfNeeded(): Int {
-        if (prefs.autoUploadSeeded) return 0
-        val existing = SourceScanner.scan(sourceDir, mediaOnly = true, includeSubfolders = false, now = Long.MAX_VALUE)
-        journal.seedPreexisting(existing)
-        prefs.autoUploadSeeded = true
-        return existing.size
+        var marked = 0
+        val updated = prefs.rules.map { rule ->
+            if (rule.seeded) return@map rule
+            val existing = SourceScanner.scan(
+                rule.source, rule.mediaOnly, rule.includeSubfolders, now = Long.MAX_VALUE,
+            )
+            journal.seedPreexisting(existing)
+            marked += existing.size
+            rule.copy(seeded = true)
+        }
+        prefs.rules = updated
+        return marked
     }
 
     /**
-     * Uploads everything new. [progress] is called before each file with (done, total, name).
-     * [isCancelled] is polled between files so the service can stop promptly.
+     * Uploads everything new across all enabled rules. [progress] is called before each file
+     * with (done, total, name); [isCancelled] is polled between files.
      */
     fun runOnce(
         progress: (done: Int, total: Int, name: String) -> Unit = { _, _, _ -> },
@@ -77,35 +94,53 @@ class AutoUploadRunner(
             return RunResult(0, 0, 0, error = "cannot reach the server: ${e.message}")
         }
 
-        val destID = try {
-            resolveDestination()
-        } catch (e: Exception) {
-            return RunResult(0, 0, 0, error = e.message ?: "cannot resolve the destination folder")
-        }
+        val rules = prefs.rules.filter { it.enabled }
+        if (rules.isEmpty()) return RunResult(0, 0, 0)
 
-        val candidates = SourceScanner.scan(
-            sourceDir, mediaOnly = true, includeSubfolders = false, now = System.currentTimeMillis(),
-        ).filterNot { journal.isKnown(it) }
+        // Work out the whole batch first so the notification can show a real total instead
+        // of counting up per folder.
+        val now = System.currentTimeMillis()
+        val work = rules.mapNotNull { rule ->
+            val files = SourceScanner.scan(rule.source, rule.mediaOnly, rule.includeSubfolders, now)
+                .filterNot { journal.isKnown(it) }
+            if (files.isEmpty()) null else rule to files
+        }
+        val total = work.sumOf { it.second.size }
 
         var uploaded = 0
         var skipped = 0
         var deferred = 0
-        // Names taken earlier in this batch. The index is refreshed once at the end, so
-        // without this a second file could be handed a name the batch already used and
-        // would overwrite it.
-        val claimed = HashSet<String>()
-        for ((i, file) in candidates.withIndex()) {
+        var done = 0
+        var lastError: String? = null
+        // Names taken earlier in this batch, per destination. The index is refreshed once at
+        // the end, so without this a later file could be handed a name the batch already used
+        // and would overwrite it.
+        val claimed = HashMap<String, MutableSet<String>>()
+
+        for ((rule, files) in work) {
             if (isCancelled()) break
-            progress(i, candidates.size, file.name)
-            when (uploadOne(file, destID, claimed)) {
-                Outcome.UPLOADED -> uploaded++
-                Outcome.SKIPPED -> skipped++
-                Outcome.DEFERRED -> deferred++
+            val destID = try {
+                resolveDestination(rule)
+            } catch (e: Exception) {
+                // One unreachable destination must not stop the other folders.
+                lastError = "${rule.sourceLabel}: ${e.message}"
+                continue
+            }
+            val taken = claimed.getOrPut(destID) { HashSet() }
+            for (file in files) {
+                if (isCancelled()) break
+                progress(done, total, file.name)
+                done++
+                when (uploadOne(file, destID, taken)) {
+                    Outcome.UPLOADED -> uploaded++
+                    Outcome.SKIPPED -> skipped++
+                    Outcome.DEFERRED -> deferred++
+                }
             }
         }
         // One refresh for the whole batch: UploadAs deliberately leaves the index alone.
         if (uploaded > 0) runCatching { browser.refresh() }
-        return RunResult(uploaded, skipped, deferred)
+        return RunResult(uploaded, skipped, deferred, error = lastError)
     }
 
     private enum class Outcome { UPLOADED, SKIPPED, DEFERRED }
@@ -144,13 +179,15 @@ class AutoUploadRunner(
         }
     }
 
-    /** `/Camera Uploads/<device>`, created on first use and cached by node id afterwards. */
-    private fun resolveDestination(): String {
-        prefs.autoUploadDestID?.let { return it }
-        val root = Core.ensureFolder(browser, "", DEST_ROOT)
-        val dest = Core.ensureFolder(browser, root, deviceFolder)
-        prefs.autoUploadDestID = dest
-        return dest
+    /** Resolves (creating on first use) the rule's destination, caching the node id. */
+    private fun resolveDestination(rule: Rule): String {
+        rule.destID?.let { return it }
+        var parent = ""
+        for (segment in rule.destSegments) {
+            parent = Core.ensureFolder(browser, parent, segment)
+        }
+        prefs.rules = prefs.rules.map { if (it.sourcePath == rule.sourcePath) it.copy(destID = parent) else it }
+        return parent
     }
 
     private fun sha256(file: File): String {

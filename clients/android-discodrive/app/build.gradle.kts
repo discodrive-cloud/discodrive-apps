@@ -32,4 +32,7 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.core:core-ktx:1.13.1")
     testImplementation("junit:junit:4.13.2")
+    // android.jar's org.json is a stub that throws in unit tests; the real implementation
+    // lets the rule-serialization tests run on the JVM.
+    testImplementation("org.json:json:20240303")
 }

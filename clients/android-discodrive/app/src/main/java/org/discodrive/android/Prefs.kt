@@ -3,6 +3,7 @@ package org.discodrive.android
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import org.discodrive.android.autoupload.Rule
 
 class Prefs(context: Context) {
     private val sp = EncryptedSharedPreferences.create(
@@ -30,17 +31,24 @@ class Prefs(context: Context) {
         set(v) { sp.edit().putBoolean("autoUpload", v).apply() }
 
     /**
-     * Set once the source folder has been recorded as pre-existing. Until then a pass would
-     * mistake the whole camera archive for new files and start uploading it.
+     * The folders the user chose to upload, with where each one goes. Empty until the
+     * feature is switched on, which seeds it with the camera folder.
      */
-    var autoUploadSeeded: Boolean
-        get() = sp.getBoolean("autoUploadSeeded", false)
-        set(v) { sp.edit().putBoolean("autoUploadSeeded", v).apply() }
+    var rules: List<Rule>
+        get() = Rule.listFromJson(sp.getString("autoUploadRules", null))
+        set(v) { sp.edit().putString("autoUploadRules", Rule.listToJson(v)).apply() }
 
-    /** Node id of the destination folder, cached so every pass does not re-create it. */
-    var autoUploadDestID: String?
-        get() = sp.getString("autoUploadDestID", null)
-        set(v) { sp.edit().putString("autoUploadDestID", v).apply() }
+    /** Adds a folder if it is not already covered; returns whether it was added. */
+    fun addRule(rule: Rule): Boolean {
+        val current = rules
+        if (current.any { it.sourcePath == rule.sourcePath }) return false
+        rules = current + rule
+        return true
+    }
+
+    fun removeRule(sourcePath: String) {
+        rules = rules.filterNot { it.sourcePath == sourcePath }
+    }
 
     var wifiOnly: Boolean
         get() = sp.getBoolean("wifiOnly", true)

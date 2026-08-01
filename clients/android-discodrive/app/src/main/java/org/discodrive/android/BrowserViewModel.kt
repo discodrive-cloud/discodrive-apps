@@ -20,6 +20,7 @@ import org.discodrive.android.autoupload.AutoUploadService
 import org.discodrive.android.autoupload.Block
 import org.discodrive.android.autoupload.Conditions
 import org.discodrive.android.autoupload.RunResult
+import org.discodrive.android.autoupload.Rule
 import org.discodrive.android.autoupload.UploadJournal
 import org.json.JSONArray
 import java.io.File
@@ -249,9 +250,33 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     fun startAutoUploadService() {
         val ctx = getApplication<Application>()
         prefs.autoUpload = true
+        ensureDefaultRule()
         AutoUploadService.start(ctx)
         _autoUpload.value = "service started — see the notification"
     }
+
+    /**
+     * The camera folder is what the app proposes when auto-upload is first switched on; the
+     * folder picker (next task) adds the rest. Adding it here rather than in the runner keeps
+     * "which folders" a stored user choice instead of something the pass assumes.
+     */
+    private fun ensureDefaultRule() {
+        if (prefs.rules.isEmpty()) prefs.addRule(AutoUploadRunner.defaultRule())
+    }
+
+    /** Folders currently set to upload, for the debug readout and the upcoming screen. */
+    fun autoUploadRules(): List<Rule> = prefs.rules
+
+    /** Adds a folder to auto-upload. Returns false when it is already covered. */
+    fun addAutoUploadFolder(path: String): Boolean {
+        val dir = File(path)
+        if (!dir.isDirectory) return false
+        return prefs.addRule(
+            Rule(sourcePath = dir.path, destSegments = AutoUploadRunner.defaultDestFor(dir))
+        )
+    }
+
+    fun removeAutoUploadFolder(path: String) = prefs.removeRule(path)
 
     /**
      * Runs one auto-upload pass in-process. Kept alongside the service path because it
@@ -261,6 +286,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         val b = browser ?: return
         val ctx = getApplication<Application>()
         viewModelScope.launch {
+            ensureDefaultRule()
             _autoUpload.value = "starting…"
             val result = withContext(Dispatchers.IO) {
                 val journal = UploadJournal(ctx)
