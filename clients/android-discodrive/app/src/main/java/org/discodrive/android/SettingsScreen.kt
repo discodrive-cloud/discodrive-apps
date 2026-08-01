@@ -73,6 +73,15 @@ fun SettingsScreen(vm: BrowserViewModel, onBack: () -> Unit) {
                 )
             }
             HorizontalDivider()
+            // Temporary: drives one auto-upload pass by hand for on-device verification.
+            // Replaced by the auto-upload screen's "Upload now" in the next task.
+            Column {
+                Text("Auto-upload (debug)", style = MaterialTheme.typography.labelLarge)
+                val status by vm.autoUploadStatus.collectAsState()
+                Button(onClick = { vm.runAutoUploadNow() }) { Text("Run auto-upload now") }
+                status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+            HorizontalDivider()
             Button(onClick = { unpairDialog = true }) { Text(stringResource(R.string.settings_unpair)) }
             Spacer(Modifier.weight(1f))
             Text(

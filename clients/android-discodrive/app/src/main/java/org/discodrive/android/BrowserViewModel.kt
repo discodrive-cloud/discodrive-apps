@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mobile.Browser
+import org.discodrive.android.autoupload.AutoUploadRunner
+import org.discodrive.android.autoupload.Block
+import org.discodrive.android.autoupload.Conditions
+import org.discodrive.android.autoupload.RunResult
+import org.discodrive.android.autoupload.UploadJournal
 import org.json.JSONArray
 import java.io.File
 
@@ -228,6 +233,45 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         browser = null
         prefs.clear()
         _ui.value = BrowseState()
+    }
+
+    // --- auto-upload (temporary manual trigger; the service and its screen land next) ---
+
+    private val _autoUpload = MutableStateFlow<String?>(null)
+    val autoUploadStatus: StateFlow<String?> = _autoUpload.asStateFlow()
+
+    /**
+     * Runs one auto-upload pass by hand so the flow can be verified on a real device before
+     * any background plumbing exists. Replaced by "Upload now" on the auto-upload screen.
+     */
+    fun runAutoUploadNow() {
+        val b = browser ?: return
+        val ctx = getApplication<Application>()
+        viewModelScope.launch {
+            _autoUpload.value = "starting…"
+            val result = withContext(Dispatchers.IO) {
+                val journal = UploadJournal(ctx)
+                try {
+                    val blocked = Conditions.check(ctx, prefs)
+                    if (blocked != Block.NONE) return@withContext RunResult(0, 0, 0, blocked = blocked)
+                    val runner = AutoUploadRunner(b, journal, prefs)
+                    val seeded = runner.seedIfNeeded()
+                    if (seeded > 0) {
+                        _autoUpload.value = "marked $seeded existing files as already handled"
+                    }
+                    runner.runOnce(progress = { done, total, name ->
+                        _autoUpload.value = "$done/$total · $name"
+                    })
+                } finally {
+                    journal.close()
+                }
+            }
+            _autoUpload.value = when {
+                result.error != null -> "error: ${result.error}"
+                result.blocked != Block.NONE -> "waiting: ${result.blocked}"
+                else -> "uploaded ${result.uploaded}, skipped ${result.skipped}, deferred ${result.deferred}"
+            }
+        }
     }
 }
 
