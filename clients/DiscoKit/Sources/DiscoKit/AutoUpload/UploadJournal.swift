@@ -124,6 +124,20 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
         }
     }
 
+    /// Forgets the "was already there" marks, turning the existing library back into work.
+    /// Uploaded and deferred rows are left alone: what already went up must not go again.
+    /// Returns how many photos are now waiting.
+    @discardableResult
+    public func unseed() throws -> Int {
+        try dbQueue.write { db in
+            let n = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM uploads WHERE state = ?",
+                                     arguments: [UploadState.skippedPreexisting.rawValue]) ?? 0
+            try db.execute(sql: "DELETE FROM uploads WHERE state = ?",
+                           arguments: [UploadState.skippedPreexisting.rawValue])
+            return n
+        }
+    }
+
     public func counts() throws -> JournalCounts {
         try dbQueue.read { db in
             func n(_ state: UploadState) throws -> Int {

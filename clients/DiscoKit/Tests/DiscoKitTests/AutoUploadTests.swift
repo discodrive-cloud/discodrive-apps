@@ -119,3 +119,27 @@ final class UploadJournalTests: XCTestCase {
         XCTAssertEqual(try j.attempts(assetID: "A1"), 0)
     }
 }
+
+/// Uploading the existing library is a deliberate, separate decision — the journal has to
+/// support taking it back without losing what already went up.
+final class UnseedTests: XCTestCase {
+
+    func testUnseedFreesPreexistingButKeepsSentAndDeferred() throws {
+        let j = try UploadJournal(dbQueue: try DatabaseQueue())
+        let now = Date()
+        try j.seedPreexisting([(id: "A1", modified: now), (id: "A2", modified: now)])
+        try j.markSent(assetID: "B1", modified: now, bytes: 1, sha: "H", serverName: "b.jpg")
+        try j.markDeferred(assetID: "C1", modified: now, error: "network")
+
+        let freed = try j.unseed()
+
+        XCTAssertEqual(freed, 2, "both pre-existing photos become work again")
+        XCTAssertFalse(try j.isKnown(assetID: "A1", modified: now))
+        XCTAssertTrue(try j.isKnown(assetID: "B1", modified: now),
+                      "an already-uploaded photo must not be uploaded a second time")
+        let counts = try j.counts()
+        XCTAssertEqual(counts.skipped, 0)
+        XCTAssertEqual(counts.sent, 1)
+        XCTAssertEqual(counts.deferred, 1)
+    }
+}

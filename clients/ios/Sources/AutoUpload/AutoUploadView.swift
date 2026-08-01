@@ -17,6 +17,8 @@ struct AutoUploadView: View {
     @State private var counts = JournalCounts(sent: 0, skipped: 0, deferred: 0)
     @State private var showLog = false
     @State private var accessDenied = false
+    @State private var askBackfill = false
+    @State private var queuedNote: String?
 
     private let settings = AutoUploadSettings.shared
 
@@ -62,6 +64,9 @@ struct AutoUploadView: View {
                     // zero and no hint of why.
                     Text(failure).font(.footnote).foregroundStyle(.red)
                 }
+                if let note = queuedNote {
+                    Text(note).font(.footnote).foregroundStyle(.secondary)
+                }
                 Text(app.t("au.stats")
                     .replacingOccurrences(of: "%1", with: "\(counts.sent)")
                     .replacingOccurrences(of: "%2", with: "\(counts.skipped)")
@@ -72,6 +77,10 @@ struct AutoUploadView: View {
                 }
                 .disabled(!enabled || service.running)
                 Button(app.t("au.log")) { showLog = true }
+                if counts.skipped > 0 {
+                    Button(app.t("au.backfill")) { askBackfill = true }
+                        .disabled(!enabled || service.running)
+                }
             } footer: {
                 Text(app.t("au.background")).font(.footnote)
             }
@@ -80,6 +89,18 @@ struct AutoUploadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { refresh() }
         .sheet(isPresented: $showLog) { LogView(entries: logEntries()) }
+        .alert(app.t("au.backfill"), isPresented: $askBackfill) {
+            Button(app.t("au.backfillStart")) {
+                Task {
+                    let queued = await service.uploadExistingPhotos()
+                    queuedNote = app.t("au.backfillQueued").replacingOccurrences(of: "%1", with: "\(queued)")
+                    refresh()
+                }
+            }
+            Button(app.t("dialog.cancel"), role: .cancel) {}
+        } message: {
+            Text(app.t("au.backfillAsk").replacingOccurrences(of: "%1", with: "\(counts.skipped)"))
+        }
     }
 
     private var blockedText: String? {

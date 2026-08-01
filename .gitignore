@@ -35,6 +35,7 @@ DerivedData/
 local.properties
 /clients/android-discodrive/app/build/
 /clients/android-fastsync/app/build/
+/clients/ios/build-device/
 
 /.superpowers/
 

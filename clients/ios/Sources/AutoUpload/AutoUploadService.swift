@@ -110,6 +110,26 @@ final class AutoUploadService: NSObject, ObservableObject {
         }
     }
 
+    /// Turns the photos that were marked "already there" back into work, then runs a pass.
+    ///
+    /// Seeding is what stops a phone from dumping years of pictures the moment the feature
+    /// is switched on — but wanting that archive on your own server is the whole point of
+    /// running one, so it has to be reachable on purpose. Returns how many photos were
+    /// queued.
+    @discardableResult
+    func uploadExistingPhotos() async -> Int {
+        guard let journal = try? openJournal() else { return 0 }
+        let queued = (try? journal.unseed()) ?? 0
+        guard queued > 0 else { return 0 }
+        await runPass()
+        return queued
+    }
+
+    /// How many photos are currently sitting as "already there".
+    func preexistingCount() -> Int {
+        (try? openJournal().counts().skipped) ?? 0
+    }
+
     // MARK: - Library observer
 
     private func startObserving() {

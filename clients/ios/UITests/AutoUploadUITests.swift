@@ -55,6 +55,41 @@ final class AutoUploadUITests: XCTestCase {
         return (numbers[0], numbers[1], numbers[2])
     }
 
+    /// Wanting the existing library on your own server is the point of running one, so the
+    /// archive that seeding set aside has to be reachable on purpose — and the photos that
+    /// already went up must not go a second time.
+    func test3_BackfillUploadsTheExistingLibrary() throws {
+        let app = launchApp()
+        let toggle = app.switches.firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 30))
+        XCTAssertEqual(toggle.value as? String, "1", "run the earlier phases first")
+
+        guard let before = counters(app) else { return XCTFail("counters never appeared") }
+        try XCTSkipIf(before.skipped == 0, "nothing is set aside — nothing to back-fill")
+
+        let backfill = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'existing' OR label CONTAINS[c] 'старые'")
+        ).firstMatch
+        XCTAssertTrue(backfill.waitForExistence(timeout: 15), "the back-fill button should be offered")
+        backfill.tap()
+
+        // The confirmation spells out the cost; accepting it is what starts the work.
+        let confirm = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Upload them' OR label CONTAINS[c] 'Загрузить'")
+        ).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        confirm.tap()
+
+        var after = before
+        let moved = waitUntil(timeout: 300) {
+            after = self.counters(app, timeout: 5) ?? after
+            return after.sent > before.sent && after.skipped == 0
+        }
+        print("PHASE3 sent \(before.sent) → \(after.sent), skipped \(before.skipped) → \(after.skipped), deferred \(after.deferred)")
+        XCTAssertTrue(moved, "the set-aside photos should have been uploaded")
+        XCTAssertEqual(after.deferred, 0, "nothing should fail in a clean back-fill")
+    }
+
     /// The screen has to be readable before anything is switched on — it is what a user sees
     /// first, and it needs no permission at all.
     func test0_ScreenRendersBeforeEnabling() throws {
