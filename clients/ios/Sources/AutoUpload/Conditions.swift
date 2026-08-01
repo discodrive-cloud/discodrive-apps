@@ -25,16 +25,22 @@ final class Conditions: @unchecked Sendable {
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "org.discodrive.conditions")
-    private var path: NWPath?
+    private var observed: NWPath?
 
     private init() {
-        monitor.pathUpdateHandler = { [weak self] p in self?.path = p }
+        monitor.pathUpdateHandler = { [weak self] p in self?.observed = p }
         monitor.start(queue: queue)
         DispatchQueue.main.async { UIDevice.current.isBatteryMonitoringEnabled = true }
     }
 
+    /// The handler fires asynchronously, so right after launch there is no observed path
+    /// yet — and treating that as "no network" made a pass started from a freshly opened
+    /// app do nothing at all. `currentPath` answers immediately.
+    private var path: NWPath { observed ?? monitor.currentPath }
+
     func check(wifiOnly: Bool, chargingOnly: Bool, requireBattery: Bool) -> UploadBlock {
-        guard let path, path.status == .satisfied else { return .noNetwork }
+        let path = self.path
+        guard path.status == .satisfied else { return .noNetwork }
         if wifiOnly && path.isExpensive { return .needsWiFi }
 
         let state = UIDevice.current.batteryState

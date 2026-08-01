@@ -57,6 +57,10 @@ struct AutoUploadView: View {
                     HStack { ProgressView(); Text(text).font(.footnote) }
                 } else if let blocked = blockedText {
                     Text(blocked).font(.footnote).foregroundStyle(.orange)
+                } else if let failure = service.lastResult?.error {
+                    // Without this a failed pass looks exactly like an idle one: counters at
+                    // zero and no hint of why.
+                    Text(failure).font(.footnote).foregroundStyle(.red)
                 }
                 Text(app.t("au.stats")
                     .replacingOccurrences(of: "%1", with: "\(counts.sent)")

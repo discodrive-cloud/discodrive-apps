@@ -35,9 +35,13 @@ final class AutoUploadService: NSObject, ObservableObject {
 
     func openJournal() throws -> UploadJournal {
         if let journal { return journal }
+        // The same folder AppState keeps its index in. Asking for "discodrive" instead of
+        // "DiscoDrive" looked harmless but failed with an I/O error: the filesystem is
+        // case-insensitive, so it is one directory, and creating it under the other spelling
+        // is not.
         let dir = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                               appropriateFor: nil, create: true)
-            .appendingPathComponent("discodrive", isDirectory: true)
+            .appendingPathComponent("DiscoDrive", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let j = try UploadJournal(path: dir.appendingPathComponent("autoupload.sqlite").path)
         journal = j
