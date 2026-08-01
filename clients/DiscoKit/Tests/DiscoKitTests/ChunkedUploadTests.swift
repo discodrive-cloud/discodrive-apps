@@ -160,3 +160,68 @@ final class ChunkedUploadTests: XCTestCase {
         XCTAssertEqual(srv.assembled, try Data(contentsOf: url))
     }
 }
+
+/// Deciding a name before uploading is what keeps auto-upload from overwriting: the server
+/// treats a same-named upload as a new version of the existing file.
+final class FolderListingTests: XCTestCase {
+
+    private func client(_ handler: @escaping @Sendable (URLRequest) -> (Int, [String: String], Data)) -> APIClient {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [MockURLProtocol.self]
+        MockURLProtocol.handler = handler
+        return APIClient(baseURL: URL(string: "https://example.test")!, deviceToken: "dt",
+                         session: URLSession(configuration: cfg))
+    }
+
+    func testListingCarriesHashesAndSizes() async throws {
+        let api = client { req in
+            func json(_ obj: Any, _ code: Int = 200) -> (Int, [String: String], Data) {
+                (code, ["Content-Type": "application/json"], try! JSONSerialization.data(withJSONObject: obj))
+            }
+            if req.url!.path.hasSuffix("/auth/device/token") { return json(["token": "jwt"]) }
+            return json([
+                ["id": "n1", "name": "IMG_1.jpg", "is_dir": false, "size": 12,
+                 "version": 1, "content_hash": "H1", "modified_at": "2019-07-14T10:30:00Z"],
+                ["id": "d1", "name": "sub", "is_dir": true, "version": 1, "modified_at": "2019-07-14T10:30:00Z"],
+            ])
+        }
+        let entries = try await api.listFolder(parentID: "p1")
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].contentHash, "H1")
+        XCTAssertEqual(entries[0].size, 12)
+        XCTAssertTrue(entries[1].isDir)
+    }
+
+    /// An existing folder must not cost a create call — a pass resolves its destination
+    /// every time it runs.
+    func testEnsureFolderReusesWhatIsThere() async throws {
+        let created = Locked(0)
+        let api = client { req in
+            func json(_ obj: Any, _ code: Int = 200) -> (Int, [String: String], Data) {
+                (code, ["Content-Type": "application/json"], try! JSONSerialization.data(withJSONObject: obj))
+            }
+            let path = req.url!.path
+            if path.hasSuffix("/auth/device/token") { return json(["token": "jwt"]) }
+            if path.hasSuffix("/files/folder") {
+                created.value += 1
+                return json(["id": "new1", "name": "Pixel", "is_dir": true, "version": 1], 201)
+            }
+            return json([["id": "d9", "name": "Camera Uploads", "is_dir": true, "version": 1,
+                          "modified_at": "2019-07-14T10:30:00Z"]])
+        }
+        let id = try await api.ensureFolder(parentID: nil, name: "Camera Uploads")
+        XCTAssertEqual(id, "d9")
+        XCTAssertEqual(created.value, 0, "an existing folder must not be re-created")
+    }
+}
+
+/// Tiny box so the mock handler can count calls without tripping Swift 6 concurrency.
+final class Locked<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: T
+    init(_ v: T) { stored = v }
+    var value: T {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); stored = newValue; lock.unlock() }
+    }
+}

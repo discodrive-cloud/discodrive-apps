@@ -196,6 +196,59 @@ public actor APIClient {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
+    // MARK: - Folder listing
+
+    /// One entry of a folder listing. Carries the hash, which is what lets a client ask
+    /// "is this file already here, byte for byte?" before uploading — the server takes a
+    /// same-named upload as a new version of whatever is there.
+    public struct FolderEntry: Decodable, Sendable {
+        public let id: String
+        public let name: String
+        public let isDir: Bool
+        public let size: Int64?
+        public let version: Int64
+        public let contentHash: String?
+        public let modifiedAt: Date?
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, size, version
+            case isDir = "is_dir"
+            case contentHash = "content_hash"
+            case modifiedAt = "modified_at"
+        }
+    }
+
+    /// Lists a folder (nil = storage root).
+    public func listFolder(parentID: String?) async throws -> [FolderEntry] {
+        let query = parentID.map { [URLQueryItem(name: "parent_id", value: $0)] } ?? []
+        let data = try await get(path: "files", query: query)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { d in
+            let raw = try d.singleValueContainer().decode(String.self)
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = f.date(from: raw) { return date }
+            f.formatOptions = [.withInternetDateTime]
+            return f.date(from: raw) ?? Date(timeIntervalSince1970: 0)
+        }
+        return try decoder.decode([FolderEntry].self, from: data)
+    }
+
+    /// Returns the id of the child folder called `name`, creating it when it is not there.
+    /// Idempotent: the common case (it exists) costs one listing and no writes.
+    public func ensureFolder(parentID: String?, name: String) async throws -> String {
+        if let existing = try await listFolder(parentID: parentID).first(where: { $0.isDir && $0.name == name }) {
+            return existing.id
+        }
+        var body: [String: Any] = ["name": name]
+        if let parentID { body["parent_id"] = parentID }
+        let data = try await send("POST", path: "files/folder",
+                                  body: try JSONSerialization.data(withJSONObject: body),
+                                  contentType: "application/json", ok: [200, 201])
+        struct Out: Decodable { let id: String }
+        return try JSONDecoder().decode(Out.self, from: data).id
+    }
+
     // MARK: - Chunked upload (/upload/*)
 
     /// An open upload session: where to send chunks, and which one the server wants next.
