@@ -45,10 +45,14 @@ struct DiscoDriveApp: App {
                         let r = await AutoUploadService.shared.runPass()
                         // A background launch swallows stdout, so the result goes to a file
                         // the harness can read out of the app container.
+                        // setEnabled already ran a pass, so `r` is the second one and
+                        // reads zero. The journal totals are what actually happened.
+                        let totals = try? AutoUploadService.shared.openJournal().counts()
                         let line = """
                         photos=\(status.rawValue) enabled=\(AutoUploadSettings.shared.enabled) \
-                        uploaded=\(r.uploaded) skipped=\(r.skipped) deferred=\(r.deferred) \
-                        blocked=\(r.blocked) error=\(r.error ?? "-")
+                        journal_sent=\(totals?.sent ?? -1) journal_skipped=\(totals?.skipped ?? -1) \
+                        journal_deferred=\(totals?.deferred ?? -1) \
+                        lastpass_blocked=\(r.blocked) lastpass_error=\(r.error ?? "-")
                         """
                         let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                             .appendingPathComponent("autoupload_result.txt")

@@ -80,6 +80,9 @@ final class AutoUploadService: NSObject, ObservableObject {
         guard let api = apiProvider?() else {
             return RunResult(error: "not paired")
         }
+        // Give the path monitor a moment before believing it: at launch it reports nothing
+        // for a beat, and calling that "no network" is how a pass silently did nothing.
+        await Conditions.shared.waitForPath()
         let blocked = Conditions.shared.check(wifiOnly: settings.wifiOnly,
                                               chargingOnly: settings.chargingOnly,
                                               requireBattery: settings.requireBattery)

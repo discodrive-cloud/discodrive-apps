@@ -33,10 +33,20 @@ final class Conditions: @unchecked Sendable {
         DispatchQueue.main.async { UIDevice.current.isBatteryMonitoringEnabled = true }
     }
 
-    /// The handler fires asynchronously, so right after launch there is no observed path
-    /// yet — and treating that as "no network" made a pass started from a freshly opened
-    /// app do nothing at all. `currentPath` answers immediately.
+    /// The handler fires asynchronously, and `currentPath` is not usable either until the
+    /// monitor has settled: a pass started from a freshly opened app read "no network" and
+    /// did nothing — the very moment a user is most likely to press Upload now.
     private var path: NWPath { observed ?? monitor.currentPath }
+
+    /// Waits briefly for the monitor to report a usable path. Callers that can await do so
+    /// before checking, which turns a false "no network" into a short pause.
+    func waitForPath(timeout: TimeInterval = 5) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if path.status == .satisfied { return }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
 
     func check(wifiOnly: Bool, chargingOnly: Bool, requireBattery: Bool) -> UploadBlock {
         let path = self.path
