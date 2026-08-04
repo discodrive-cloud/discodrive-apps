@@ -33,7 +33,7 @@ final class AutoUploadSettings: @unchecked Sendable {
         set { set(newValue, "autoUpload.seeded") }
     }
 
-    /// Node id of `/Camera Uploads/<device>`, cached so a pass does not re-resolve it.
+    /// Node id of `/DeviceUploads/<device>`, cached so a pass does not re-resolve it.
     var destID: String? {
         get { defaults.string(forKey: "autoUpload.destID") }
         set { set(newValue, "autoUpload.destID") }

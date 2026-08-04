@@ -206,10 +206,10 @@ final class FolderListingTests: XCTestCase {
                 created.value += 1
                 return json(["id": "new1", "name": "Pixel", "is_dir": true, "version": 1], 201)
             }
-            return json([["id": "d9", "name": "Camera Uploads", "is_dir": true, "version": 1,
+            return json([["id": "d9", "name": "DeviceUploads", "is_dir": true, "version": 1,
                           "modified_at": "2019-07-14T10:30:00Z"]])
         }
-        let id = try await api.ensureFolder(parentID: nil, name: "Camera Uploads")
+        let id = try await api.ensureFolder(parentID: nil, name: "DeviceUploads")
         XCTAssertEqual(id, "d9")
         XCTAssertEqual(created.value, 0, "an existing folder must not be re-created")
     }

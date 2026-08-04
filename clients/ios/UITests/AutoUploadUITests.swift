@@ -135,7 +135,7 @@ final class AutoUploadUITests: XCTestCase {
         let app = launchApp()
         XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS[c] 'Camera Uploads'")).firstMatch.exists,
+            NSPredicate(format: "label CONTAINS[c] 'DeviceUploads'")).firstMatch.exists,
             "the destination path should be visible up front")
     }
 

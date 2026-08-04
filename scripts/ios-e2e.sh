@@ -149,9 +149,9 @@ server, jwt = sys.argv[1], sys.argv[2]
 def get(path):
     req = urllib.request.Request(server + path, headers={"Authorization": "Bearer " + jwt})
     return json.load(urllib.request.urlopen(req))
-root = next((n for n in get("/files") if n["name"] == "Camera Uploads"), None)
+root = next((n for n in get("/files") if n["name"] == "DeviceUploads"), None)
 if not root:
-    print("  no Camera Uploads folder — nothing was uploaded")
+    print("  no DeviceUploads folder — nothing was uploaded")
     raise SystemExit
 for device in get(f"/files?parent_id={root['id']}"):
     print(f"  {device['name']}/")

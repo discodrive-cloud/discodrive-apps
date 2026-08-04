@@ -21,7 +21,7 @@ struct RunResult: Sendable {
 actor AutoUploadRunner {
 
     /// Destination on the server. The device name keeps two phones from mixing.
-    static let destRoot = "Camera Uploads"
+    static let destRoot = "DeviceUploads"
     static var deviceFolder: String {
         let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? "iPhone" : name
@@ -142,7 +142,7 @@ actor AutoUploadRunner {
         return result
     }
 
-    /// `/Camera Uploads/<device>`, created on first use and cached by node id afterwards.
+    /// `/DeviceUploads/<device>`, created on first use and cached by node id afterwards.
     private func resolveDestination() async throws -> String {
         if let cached = settings.destID { return cached }
         let root = try await api.ensureFolder(parentID: nil, name: Self.destRoot)

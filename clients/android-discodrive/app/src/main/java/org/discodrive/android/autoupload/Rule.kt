@@ -11,7 +11,7 @@ import java.io.File
  * app proposes first — nothing in the pass treats it specially.
  *
  * @param sourcePath absolute path of the folder on the phone, normalised (see [normalize])
- * @param destSegments folder names on the server, top-down, e.g. ["Camera Uploads", "Pixel 8"]
+ * @param destSegments folder names on the server, top-down, e.g. ["DeviceUploads", "Pixel 8"]
  * @param seeded whether the folder's existing contents have been recorded as pre-existing;
  *   until that has happened, switching a rule on would upload the whole archive
  * @param destID cached node id of the destination, so a pass does not re-resolve it

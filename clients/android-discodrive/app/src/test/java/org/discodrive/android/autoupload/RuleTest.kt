@@ -9,7 +9,7 @@ class RuleTest {
 
     private val camera = Rule(
         sourcePath = "/storage/emulated/0/DCIM/Camera",
-        destSegments = listOf("Camera Uploads", "Pixel 8"),
+        destSegments = listOf("DeviceUploads", "Pixel 8"),
     )
     private val downloads = Rule(
         sourcePath = "/storage/emulated/0/Download",
@@ -29,7 +29,7 @@ class RuleTest {
     @Test
     fun `labels read the way the UI shows them`() {
         assertEquals("Camera", camera.sourceLabel)
-        assertEquals("/Camera Uploads/Pixel 8", camera.destLabel)
+        assertEquals("/DeviceUploads/Pixel 8", camera.destLabel)
     }
 
     // Rules are user data: a corrupt preference must cost the folder list, not the app.

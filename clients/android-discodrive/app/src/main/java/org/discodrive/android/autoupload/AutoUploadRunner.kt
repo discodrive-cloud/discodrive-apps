@@ -29,7 +29,7 @@ class AutoUploadRunner(
     private val prefs: Prefs,
 ) {
     companion object {
-        const val DEST_ROOT = "Camera Uploads"
+        const val DEST_ROOT = "DeviceUploads"
 
         /** Falls back when the model is missing; also what the destination folder is named. */
         val deviceFolder: String

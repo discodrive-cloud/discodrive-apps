@@ -72,11 +72,11 @@ func TestBrowserMutations(t *testing.T) {
 func TestBrowserEnsureFolder(t *testing.T) {
 	created := 0
 	changes := `{"changes":[
-		{"seq":1,"op":"create","node_id":"d1","path":"Camera Uploads","is_dir":true,"version":1,"content_hash":"","size":0,"deleted":false},
+		{"seq":1,"op":"create","node_id":"d1","path":"DeviceUploads","is_dir":true,"version":1,"content_hash":"","size":0,"deleted":false},
 		{"seq":2,"op":"create","node_id":"f1","path":"taken.jpg","is_dir":false,"version":1,"content_hash":"H1","size":3,"deleted":false}
 	],"cursor":2,"has_more":false}`
 	after := `{"changes":[
-		{"seq":3,"op":"create","node_id":"d2","path":"Camera Uploads/Pixel 8","is_dir":true,"version":1,"content_hash":"","size":0,"deleted":false}
+		{"seq":3,"op":"create","node_id":"d2","path":"DeviceUploads/Pixel 8","is_dir":true,"version":1,"content_hash":"","size":0,"deleted":false}
 	],"cursor":3,"has_more":false}`
 
 	mux := http.NewServeMux()
@@ -107,7 +107,7 @@ func TestBrowserEnsureFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, err := b.EnsureFolder("", "Camera Uploads")
+	id, err := b.EnsureFolder("", "DeviceUploads")
 	if err != nil {
 		t.Fatalf("existing folder: %v", err)
 	}
