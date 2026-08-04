@@ -94,5 +94,9 @@
     <string name="au_blocked_battery">Батерија је прениска</string>
     <string name="au_blocked_network">Чека се веза</string>
     <string name="au_pick_folder">Изаберите фасциклу за отпремање</string>
+    <string name="au_backfill">Отпреми и постојеће датотеке</string>
+    <string name="au_backfill_ask">%1$d датотека већ је на телефону и прескочене су. Отпремити их сада? Уз велику архиву то траје — најбоље уз Wi-Fi и пуњач.</string>
+    <string name="au_backfill_start">Отпреми</string>
+    <string name="au_backfill_queued">У реду: %1$d</string>
     <string name="dialog_ok">У реду</string>
 </resources>

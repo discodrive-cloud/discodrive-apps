@@ -94,5 +94,9 @@
     <string name="au_blocked_battery">Батарея разряжена</string>
     <string name="au_blocked_network">Ожидание сети</string>
     <string name="au_pick_folder">Выберите папку для загрузки</string>
+    <string name="au_backfill">Загрузить и старые файлы</string>
+    <string name="au_backfill_ask">%1$d файлов уже есть на телефоне и помечены как пропущенные. Загрузить их сейчас? Для большого архива это надолго — лучше по Wi-Fi и на зарядке.</string>
+    <string name="au_backfill_start">Загрузить</string>
+    <string name="au_backfill_queued">В очереди: %1$d</string>
     <string name="dialog_ok">ОК</string>
 </resources>

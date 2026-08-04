@@ -94,5 +94,9 @@
     <string name="au_blocked_battery">Batería demasiado baja</string>
     <string name="au_blocked_network">Esperando conexión</string>
     <string name="au_pick_folder">Elige una carpeta para subir</string>
+    <string name="au_backfill">Subir también los archivos existentes</string>
+    <string name="au_backfill_ask">%1$d archivos ya están en el teléfono y se omitieron. ¿Subirlos ahora? Con un archivo grande lleva tiempo; mejor con Wi-Fi y cargando.</string>
+    <string name="au_backfill_start">Subirlos</string>
+    <string name="au_backfill_queued">%1$d archivos en cola</string>
     <string name="dialog_ok">OK</string>
 </resources>

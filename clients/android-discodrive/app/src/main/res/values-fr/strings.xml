@@ -94,5 +94,9 @@
     <string name="au_blocked_battery">Batterie trop faible</string>
     <string name="au_blocked_network">En attente de connexion</string>
     <string name="au_pick_folder">Choisir un dossier à envoyer</string>
+    <string name="au_backfill">Envoyer aussi les fichiers existants</string>
+    <string name="au_backfill_ask">%1$d fichiers sont déjà sur ce téléphone et ont été ignorés. Les envoyer maintenant ? Sur une grande archive, c\'est long — de préférence en Wi-Fi et branché.</string>
+    <string name="au_backfill_start">Les envoyer</string>
+    <string name="au_backfill_queued">%1$d fichiers en file</string>
     <string name="dialog_ok">OK</string>
 </resources>

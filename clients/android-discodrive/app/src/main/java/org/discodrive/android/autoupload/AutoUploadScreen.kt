@@ -28,6 +28,7 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsState()
     var picking by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
+    var askBackfill by remember { mutableStateOf(false) }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -96,11 +97,24 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
                     stringResource(R.string.au_stats, state.sent, state.skipped, state.deferred),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                state.queued?.let {
+                    Text(
+                        stringResource(R.string.au_backfill_queued, it),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { vm.uploadNow() }, enabled = state.enabled) {
                         Text(stringResource(R.string.au_upload_now))
                     }
                     TextButton(onClick = { showLog = true }) { Text(stringResource(R.string.au_log)) }
+                }
+                // Only worth offering while something is actually set aside — otherwise the
+                // button would promise an archive upload and then do nothing.
+                if (state.skipped > 0) {
+                    TextButton(onClick = { askBackfill = true }, enabled = state.enabled) {
+                        Text(stringResource(R.string.au_backfill))
+                    }
                 }
                 Text(stringResource(R.string.au_ios_hint), style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(24.dp))
@@ -117,6 +131,21 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
     }
     if (showLog) {
         LogDialog(entries = vm.log(), onDismiss = { showLog = false })
+    }
+    if (askBackfill) {
+        AlertDialog(
+            onDismissRequest = { askBackfill = false },
+            title = { Text(stringResource(R.string.au_backfill)) },
+            text = { Text(stringResource(R.string.au_backfill_ask, state.skipped)) },
+            confirmButton = {
+                TextButton(onClick = { askBackfill = false; vm.uploadExistingFiles() }) {
+                    Text(stringResource(R.string.au_backfill_start))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { askBackfill = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
 }
 

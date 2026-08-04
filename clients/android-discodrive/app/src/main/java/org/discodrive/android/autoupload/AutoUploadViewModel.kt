@@ -28,6 +28,8 @@ data class AutoUploadState(
     val blocked: String? = null,
     /** Progress line while a pass runs in-process; null when idle. */
     val running: String? = null,
+    /** How many pre-existing files the last backfill queued; null until one is asked for. */
+    val queued: Int? = null,
 )
 
 class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
@@ -130,6 +132,25 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             kotlinx.coroutines.delay(3000)
             reload()
+        }
+    }
+
+    /**
+     * Turns the files recorded as pre-existing back into work, then runs a pass.
+     *
+     * Seeding is what stops a phone from pushing years of files over mobile data the moment
+     * the feature is switched on — but getting exactly that archive onto your own server is
+     * the reason to run one, so it has to be reachable on purpose.
+     */
+    fun uploadExistingFiles() {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch {
+            val queued = withContext(Dispatchers.IO) {
+                val j = UploadJournal(ctx)
+                try { j.unseed() } finally { j.close() }
+            }
+            _state.value = _state.value.copy(queued = queued)
+            if (queued > 0) uploadNow() else reload()
         }
     }
 

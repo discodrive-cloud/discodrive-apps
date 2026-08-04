@@ -116,5 +116,9 @@
     <string name="au_blocked_battery">Battery too low</string>
     <string name="au_blocked_network">Waiting for a connection</string>
     <string name="au_pick_folder">Pick a folder to upload</string>
+    <string name="au_backfill">Upload existing files too</string>
+    <string name="au_backfill_ask">%1$d files are already on this phone and were marked as skipped. Upload them now? On a large archive this takes a while and is best left on Wi-Fi and power.</string>
+    <string name="au_backfill_start">Upload them</string>
+    <string name="au_backfill_queued">%1$d files queued</string>
     <string name="dialog_ok">OK</string>
 </resources>

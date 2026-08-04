@@ -94,5 +94,9 @@
     <string name="au_blocked_battery">Akku zu schwach</string>
     <string name="au_blocked_network">Warte auf Verbindung</string>
     <string name="au_pick_folder">Ordner zum Hochladen wählen</string>
+    <string name="au_backfill">Auch vorhandene Dateien hochladen</string>
+    <string name="au_backfill_ask">%1$d Dateien liegen bereits auf dem Telefon und wurden übersprungen. Jetzt hochladen? Bei einem großen Archiv dauert das; am besten mit WLAN und Strom.</string>
+    <string name="au_backfill_start">Hochladen</string>
+    <string name="au_backfill_queued">%1$d Dateien in der Warteschlange</string>
     <string name="dialog_ok">OK</string>
 </resources>

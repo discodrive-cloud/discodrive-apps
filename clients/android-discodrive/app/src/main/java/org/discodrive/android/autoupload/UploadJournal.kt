@@ -98,6 +98,27 @@ class UploadJournal(context: Context) {
         }
     }
 
+    /**
+     * Forgets the "was already there" marks, turning the existing archive back into work.
+     * Sent and deferred rows are left alone: what already went up must not go again, so
+     * asking for the archive cannot send anything twice.
+     *
+     * Returns how many files are now waiting.
+     */
+    fun unseed(): Int {
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val n = db.rawQuery("SELECT COUNT(*) FROM sent WHERE state=?", arrayOf(STATE_SKIPPED))
+                .use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+            db.delete("sent", "state=?", arrayOf(STATE_SKIPPED))
+            db.setTransactionSuccessful()
+            return n
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun counts(): JournalCounts {
         fun n(state: String) = helper.readableDatabase.rawQuery(
             "SELECT COUNT(*) FROM sent WHERE state=?", arrayOf(state),
