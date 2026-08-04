@@ -42,15 +42,36 @@ func PairInit(ctx context.Context, serverURL, name, kind string) (Pairing, error
 	return Pairing(out), nil
 }
 
+// pairPollNetGrace is how long PairPoll keeps polling while every request fails at the
+// network layer. Pairing asks the user to leave for a browser, and an app that is no longer
+// in the foreground loses its sockets ("software caused connection abort") — treating the
+// first such failure as fatal aborted the very pairing the user had gone off to approve.
+// Any successful response resets the window, so only an unbroken run this long gives up
+// (a server that is simply unreachable, rather than an app that was backgrounded).
+// A var, not a const, so the tests can shorten it.
+var pairPollNetGrace = 2 * time.Minute
+
 func PairPoll(ctx context.Context, serverURL, deviceCode string, interval time.Duration) (string, error) {
+	var netErrSince time.Time
 	for {
 		body, _ := json.Marshal(map[string]string{"device_code": deviceCode})
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/pair/token", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := defaultHTTPClient().Do(req)
 		if err != nil {
-			return "", err
+			if netErrSince.IsZero() {
+				netErrSince = time.Now()
+			} else if time.Since(netErrSince) >= pairPollNetGrace {
+				return "", err
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(interval):
+			}
+			continue
 		}
+		netErrSince = time.Time{}
 		var out struct {
 			Status      string `json:"status"`
 			DeviceToken string `json:"device_token"`

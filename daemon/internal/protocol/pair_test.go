@@ -46,6 +46,45 @@ func TestPairInitAndPoll(t *testing.T) {
 	}
 }
 
+// A backgrounded app loses its sockets while the user is off approving the pairing in a
+// browser. Those failures must not end the pairing — polling has to resume once the app
+// is back in the foreground.
+func TestPairPollSurvivesDroppedConnections(t *testing.T) {
+	var polls int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pair/token", func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&polls, 1) < 3 {
+			panic(http.ErrAbortHandler) // drop the connection without a response
+		}
+		json.NewEncoder(w).Encode(map[string]any{"status": "approved", "device_token": "kfd_xyz"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tok, err := PairPoll(context.Background(), srv.URL, "dc", 5*time.Millisecond)
+	if err != nil || tok != "kfd_xyz" {
+		t.Fatalf("poll: tok=%q err=%v", tok, err)
+	}
+}
+
+// The retry above must not hang forever on a server that is genuinely unreachable.
+func TestPairPollGivesUpOnSustainedNetworkFailure(t *testing.T) {
+	restore := pairPollNetGrace
+	pairPollNetGrace = 30 * time.Millisecond
+	defer func() { pairPollNetGrace = restore }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pair/token", func(w http.ResponseWriter, r *http.Request) {
+		panic(http.ErrAbortHandler)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	if _, err := PairPoll(context.Background(), srv.URL, "dc", 5*time.Millisecond); err == nil {
+		t.Fatalf("expected an error once the grace window elapsed")
+	}
+}
+
 func TestPairPollExpired(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pair/token", func(w http.ResponseWriter, r *http.Request) {
