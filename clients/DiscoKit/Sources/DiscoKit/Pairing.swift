@@ -30,14 +30,35 @@ public struct Pairing: Sendable {
                            verificationURI: o.verification_uri, interval: o.interval)
     }
 
-    public func poll(deviceCode: String, interval: Duration) async throws -> String {
+    /// Waits for the user to approve the code, returning the device token.
+    ///
+    /// `networkGrace` is how long polling continues while every request fails at the network
+    /// layer. Approving means leaving for a browser, so the app stops being in the foreground
+    /// and loses its connections — treating the first such failure as fatal ended the very
+    /// pairing the user had gone off to approve. Any answered request resets the window, so
+    /// only an unbroken run of failures — a server that is genuinely unreachable rather than
+    /// an app that was backgrounded — gives up.
+    public func poll(deviceCode: String, interval: Duration,
+                     networkGrace: Duration = .seconds(120)) async throws -> String {
         struct Out: Decodable { let status: String; let device_token: String? }
+        let clock = ContinuousClock()
+        var failingSince: ContinuousClock.Instant?
         while true {
             var req = URLRequest(url: baseURL.appendingPathComponent("pair/token"))
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONEncoder().encode(["device_code": deviceCode])
-            let (data, _) = try await session.data(for: req)
+            let data: Data
+            do {
+                data = try await session.data(for: req).0
+            } catch let error as URLError {
+                let since = failingSince ?? clock.now
+                failingSince = since
+                if clock.now - since >= networkGrace { throw error }
+                try await Task.sleep(for: interval)
+                continue
+            }
+            failingSince = nil
             let o = try JSONDecoder().decode(Out.self, from: data)
             switch o.status {
             case "approved": return o.device_token ?? ""

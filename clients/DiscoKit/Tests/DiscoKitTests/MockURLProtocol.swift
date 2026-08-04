@@ -28,8 +28,17 @@ final class MockURLProtocol: URLProtocol {
         return out
     }
 
+    // Fails the request at the network layer instead of answering it. Returning nil falls
+    // through to `handler`. Lets a test reproduce a connection dropped under it — what an
+    // app that is no longer in the foreground sees.
+    nonisolated(unsafe) static var failure: ((URLRequest) -> Error?)?
+
     override func startLoading() {
         MockURLProtocol.lastBody = MockURLProtocol.payload(of: request)
+        if let error = MockURLProtocol.failure?(request) {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
         guard let handler = MockURLProtocol.handler else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
         }
