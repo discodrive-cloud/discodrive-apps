@@ -38,6 +38,7 @@ data class BrowseState(
 class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
     private var browser: Browser? = null
+    private var autoOpenTried = false
 
     private val _ui = MutableStateFlow(BrowseState())
     val ui: StateFlow<BrowseState> = _ui.asStateFlow()
@@ -49,11 +50,18 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
 
     fun hasStoragePermission(): Boolean = Environment.isExternalStorageManager()
 
+    /**
+     * onResume calls this on every return to the app — including the return from the pairing
+     * browser. Retrying the auto-open there overwrote the pairing error on screen with its own
+     * failure (a stale token reads as "device token exchange: 401"), hiding why pairing failed.
+     * One attempt per stored token is enough; [pair] and [unpair] clear the latch.
+     */
     fun refreshAfterPermission() {
-        val token = prefs.deviceToken
-        if (browser == null && token != null && prefs.serverURL.isNotEmpty() && hasStoragePermission()) {
-            openBrowser(prefs.serverURL, token, prefs.insecure)
-        }
+        if (browser != null || autoOpenTried) return
+        val token = prefs.deviceToken ?: return
+        if (prefs.serverURL.isEmpty() || !hasStoragePermission()) return
+        autoOpenTried = true
+        openBrowser(prefs.serverURL, token, prefs.insecure)
     }
 
     private fun openBrowser(server: String, token: String, insecure: Boolean) {
@@ -87,6 +95,13 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                 openUrl(p.verificationURL)
                 val token = withContext(Dispatchers.IO) { Core.pairAwait(server, p.deviceCode, p.intervalSeconds, insecure) }
                 prefs.serverURL = server; prefs.insecure = insecure; prefs.deviceToken = token
+                // The process-wide holder may still carry a Browser built on the previous
+                // device token — opening one performs no request, so a dead token lives in it
+                // until something asks the server. Left alone it 401s straight through a
+                // successful re-pairing, for the rest of the process's life.
+                withContext(Dispatchers.IO) { BrowserHolder.close() }
+                browser = null
+                autoOpenTried = false
                 _ui.value = _ui.value.copy(pendingUserCode = null)
                 openBrowser(server, token, insecure)
             } catch (e: Exception) {
@@ -233,6 +248,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         AutoUploadWorker.cancel(getApplication())
         BrowserHolder.close()
         browser = null
+        autoOpenTried = false
         prefs.clear()
         _ui.value = BrowseState()
     }
