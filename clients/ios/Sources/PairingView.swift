@@ -11,7 +11,8 @@ struct PairingView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "opticaldisc").font(.system(size: 52)).foregroundStyle(.tint)
+            // The artwork the Android client uses, rather than an SF Symbol standing in for it.
+            Image("DiscLogo").resizable().scaledToFit().frame(width: 96, height: 96)
             Text(app.t("pair.title")).font(.title2.bold())
             TextField("https://files.example.com", text: $serverString)
                 .textFieldStyle(.roundedBorder)
