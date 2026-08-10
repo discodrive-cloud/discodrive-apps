@@ -14,12 +14,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path"
+	"runtime"
 	"strings"
 )
 
-// reserved maps each character no filesystem in play accepts to a look-alike that they all do.
-// The path separator is deliberately absent: it is structure, not content.
-var reserved = map[rune]rune{
+// restricted maps each character the restrictive filesystems reject to a look-alike they
+// accept. The path separator is deliberately absent: it is structure, not content.
+var restricted = map[rune]rune{
 	'"':  '＂',
 	'*':  '＊',
 	':':  '：',
@@ -28,6 +29,26 @@ var reserved = map[rune]rune{
 	'?':  '？',
 	'\\': '＼',
 	'|':  '｜',
+}
+
+// reserved is what this platform actually rejects. A var so tests can set it.
+var reserved = platformReserved()
+
+// platformReserved returns the substitutions this platform needs.
+//
+// Only Android's storage (FUSE with FAT semantics) and Windows reject these characters. APFS,
+// ext4 and the rest take all of them, and rewriting names there would be worse than useless:
+// files already synced under their real names would be renamed on the next pass, on every
+// machine that updated. Whatever a platform does, the name on the server is left alone, so a
+// note written on a Mac still arrives on a phone — under a look-alike name there, and its own
+// name everywhere else.
+func platformReserved() map[rune]rune {
+	switch runtime.GOOS {
+	case "android", "windows":
+		return restricted
+	default:
+		return nil
+	}
 }
 
 // Localize returns the path to use on disk for a server path. Paths that are already

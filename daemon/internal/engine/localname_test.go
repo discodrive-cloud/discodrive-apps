@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"discodrive.org/daemon/internal/localname"
 )
 
 // Server paths may contain characters the local filesystem rejects — Android's storage and
@@ -23,9 +25,10 @@ func TestPullPlacesRejectedNameUnderALocalisedOne(t *testing.T) {
 		t.Fatalf("PullOnce: %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(root, "notes", "worth it？.md"))
+	local := localname.Localize("notes/worth it?.md")
+	got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(local)))
 	if err != nil || string(got) != "note" {
-		t.Fatalf("localised file: %q err=%v", got, err)
+		t.Fatalf("file at %q: %q err=%v", local, got, err)
 	}
 	n, ok, err := e.idx.Get("n1")
 	if err != nil || !ok {
@@ -34,8 +37,8 @@ func TestPullPlacesRejectedNameUnderALocalisedOne(t *testing.T) {
 	if n.RelPath != "notes/worth it?.md" {
 		t.Errorf("RelPath = %q, the server name must be kept as-is", n.RelPath)
 	}
-	if n.LocalPath != "notes/worth it？.md" {
-		t.Errorf("LocalPath = %q", n.LocalPath)
+	if n.LocalPath != local {
+		t.Errorf("LocalPath = %q, want %q", n.LocalPath, local)
 	}
 }
 
@@ -83,8 +86,9 @@ func TestSweepOrphansKeepsLocalisedNames(t *testing.T) {
 	if err := e.sweepOrphans(); err != nil {
 		t.Fatalf("sweepOrphans: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "notes", "worth it？.md")); err != nil {
-		t.Fatalf("localised file was swept away: %v", err)
+	local := filepath.FromSlash(localname.Localize("notes/worth it?.md"))
+	if _, err := os.Stat(filepath.Join(root, local)); err != nil {
+		t.Fatalf("file was swept away: %v", err)
 	}
 }
 
@@ -102,10 +106,10 @@ func TestRenameBetweenLocalisedNames(t *testing.T) {
 	if err := e.PullOnce(context.Background()); err != nil {
 		t.Fatalf("PullOnce: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "b？.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, localname.Localize("b?.md"))); err != nil {
 		t.Fatalf("renamed file missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "a？.md")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, localname.Localize("a?.md"))); err == nil {
 		t.Error("old name still on disk")
 	}
 }
