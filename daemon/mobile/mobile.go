@@ -5,6 +5,7 @@ package mobile
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"time"
@@ -61,7 +62,11 @@ func PairAwait(serverURL, deviceCode string, intervalSeconds int, insecureTLS bo
 
 // Status is a snapshot the app renders. The state machine is driven by SyncOnce.
 type Status struct {
-	State        string // "idle" | "syncing" | "offline"
+	// State is "idle" | "syncing" | "offline" | "error". "offline" means the server could
+	// not be reached; "error" means it could, and the pass failed for another reason —
+	// reporting those as "offline" too sent people looking at their connection when the
+	// real problem was a file that could not be written.
+	State        string
 	LastSyncUnix int64  // 0 if never synced successfully
 	LastError    string // last SyncOnce error text, "" if none
 }
@@ -87,10 +92,41 @@ func New(serverURL, deviceToken, syncDir, stateDBPath string, insecureTLS bool) 
 	if err != nil {
 		return nil, err
 	}
+	// An index built against another server describes files this one never had. Applying it
+	// would push their absence as deletions, so start over instead — the desktop client has
+	// guarded this since the unpair rework; the mobile one had not.
+	if stored, serr := idx.ServerURL(); serr == nil && stored != "" && stored != serverURL {
+		if err := idx.Clear(); err != nil {
+			idx.Close()
+			return nil, err
+		}
+	}
+	if err := idx.SetServerURL(serverURL); err != nil {
+		idx.Close()
+		return nil, err
+	}
 	client := protocol.New(serverURL, deviceToken)
 	eng := engine.New(client, idx, syncDir)
 	return &Client{client: client, eng: eng, idx: idx, status: Status{State: "idle"}}, nil
 }
+
+// BulkDeleteMarker appears in the error text when a pass refused to delete a large share of
+// the synced files. gomobile flattens Go errors to plain exceptions, so the message is all
+// that survives the boundary — the app matches on this to offer confirmation.
+const BulkDeleteMarker = "refusing to delete"
+
+// ConfirmBulkDelete lets the next pass carry deletions the safety check stopped. Call it only
+// after the user has been told how many files it is about, and what they are.
+func (c *Client) ConfirmBulkDelete() { c.eng.ConfirmBulkDelete() }
+
+// ResetLocalIndex forgets what this device knows about the server's tree, so the next pass
+// fetches all of it again. Nothing on the server is touched and nothing local is deleted.
+//
+// This is the other answer to a sync stopped by the mass-deletion check, and usually the right
+// one: the folder went missing rather than the files being deleted, so the fix is to rebuild
+// the local copy, not to make the server match a mirror that no longer exists. Files still
+// present on disk are uploaded as new ones by the pass that follows.
+func (c *Client) ResetLocalIndex() error { return c.idx.Clear() }
 
 // SyncOnce runs one sync pass. Blocks; call off the UI thread. Concurrent calls serialize.
 func (c *Client) SyncOnce() error {
@@ -103,7 +139,7 @@ func (c *Client) SyncOnce() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err != nil {
-		c.status.State = "offline"
+		c.status.State = syncState(err)
 		c.status.LastError = err.Error()
 		return err
 	}
@@ -132,6 +168,19 @@ func (c *Client) syncPass(ctx context.Context) error {
 		return err
 	}
 	return c.eng.PullOnce(ctx)
+}
+
+// syncState classifies a failed pass for the UI. A pass that fell over writing to disk — a
+// name the filesystem rejects, no space, no permission — has nothing to do with the network,
+// and calling it "offline" sent people checking their connection while the real reason sat in
+// the error text right below it.
+func syncState(err error) string {
+	var pathErr *os.PathError
+	var linkErr *os.LinkError
+	if errors.As(err, &pathErr) || errors.As(err, &linkErr) {
+		return "error"
+	}
+	return "offline"
 }
 
 // Status returns a copy of the tracked state.

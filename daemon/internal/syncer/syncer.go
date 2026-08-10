@@ -26,6 +26,11 @@ func New(client *protocol.Client, eng *engine.Engine, root string, statusPath st
 	return &Syncer{client: client, eng: eng, root: root, statusPath: statusPath}
 }
 
+// ConfirmBulkDelete lets the next pass carry deletions the mass-deletion guard would stop.
+// The daemon exposes it as `run -confirm-bulk-delete`, for when the folder really was emptied
+// on purpose; without it a lost mirror would take the server's copy down with it.
+func (s *Syncer) ConfirmBulkDelete() { s.eng.ConfirmBulkDelete() }
+
 // SyncOnce runs a single pass. First it checks the server's scope epoch: if it differs from
 // what we last reconciled to, the user changed their sync scope, so we reconcile (wipe + fresh
 // pull + sweep orphans) and skip push this pass — local files were mapped to the old scope and

@@ -88,6 +88,15 @@ var catalog = map[string]map[string]string{
 		"sr": "покренути у позадини, одвојити од конзоле (лог се пише у фајл)",
 		"de": "im Hintergrund ausführen, von der Konsole lösen (Log wird in Datei geschrieben)",
 	},
+	"flag_confirm_bulk_delete": {
+		"en": "allow one pass to delete a large share of the synced files (the guard stops it otherwise)",
+		"ru": "разрешить одному проходу удалить большую часть синхронизированных файлов (иначе защита его остановит)",
+		"uk": "дозволити одному проходу видалити більшу частину синхронізованих файлів (інакше захист його зупинить)",
+		"fr": "autoriser un passage à supprimer une grande partie des fichiers synchronisés (sinon la protection l'arrête)",
+		"es": "permitir que una pasada elimine una gran parte de los archivos sincronizados (si no, la protección la detiene)",
+		"sr": "дозволити једном пролазу да обрише велики део синхронизованих фајлова (иначе га заштита зауставља)",
+		"de": "einem Durchlauf erlauben, einen großen Teil der synchronisierten Dateien zu löschen (sonst stoppt die Schutzprüfung ihn)",
+	},
 	"flag_foreground": {
 		"en": "stay in the foreground (default when not started from a console)",
 		"ru": "остаться на переднем плане (по умолчанию при запуске не из консоли)",

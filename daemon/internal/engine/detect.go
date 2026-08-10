@@ -35,12 +35,17 @@ func (e *Engine) DetectLocal() ([]LocalChange, error) {
 	}
 	seen := make(map[string]bool, len(knownNodes))
 	type prev struct {
-		hash  string
-		isDir bool
+		hash    string
+		isDir   bool
+		relPath string
 	}
+	// Keyed on where the node actually is on disk, which differs from its server path when
+	// that path holds characters the filesystem rejects. Keyed on the server path instead,
+	// a localized file read as a brand-new one and its server name as deleted — the push
+	// would have uploaded a duplicate and removed the original.
 	idxByPath := make(map[string]prev, len(knownNodes))
 	for _, n := range knownNodes {
-		idxByPath[n.RelPath] = prev{n.ContentHash, n.IsDir}
+		idxByPath[n.LocalPath] = prev{n.ContentHash, n.IsDir, n.RelPath}
 	}
 
 	var out []LocalChange
@@ -66,9 +71,15 @@ func (e *Engine) DetectLocal() ([]LocalChange, error) {
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		rel := filepath.ToSlash(mustRel(e.root, p))
-		seen[rel] = true
-		known, ok := idxByPath[rel]
+		local := filepath.ToSlash(mustRel(e.root, p))
+		seen[local] = true
+		known, ok := idxByPath[local]
+		// A known file reports the server's name for itself; a file the index has never
+		// seen goes up under the name it carries on disk.
+		rel := local
+		if ok {
+			rel = known.relPath
+		}
 		if d.IsDir() {
 			if !ok {
 				out = append(out, LocalChange{Op: "create", RelPath: rel, IsDir: true})
@@ -91,7 +102,7 @@ func (e *Engine) DetectLocal() ([]LocalChange, error) {
 		return nil, err
 	}
 	for _, n := range knownNodes {
-		if !seen[n.RelPath] {
+		if !seen[n.LocalPath] {
 			// Hash comes from the index so PushLocal can pair this delete with a
 			// same-content create into a move.
 			out = append(out, LocalChange{Op: "delete", RelPath: n.RelPath, IsDir: n.IsDir, Hash: n.ContentHash, Size: n.Size})

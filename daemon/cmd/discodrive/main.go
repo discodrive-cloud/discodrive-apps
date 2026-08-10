@@ -104,6 +104,11 @@ func cmdRun(args []string) {
 	cfgPath := fs.String("config", mustDefaultCfgPath(), i18n.T("flag_config"))
 	detach := fs.Bool("detach", false, i18n.T("flag_detach"))
 	foreground := fs.Bool("foreground", false, i18n.T("flag_foreground"))
+	// Escape hatch for the mass-deletion guard: a sync that would remove a large share of the
+	// synced files stops instead, since an emptied folder is far more often a lost mirror
+	// (an unmounted disk, a folder moved, a reinstall onto a surviving index) than an intent.
+	// This lets one run through, for when it really was intended.
+	confirmBulkDelete := fs.Bool("confirm-bulk-delete", false, i18n.T("flag_confirm_bulk_delete"))
 	_ = fs.Parse(args)
 	release, proceed := maybeDaemonize("run", *cfgPath, *detach, *foreground)
 	if !proceed {
@@ -115,6 +120,9 @@ func cmdRun(args []string) {
 		fatal(fmt.Sprintf(i18n.T("run_init_error"), err))
 	}
 	defer cleanup()
+	if *confirmBulkDelete {
+		s.ConfirmBulkDelete()
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

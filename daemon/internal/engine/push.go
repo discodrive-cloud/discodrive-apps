@@ -74,6 +74,61 @@ func pairLocalMoves(changes []LocalChange) []LocalChange {
 }
 
 // PushLocal detects local changes and uploads them via sink, updating the index.
+// bulkDeleteFraction is the share of the index whose disappearance stops a push, and
+// bulkDeleteFloor is the number of deletions below which the check does not apply at all.
+//
+// A sync folder that lost its contents is indistinguishable from one the user emptied on
+// purpose: a reinstall that kept the index, a disk that did not mount, a folder moved by hand.
+// Pushing that deletes the same files on the server — which is exactly how a re-paired phone,
+// sitting on an index that outlived its files, wiped an entire vault. The floor keeps the
+// check out of the way of small folders, where clearing three files of three is plainly meant.
+const (
+	bulkDeleteFraction = 0.20
+	bulkDeleteFloor    = 10
+)
+
+// BulkDeleteError reports a push stopped because it would have deleted too much. Nothing was
+// sent. Call [Engine.ConfirmBulkDelete] to let the next push through if the deletions are real.
+type BulkDeleteError struct {
+	Deletions int // how many nodes would have been deleted
+	Known     int // how many the index held
+}
+
+func (e *BulkDeleteError) Error() string {
+	return fmt.Sprintf(
+		"refusing to delete %d of %d synced items: the local folder looks emptied rather than edited; "+
+			"confirm if this is intended", e.Deletions, e.Known)
+}
+
+// ConfirmBulkDelete lets the next push carry deletions past the safety threshold. It applies
+// once: the confirmation is spent whether or not that push turns out to contain any.
+func (e *Engine) ConfirmBulkDelete() { e.bulkDeleteConfirmed = true }
+
+// guardBulkDelete stops a push that would remove a large share of what the index knows,
+// unless the user has just confirmed it. Nothing is sent when it refuses.
+func (e *Engine) guardBulkDelete(changes []LocalChange) error {
+	confirmed := e.bulkDeleteConfirmed
+	e.bulkDeleteConfirmed = false
+
+	deletions := 0
+	for _, c := range changes {
+		if c.Op == "delete" {
+			deletions++
+		}
+	}
+	if deletions < bulkDeleteFloor || confirmed {
+		return nil
+	}
+	known, err := e.idx.All()
+	if err != nil {
+		return err
+	}
+	if len(known) == 0 || float64(deletions) <= float64(len(known))*bulkDeleteFraction {
+		return nil
+	}
+	return &BulkDeleteError{Deletions: deletions, Known: len(known)}
+}
+
 func (e *Engine) PushLocal(ctx context.Context, sink Sink) error {
 	changes, err := e.DetectLocal()
 	if err != nil {
@@ -82,6 +137,12 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) error {
 	mover, canMove := sink.(MoveSink)
 	if canMove {
 		changes = pairLocalMoves(changes)
+	}
+	// Counted after pairing moves: a file that moved is a delete plus a create, and pairing
+	// turns it back into the move it was, so a reorganised folder is not mistaken for a
+	// gutted one.
+	if err := e.guardBulkDelete(changes); err != nil {
+		return err
 	}
 	// Creates go first (parents before children), then moves (their target parents
 	// now exist server-side), deletes last (a moved-out old dir is deleted only

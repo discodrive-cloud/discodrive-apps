@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"discodrive.org/daemon/internal/index"
+	"discodrive.org/daemon/internal/localname"
 	"discodrive.org/daemon/internal/protocol"
 	"discodrive.org/daemon/internal/safepath"
 )
@@ -48,6 +49,18 @@ func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath string, insecure bo
 	if err != nil {
 		return nil, err
 	}
+	// An index built against another server lists files this one does not have; showing them
+	// would be a lie, and every open of one would 404.
+	if stored, serr := idx.ServerURL(); serr == nil && stored != "" && stored != serverURL {
+		if err := idx.Clear(); err != nil {
+			idx.Close()
+			return nil, err
+		}
+	}
+	if err := idx.SetServerURL(serverURL); err != nil {
+		idx.Close()
+		return nil, err
+	}
 	return &Browser{client: protocol.NewUnscoped(serverURL, deviceToken), idx: idx, rootDir: rootDir,
 		chunkSize: defaultChunkSize}, nil
 }
@@ -69,20 +82,30 @@ func pullChanges(ctx context.Context, client *protocol.Client, idx *index.Index)
 		if err != nil {
 			return err
 		}
-		for _, c := range changes {
-			if c.Deleted {
-				if err := idx.Delete(c.NodeID); err != nil {
+		// One transaction per page, not per row: a row at a time meant a commit — on a
+		// phone, a fsync — apiece, and the first pull after pairing spent minutes on that
+		// while the file list sat empty.
+		if err := idx.Batch(func(b *index.Batch) error {
+			for _, c := range changes {
+				if c.Deleted {
+					if err := b.Delete(c.NodeID); err != nil {
+						return err
+					}
+				} else if err := b.Put(index.Node{
+					NodeID: c.NodeID, RelPath: c.RelPath, IsDir: c.IsDir,
+					Version: c.Version, ContentHash: c.ContentHash, Size: c.Size,
+				}); err != nil {
 					return err
 				}
-			} else if err := idx.Put(index.Node{
-				NodeID: c.NodeID, RelPath: c.RelPath, IsDir: c.IsDir,
-				Version: c.Version, ContentHash: c.ContentHash, Size: c.Size,
-			}); err != nil {
-				return err
 			}
-			if err := idx.SetCursor(c.Seq); err != nil {
-				return err
+			// Once, at the end: the page is all-or-nothing, so the cursor either covers
+			// every row in it or none of them.
+			if n := len(changes); n > 0 {
+				return b.SetCursor(changes[n-1].Seq)
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		since = cursor
 		if !hasMore {
@@ -131,7 +154,9 @@ func (b *Browser) download(nodeID, state string) (string, error) {
 	}
 	// RelPath is server-controlled; contain it to rootDir so a malicious server can't
 	// write outside the download folder via ../ traversal or a symlinked component.
-	dst, err := safepath.Join(b.rootDir, n.RelPath)
+	// Localize first: a name holding characters the filesystem rejects (a note titled
+	// "…worth it?.md") cannot be created at all on Android's storage.
+	dst, err := safepath.Join(b.rootDir, localname.Localize(n.RelPath))
 	if err != nil {
 		return "", err
 	}
