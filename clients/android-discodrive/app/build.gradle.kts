@@ -3,6 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val appVersion = "0.1"
+
+// Names the APK after the product instead of the module. Both Android apps live in a module
+// called "app", so both built an "app-debug.apk" — and the release workflow copies every APK
+// it finds into one directory, where the second one silently replaced the first.
+base { archivesName.set("discodrive-$appVersion") }
+
 android {
     namespace = "org.discodrive.android"
     compileSdk = 34
@@ -11,7 +19,7 @@ android {
         minSdk = 30
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1"
+        versionName = appVersion
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
