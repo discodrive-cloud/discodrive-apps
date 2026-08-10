@@ -52,17 +52,21 @@ class AutoUploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
 
         val journal = UploadJournal(applicationContext)
         return try {
-            val browser = BrowserHolder.get(applicationContext) ?: return Result.success()
-            val runner = AutoUploadRunner(browser, journal, prefs)
-            runner.seedIfNeeded()
-            runner.runOnce(
-                progress = { done, total, name ->
-                    setForegroundSafely(
-                        applicationContext.getString(R.string.autoupload_progress, done + 1, total), name,
-                    )
-                },
-                isCancelled = { isStopped },
-            )
+            // Borrowed for the whole pass: re-pairing closes the shared index, and doing that
+            // under a running batch surfaced as "sql: database is closed". The close now waits
+            // for this to finish instead.
+            BrowserHolder.use(applicationContext) { browser ->
+                val runner = AutoUploadRunner(browser, journal, prefs)
+                runner.seedIfNeeded()
+                runner.runOnce(
+                    progress = { done, total, name ->
+                        setForegroundSafely(
+                            applicationContext.getString(R.string.autoupload_progress, done + 1, total), name,
+                        )
+                    },
+                    isCancelled = { isStopped },
+                )
+            }
             Result.success()
         } catch (e: Exception) {
             // The files stay in the journal as deferred; retrying the whole pass on a

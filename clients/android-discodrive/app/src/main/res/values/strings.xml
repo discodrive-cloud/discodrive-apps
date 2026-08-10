@@ -59,6 +59,7 @@
     <string name="unlock">Unlock</string>
     <string name="menu_lock_vault">Lock vault</string>
     <string name="vault_unlocking">Unlocking vault…</string>
+    <string name="browse_first_sync">Fetching the file list…</string>
     <string name="vault_open_failed">Could not open vault</string>
 
     <!-- Settings -->
@@ -89,6 +90,7 @@
     <string name="cd_lock">Lock vault</string>
     <string name="autoupload_channel">Auto-upload</string>
     <string name="autoupload_preparing">Preparing auto-upload…</string>
+    <string name="sync_running">Updating the file list…</string>
     <string name="autoupload_progress">Uploading %1$d of %2$d</string>
     <string name="au_title">Auto-upload</string>
     <string name="au_master">Auto-upload</string>

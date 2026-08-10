@@ -48,6 +48,7 @@
     <string name="unlock">Entsperren</string>
     <string name="menu_lock_vault">Tresor sperren</string>
     <string name="vault_unlocking">Tresor wird entsperrt …</string>
+    <string name="browse_first_sync">Dateiliste wird abgerufen…</string>
     <string name="vault_open_failed">Tresor konnte nicht geöffnet werden</string>
 
     <string name="settings_title">Einstellungen</string>
@@ -67,6 +68,7 @@
     <string name="cd_lock">Tresor sperren</string>
     <string name="autoupload_channel">Automatischer Upload</string>
     <string name="autoupload_preparing">Automatischer Upload wird vorbereitet…</string>
+    <string name="sync_running">Dateiliste wird aktualisiert…</string>
     <string name="autoupload_progress">Lade %1$d von %2$d hoch</string>
     <string name="au_title">Automatischer Upload</string>
     <string name="au_master">Automatischer Upload</string>

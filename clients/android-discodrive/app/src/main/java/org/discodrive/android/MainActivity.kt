@@ -28,9 +28,9 @@ class MainActivity : AppCompatActivity() {
     private val vaultVm: VaultViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { Root(vm, vaultVm) } }
+        setContent { DiscoDriveTheme { Root(vm, vaultVm) } }
     }
-    override fun onResume() { super.onResume(); vm.refreshAfterPermission() }
+    override fun onResume() { super.onResume(); vm.openIfPaired() }
 }
 
 @Composable
@@ -43,7 +43,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
     var showAutoUpload by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         hasPerm = vm.hasStoragePermission()
-        vm.refreshAfterPermission()
+        vm.openIfPaired()
     }
     when {
         !hasPerm -> PermissionGate {

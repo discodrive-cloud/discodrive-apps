@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -58,7 +59,11 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
                 if (vm.currentFolderIsVault()) {
                     IconButton(onClick = { unlockDialog = true }) { Icon(Icons.Default.Lock, stringResource(R.string.cd_unlock)) }
                 }
-                IconButton(onClick = { vm.reload() }) { Icon(Icons.Default.Refresh, stringResource(R.string.cd_refresh)) }
+                // Pulls from the server, not just a relist of the index: this is also how the
+                // user retries after a pull that failed while the app was in the background.
+                IconButton(onClick = { vm.syncNow() }, enabled = !ui.syncing) {
+                    Icon(Icons.Default.Refresh, stringResource(R.string.cd_refresh))
+                }
                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.cd_menu)) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text(stringResource(R.string.menu_new_folder)) }, onClick = { menu = false; newFolder = true })
@@ -69,8 +74,18 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
         )
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            if (ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (ui.loading || ui.syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
             ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
+            // The first pull after pairing has nothing in the index to show yet. A bare empty
+            // list read as a broken app, so say what the progress bar is for.
+            if (ui.syncing && ui.entries.isEmpty() && ui.error == null) {
+                Text(
+                    stringResource(R.string.browse_first_sync),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(ui.entries, key = { it.id }) { e ->
                     ListItem(

@@ -48,6 +48,7 @@
     <string name="unlock">Desbloquear</string>
     <string name="menu_lock_vault">Bloquear bóveda</string>
     <string name="vault_unlocking">Desbloqueando bóveda…</string>
+    <string name="browse_first_sync">Obteniendo la lista de archivos…</string>
     <string name="vault_open_failed">No se pudo abrir la bóveda</string>
 
     <string name="settings_title">Ajustes</string>
@@ -67,6 +68,7 @@
     <string name="cd_lock">Bloquear bóveda</string>
     <string name="autoupload_channel">Subida automática</string>
     <string name="autoupload_preparing">Preparando la subida automática…</string>
+    <string name="sync_running">Actualizando la lista de archivos…</string>
     <string name="autoupload_progress">Subiendo %1$d de %2$d</string>
     <string name="au_title">Subida automática</string>
     <string name="au_master">Subida automática</string>

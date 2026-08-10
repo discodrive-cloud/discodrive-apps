@@ -48,6 +48,7 @@
     <string name="unlock">Déverrouiller</string>
     <string name="menu_lock_vault">Verrouiller le coffre</string>
     <string name="vault_unlocking">Déverrouillage du coffre…</string>
+    <string name="browse_first_sync">Récupération de la liste des fichiers…</string>
     <string name="vault_open_failed">Impossible d\'ouvrir le coffre</string>
 
     <string name="settings_title">Paramètres</string>
@@ -67,6 +68,7 @@
     <string name="cd_lock">Verrouiller le coffre</string>
     <string name="autoupload_channel">Envoi automatique</string>
     <string name="autoupload_preparing">Préparation de l’envoi automatique…</string>
+    <string name="sync_running">Mise à jour de la liste des fichiers…</string>
     <string name="autoupload_progress">Envoi %1$d sur %2$d</string>
     <string name="au_title">Envoi automatique</string>
     <string name="au_master">Envoi automatique</string>

@@ -48,6 +48,7 @@
     <string name="unlock">Разблокировать</string>
     <string name="menu_lock_vault">Заблокировать хранилище</string>
     <string name="vault_unlocking">Разблокировка хранилища…</string>
+    <string name="browse_first_sync">Получаем список файлов…</string>
     <string name="vault_open_failed">Не удалось открыть хранилище</string>
 
     <string name="settings_title">Настройки</string>
@@ -67,6 +68,7 @@
     <string name="cd_lock">Заблокировать хранилище</string>
     <string name="autoupload_channel">Автозагрузка</string>
     <string name="autoupload_preparing">Подготовка автозагрузки…</string>
+    <string name="sync_running">Обновление списка файлов…</string>
     <string name="autoupload_progress">Загрузка %1$d из %2$d</string>
     <string name="au_title">Автозагрузка</string>
     <string name="au_master">Автозагрузка</string>
