@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,9 +21,35 @@ import (
 	"discodrive.org/daemon/internal/engine"
 )
 
+// defaultDialer bounds how long a connection may take to establish, and probes ones that
+// have gone quiet.
+//
+// A phone that leaves the foreground gets frozen, and its TCP connections die with neither
+// end being told. A request already in flight then waits forever: no bytes arrive and no
+// error is raised. Pairing forces exactly that — approving the code happens in a browser —
+// so the poll, and the refresh that follows it, could block for the life of the process.
+// Probing turns a dead peer into an error in about half a minute, which the callers retry.
+func defaultDialer() *net.Dialer {
+	return &net.Dialer{
+		Timeout: 15 * time.Second,
+		KeepAliveConfig: net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     15 * time.Second,
+			Interval: 5 * time.Second,
+			Count:    3,
+		},
+	}
+}
+
 // defaultHTTPClient returns the HTTP client used to talk to the server. By default it
 // uses strict system TLS validation. Set DISCODRIVE_INSECURE_TLS=1 to accept ANY
 // certificate — intended for local testing against a self-signed / LAN-IP server only.
+//
+// Connection setup is bounded here; whole transfers are not. Neither http.Client.Timeout
+// nor Transport.ResponseHeaderTimeout is set, because both would cap a complete exchange:
+// uploads send 8 MiB chunks and the server's headers only come once a chunk is fully sent,
+// so on a slow mobile link either one would abort healthy work. Calls that are short by
+// nature carry their own deadline instead — see [Client.Changes] and [PairPoll].
 func defaultHTTPClient() *http.Client {
 	tlsConf := &tls.Config{
 		// Restrict key-exchange to classical curves, excluding the post-quantum
@@ -35,7 +62,13 @@ func defaultHTTPClient() *http.Client {
 	if v := os.Getenv("DISCODRIVE_INSECURE_TLS"); v == "1" || v == "true" {
 		tlsConf.InsecureSkipVerify = true //nolint:gosec // opt-in via env for local testing
 	}
-	return &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConf}}
+	return &http.Client{Transport: &http.Transport{
+		TLSClientConfig:       tlsConf,
+		DialContext:           defaultDialer().DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}}
 }
 
 // scopeHeader opts this client into the user's configured sync scope. The server applies
@@ -135,7 +168,16 @@ type changeJSON struct {
 	Deleted     bool   `json:"deleted"`
 }
 
+// changesTimeout bounds one page of the change feed. It is metadata — a few hundred rows of
+// JSON — so a request that has not finished by now is not slow, it is on a connection that
+// died while the app was backgrounded. Failing lets the caller retry on a fresh one; hanging
+// left the file list empty for the life of the process.
+// A var, not a const, so the tests can shorten it.
+var changesTimeout = 60 * time.Second
+
 func (c *Client) Changes(ctx context.Context, since int64, limit int) ([]engine.Change, int64, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, changesTimeout)
+	defer cancel()
 	q := url.Values{}
 	q.Set("since", strconv.FormatInt(since, 10))
 	q.Set("limit", strconv.Itoa(limit))

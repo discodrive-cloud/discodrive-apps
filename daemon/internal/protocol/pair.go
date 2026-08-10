@@ -51,14 +51,45 @@ func PairInit(ctx context.Context, serverURL, name, kind string) (Pairing, error
 // A var, not a const, so the tests can shorten it.
 var pairPollNetGrace = 2 * time.Minute
 
+// pairPollRequestTimeout bounds a single /pair/token request. A frozen app's connection can
+// stay open and silent — the request in flight is answered by nobody — and without a deadline
+// the poll blocks in Do for the life of the process, leaving the app on the pairing screen
+// through a pairing the server has already approved. A timed-out request counts as a network
+// failure and is retried under the grace window below.
+// A var, not a const, so the tests can shorten it.
+var pairPollRequestTimeout = 30 * time.Second
+
+// pairPollOnce performs one /pair/token request under its own deadline, returning the
+// pairing status and (once approved) the device token.
+func pairPollOnce(ctx context.Context, serverURL, deviceCode string) (status, token string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, pairPollRequestTimeout)
+	defer cancel()
+	body, _ := json.Marshal(map[string]string{"device_code": deviceCode})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/pair/token", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := defaultHTTPClient().Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Status      string `json:"status"`
+		DeviceToken string `json:"device_token"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return out.Status, out.DeviceToken, nil
+}
+
 func PairPoll(ctx context.Context, serverURL, deviceCode string, interval time.Duration) (string, error) {
 	var netErrSince time.Time
 	for {
-		body, _ := json.Marshal(map[string]string{"device_code": deviceCode})
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/pair/token", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := defaultHTTPClient().Do(req)
+		status, token, err := pairPollOnce(ctx, serverURL, deviceCode)
 		if err != nil {
+			// The caller giving up is not a broken connection: it ends the poll now,
+			// rather than being retried under the grace window.
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			if netErrSince.IsZero() {
 				netErrSince = time.Now()
 			} else if time.Since(netErrSince) >= pairPollNetGrace {
@@ -72,18 +103,12 @@ func PairPoll(ctx context.Context, serverURL, deviceCode string, interval time.D
 			continue
 		}
 		netErrSince = time.Time{}
-		var out struct {
-			Status      string `json:"status"`
-			DeviceToken string `json:"device_token"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&out)
-		resp.Body.Close()
-		switch out.Status {
+		switch status {
 		case "approved":
-			return out.DeviceToken, nil
+			return token, nil
 		case "pending":
 		default:
-			return "", fmt.Errorf("pairing not completed: %s", out.Status)
+			return "", fmt.Errorf("pairing not completed: %s", status)
 		}
 		select {
 		case <-ctx.Done():

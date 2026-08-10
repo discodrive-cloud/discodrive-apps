@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -82,6 +83,84 @@ func TestPairPollGivesUpOnSustainedNetworkFailure(t *testing.T) {
 
 	if _, err := PairPoll(context.Background(), srv.URL, "dc", 5*time.Millisecond); err == nil {
 		t.Fatalf("expected an error once the grace window elapsed")
+	}
+}
+
+// Worse than a dropped connection: one that stays open and silent. The request in flight
+// when the phone was frozen is answered by nobody — without a per-request deadline the poll
+// blocks in Do forever, so the app sits on the pairing screen through a pairing the server
+// has already approved, and only a restart clears it.
+func TestPairPollSurvivesARequestThatIsNeverAnswered(t *testing.T) {
+	restore := pairPollRequestTimeout
+	pairPollRequestTimeout = 30 * time.Millisecond
+	defer func() { pairPollRequestTimeout = restore }()
+
+	var polls int32
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pair/token", func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&polls, 1) == 1 {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"status": "approved", "device_token": "kfd_xyz"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	defer close(release)
+
+	type result struct {
+		tok string
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		tok, err := PairPoll(context.Background(), srv.URL, "dc", 5*time.Millisecond)
+		done <- result{tok, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil || r.tok != "kfd_xyz" {
+			t.Fatalf("poll: tok=%q err=%v", r.tok, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("PairPoll blocked on a request that was never answered")
+	}
+}
+
+// A cancelled parent context ends the poll immediately — it is the app giving up, not a
+// broken connection, so the grace window must not swallow it.
+func TestPairPollStopsWhenTheCallerCancels(t *testing.T) {
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pair/token", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	defer close(release)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		_, err := PairPoll(ctx, srv.URL, "dc", 5*time.Millisecond)
+		errc <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("PairPoll ignored the cancelled context")
 	}
 }
 
