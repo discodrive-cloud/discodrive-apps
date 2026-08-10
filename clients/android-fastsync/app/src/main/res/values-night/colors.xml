@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the dark colour scheme's background, so the window does not flash a
+         different shade before Compose paints. -->
+    <color name="window_background">#1C1B1F</color>
+</resources>

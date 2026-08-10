@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
     private val vm: SyncViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { Root(vm) } }
+        setContent { FastSyncTheme { Root(vm) } }
     }
     override fun onResume() { super.onResume(); vm.refreshAfterPermission() }
 }
@@ -129,6 +129,39 @@ fun SyncScreen(vm: SyncViewModel, ui: UiState) {
         Text("State: ${ui.state} · last sync: ${lastSyncText(ui.lastSyncUnix)}",
             style = MaterialTheme.typography.bodySmall)
         ui.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        // The sync stopped rather than delete most of the vault. Offer the way out here, or
+        // the only paths left would be doing nothing or unpairing.
+        if (vm.bulkDeleteBlocked) {
+            var confirmDelete by remember { mutableStateOf(false) }
+            // Listed first, and phrased as the ordinary thing to do: an emptied folder is far
+            // more often a mirror that went missing than files anyone meant to delete.
+            Button(onClick = { vm.resyncFromServer() }, enabled = !ui.working) {
+                Text("Download everything again")
+            }
+            OutlinedButton(onClick = { confirmDelete = true }) {
+                Text("Delete them on the server", color = MaterialTheme.colorScheme.error)
+            }
+            if (confirmDelete) {
+                AlertDialog(
+                    onDismissRequest = { confirmDelete = false },
+                    title = { Text("Delete on the server?") },
+                    text = {
+                        Text(
+                            "These files are gone from this device's sync folder. Deleting them " +
+                                "on the server removes them for every device. If the folder was " +
+                                "emptied by accident — a reinstall, a folder moved or a drive not " +
+                                "mounted — unpair instead and pair again."
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { confirmDelete = false; vm.confirmBulkDelete() }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+                )
+            }
+        }
         OutlinedButton(onClick = { openFiles(ctx) }) { Text("Open folder") }
         Spacer(Modifier.weight(1f))
         TextButton(onClick = { confirmUnpair = true }) {

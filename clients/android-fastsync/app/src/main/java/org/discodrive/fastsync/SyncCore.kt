@@ -15,4 +15,10 @@ object SyncCore {
 
     fun newClient(server: String, token: String, syncDir: String, dbPath: String, insecure: Boolean): Client =
         Mobile.new_(server, token, syncDir, dbPath, insecure)
+
+    /**
+     * Marker text of a pass stopped by the mass-deletion check. gomobile flattens Go errors to
+     * plain exceptions, so the message is all that survives the boundary.
+     */
+    const val BULK_DELETE_MARKER = "refusing to delete"
 }
