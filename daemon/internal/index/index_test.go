@@ -23,7 +23,9 @@ func TestIndexRoundTrip(t *testing.T) {
 		t.Fatalf("cursor after set: %d", c)
 	}
 
-	n := Node{NodeID: "n1", RelPath: "a/b.txt", IsDir: false, Version: 3, ContentHash: "h", Size: 10}
+	// LocalPath set to match RelPath: a node stored without one reads back with RelPath in
+	// it (see TestLocalPathDefaultsToRelPath), and this test compares whole records.
+	n := Node{NodeID: "n1", RelPath: "a/b.txt", LocalPath: "a/b.txt", IsDir: false, Version: 3, ContentHash: "h", Size: 10}
 	if err := idx.Put(n); err != nil {
 		t.Fatal(err)
 	}

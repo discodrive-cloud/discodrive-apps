@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -20,7 +21,10 @@ CREATE TABLE IF NOT EXISTS nodes (
     is_dir       INTEGER NOT NULL,
     version      INTEGER NOT NULL,
     content_hash TEXT,
-    size         INTEGER
+    size         INTEGER,
+    -- Where the node lives on disk when that differs from rel_path; empty means "same".
+    -- See internal/localname.
+    local_path   TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS local (
     node_id TEXT PRIMARY KEY,
@@ -31,8 +35,13 @@ CREATE TABLE IF NOT EXISTS local (
 
 // Node is an index record for a node known to the client.
 type Node struct {
-	NodeID      string
-	RelPath     string
+	NodeID  string
+	RelPath string
+	// LocalPath is where the node lives on disk, which differs from RelPath when the
+	// server name contains characters the filesystem rejects (see internal/localname).
+	// Reads always report it: rows that store none — every node whose name needed no
+	// change, and every row written before the column existed — report RelPath.
+	LocalPath   string
 	IsDir       bool
 	Version     int64
 	ContentHash string
@@ -51,11 +60,30 @@ func Open(path string) (*Index, error) {
 	// connection so concurrent callers (e.g. the desktop UI firing pin/unpin/refresh
 	// from separate goroutines) queue instead of failing with "database is locked".
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+	// WAL + synchronous=NORMAL: without them every commit rewrites and fsyncs a rollback
+	// journal, and the first pull after pairing — which applies the whole tree — spent
+	// minutes on that alone, showing an empty file list the entire time. The index is a
+	// cache rebuildable from /sync/changes, so trading a fsync per commit for one at
+	// checkpoints costs nothing worse than re-pulling after a power loss.
+	for _, pragma := range []string{
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
+	// CREATE TABLE IF NOT EXISTS leaves an index built by an earlier version untouched, so
+	// the column has to be added separately. Existing rows default to empty, which reads as
+	// "same as rel_path" — true for every node those versions could store.
+	if _, err := db.Exec(`ALTER TABLE nodes ADD COLUMN local_path TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
 		db.Close()
 		return nil, err
 	}
@@ -78,9 +106,7 @@ func (i *Index) Cursor() (int64, error) {
 }
 
 func (i *Index) SetCursor(seq int64) error {
-	_, err := i.db.Exec(
-		"INSERT INTO meta(key, value) VALUES('cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-		strconv.FormatInt(seq, 10))
+	_, err := i.db.Exec(setCursorSQL, strconv.FormatInt(seq, 10))
 	return err
 }
 
@@ -148,8 +174,8 @@ func (i *Index) Get(nodeID string) (Node, bool, error) {
 	var isDir int
 	var hash sql.NullString
 	err := i.db.QueryRow(
-		"SELECT node_id, rel_path, is_dir, version, content_hash, size FROM nodes WHERE node_id = ?", nodeID).
-		Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size)
+		"SELECT node_id, rel_path, is_dir, version, content_hash, size, IIF(local_path = '', rel_path, local_path) FROM nodes WHERE node_id = ?", nodeID).
+		Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size, &n.LocalPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Node{}, false, nil
 	}
@@ -167,8 +193,8 @@ func (i *Index) GetByPath(relPath string) (Node, bool, error) {
 	var isDir int
 	var hash sql.NullString
 	err := i.db.QueryRow(
-		"SELECT node_id, rel_path, is_dir, version, content_hash, size FROM nodes WHERE rel_path = ?", relPath).
-		Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size)
+		"SELECT node_id, rel_path, is_dir, version, content_hash, size, IIF(local_path = '', rel_path, local_path) FROM nodes WHERE rel_path = ?", relPath).
+		Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size, &n.LocalPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Node{}, false, nil
 	}
@@ -180,14 +206,68 @@ func (i *Index) GetByPath(relPath string) (Node, bool, error) {
 	return n, true, nil
 }
 
-func (i *Index) Put(n Node) error {
-	_, err := i.db.Exec(
-		`INSERT INTO nodes(node_id, rel_path, is_dir, version, content_hash, size) VALUES(?,?,?,?,?,?)
-		 ON CONFLICT(node_id) DO UPDATE SET
-		   rel_path = excluded.rel_path, is_dir = excluded.is_dir, version = excluded.version,
-		   content_hash = excluded.content_hash, size = excluded.size`,
-		n.NodeID, n.RelPath, boolToInt(n.IsDir), n.Version, n.ContentHash, n.Size)
+// Batch applies many changes in a single transaction.
+//
+// A page of the change feed is thousands of rows; applied one statement at a time each one
+// commits on its own, and on a phone that is a fsync apiece — the first pull after pairing
+// spent minutes there. It is also the correct unit: the cursor may only advance once the rows
+// it covers are in, so a page that fails partway must leave nothing behind.
+//
+// The batch is rolled back if fn returns an error, and fn's error is returned as-is.
+func (i *Index) Batch(fn func(*Batch) error) error {
+	tx, err := i.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // rolled back only if Commit didn't run
+	if err := fn(&Batch{tx: tx}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Batch is the write side of [Index.Batch]: the same operations, inside one transaction.
+type Batch struct{ tx *sql.Tx }
+
+func (b *Batch) Put(n Node) error {
+	_, err := b.tx.Exec(putNodeSQL,
+		n.NodeID, n.RelPath, boolToInt(n.IsDir), n.Version, n.ContentHash, n.Size, storedLocalPath(n))
 	return err
+}
+
+func (b *Batch) Delete(nodeID string) error {
+	_, err := b.tx.Exec("DELETE FROM nodes WHERE node_id = ?", nodeID)
+	return err
+}
+
+func (b *Batch) SetCursor(seq int64) error {
+	_, err := b.tx.Exec(setCursorSQL, strconv.FormatInt(seq, 10))
+	return err
+}
+
+const putNodeSQL = `INSERT INTO nodes(node_id, rel_path, is_dir, version, content_hash, size, local_path)
+	 VALUES(?,?,?,?,?,?,?)
+	 ON CONFLICT(node_id) DO UPDATE SET
+	   rel_path = excluded.rel_path, is_dir = excluded.is_dir, version = excluded.version,
+	   content_hash = excluded.content_hash, size = excluded.size, local_path = excluded.local_path`
+
+const setCursorSQL = `INSERT INTO meta(key, value) VALUES('cursor', ?)
+	 ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+
+func (i *Index) Put(n Node) error {
+	_, err := i.db.Exec(putNodeSQL,
+		n.NodeID, n.RelPath, boolToInt(n.IsDir), n.Version, n.ContentHash, n.Size, storedLocalPath(n))
+	return err
+}
+
+// storedLocalPath keeps the column empty when the node lives under its server name, which is
+// almost every node: reads substitute rel_path, so nothing is lost and rows written before
+// the column existed behave identically.
+func storedLocalPath(n Node) string {
+	if n.LocalPath == n.RelPath {
+		return ""
+	}
+	return n.LocalPath
 }
 
 func (i *Index) Delete(nodeID string) error {
@@ -195,9 +275,25 @@ func (i *Index) Delete(nodeID string) error {
 	return err
 }
 
+// NodeIDByLocalPath returns the node occupying a path on disk. Used when placing a node whose
+// server name had to be changed to fit the filesystem, to notice that the name it would take
+// is already someone else's.
+func (i *Index) NodeIDByLocalPath(localPath string) (string, bool, error) {
+	var id string
+	err := i.db.QueryRow(
+		"SELECT node_id FROM nodes WHERE IIF(local_path = '', rel_path, local_path) = ?", localPath).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
 // All returns all known nodes (for diffing against disk state).
 func (i *Index) All() ([]Node, error) {
-	rows, err := i.db.Query("SELECT node_id, rel_path, is_dir, version, content_hash, size FROM nodes")
+	rows, err := i.db.Query("SELECT node_id, rel_path, is_dir, version, content_hash, size, IIF(local_path = '', rel_path, local_path) FROM nodes")
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +303,7 @@ func (i *Index) All() ([]Node, error) {
 		var n Node
 		var isDir int
 		var hash sql.NullString
-		if err := rows.Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size); err != nil {
+		if err := rows.Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size, &n.LocalPath); err != nil {
 			return nil, err
 		}
 		n.IsDir = isDir != 0
@@ -244,11 +340,13 @@ func (i *Index) Children(parentRelPath string) ([]Node, error) {
 	var rows *sql.Rows
 	var err error
 	if parentRelPath == "" {
-		rows, err = i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size
+		rows, err = i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size,
+			IIF(local_path = '', rel_path, local_path)
 			FROM nodes WHERE rel_path NOT LIKE '%/%' ORDER BY is_dir DESC, rel_path`)
 	} else {
 		p := escapeLike(parentRelPath)
-		rows, err = i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size
+		rows, err = i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size,
+			IIF(local_path = '', rel_path, local_path)
 			FROM nodes WHERE rel_path LIKE ? ESCAPE '\' AND rel_path NOT LIKE ? ESCAPE '\'
 			ORDER BY is_dir DESC, rel_path`, p+"/%", p+"/%/%")
 	}
@@ -261,7 +359,7 @@ func (i *Index) Children(parentRelPath string) ([]Node, error) {
 		var n Node
 		var isDir int
 		var hash sql.NullString
-		if err := rows.Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size); err != nil {
+		if err := rows.Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size, &n.LocalPath); err != nil {
 			return nil, err
 		}
 		n.IsDir = isDir != 0
