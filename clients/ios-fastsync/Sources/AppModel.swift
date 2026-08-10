@@ -97,6 +97,14 @@ final class AppModel: ObservableObject {
     func unpair() {
         try? client?.close()
         client = nil
+        // The index goes with the pairing. Left behind, it describes files this device no
+        // longer has — pair again once the sync folder is gone (a reinstall keeps neither in
+        // step) and every one of them reads as locally deleted, which the push then carries
+        // to the server. That is how an Android device emptied a whole vault.
+        let db = stateDBPath
+        for path in [db, db + "-wal", db + "-shm"] {
+            try? FileManager.default.removeItem(atPath: path)
+        }
         Keychain.set(nil, for: "deviceToken")
         Keychain.set(nil, for: "serverURL")
         Keychain.set(nil, for: "insecure")
