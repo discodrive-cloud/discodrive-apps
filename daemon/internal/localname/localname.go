@@ -31,10 +31,29 @@ var restricted = map[rune]rune{
 	'|':  '｜',
 }
 
-// reserved is what this platform actually rejects. A var so tests can set it.
-var reserved = platformReserved()
+// windowsDeviceNames are the names Windows reserves for devices. They are rejected whatever
+// the case and whatever the extension: "nul.md" cannot be created either.
+var windowsDeviceNames = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+	"com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
 
-// platformReserved returns the substitutions this platform needs.
+// policy is what the platform underfoot refuses to store.
+type policy struct {
+	// runes are the characters to substitute; nil where the filesystem takes them all.
+	runes map[rune]rune
+	// windowsNames covers the two rules that are Windows's alone: names reserved for
+	// devices, and names ending in a dot or a space.
+	windowsNames bool
+}
+
+// current is this platform's policy. A var so tests can set it.
+var current = platformPolicy()
+
+// platformPolicy returns what this platform needs.
 //
 // Only Android's storage (FUSE with FAT semantics) and Windows reject these characters. APFS,
 // ext4 and the rest take all of them, and rewriting names there would be worse than useless:
@@ -42,12 +61,14 @@ var reserved = platformReserved()
 // machine that updated. Whatever a platform does, the name on the server is left alone, so a
 // note written on a Mac still arrives on a phone — under a look-alike name there, and its own
 // name everywhere else.
-func platformReserved() map[rune]rune {
+func platformPolicy() policy {
 	switch runtime.GOOS {
-	case "android", "windows":
-		return restricted
+	case "android":
+		return policy{runes: restricted}
+	case "windows":
+		return policy{runes: restricted, windowsNames: true}
 	default:
-		return nil
+		return policy{}
 	}
 }
 
@@ -57,14 +78,21 @@ func Localize(relPath string) string {
 	if !NeedsLocalizing(relPath) {
 		return relPath
 	}
+	parts := strings.Split(relPath, "/")
+	for i, part := range parts {
+		parts[i] = localizeComponent(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+// localizeComponent applies the policy to one path segment.
+func localizeComponent(name string) string {
 	var b strings.Builder
-	b.Grow(len(relPath))
-	for _, r := range relPath {
+	b.Grow(len(name))
+	for _, r := range name {
 		switch {
-		case r == '/':
-			b.WriteRune(r)
-		case reserved[r] != 0:
-			b.WriteRune(reserved[r])
+		case current.runes[r] != 0:
+			b.WriteRune(current.runes[r])
 		case r < 0x20 || r == 0x7f:
 			// Control characters have no look-alike and no business in a filename.
 			b.WriteRune('_')
@@ -72,16 +100,63 @@ func Localize(relPath string) string {
 			b.WriteRune(r)
 		}
 	}
+	out := b.String()
+	if !current.windowsNames {
+		return out
+	}
+	// A trailing dot or space is dropped by Windows rather than refused, which would
+	// silently merge two names; substitute so the name stays its own.
+	out = fixTrailing(out)
+	if base, _, _ := strings.Cut(out, "."); windowsDeviceNames[strings.ToLower(base)] {
+		// Suffix the stem, so "nul.md" stays a Markdown file.
+		if i := strings.Index(out, "."); i >= 0 {
+			return out[:i] + "_" + out[i:]
+		}
+		return out + "_"
+	}
+	return out
+}
+
+// fixTrailing replaces dots and spaces at the end of a name with look-alikes Windows keeps.
+func fixTrailing(name string) string {
+	end := len(name)
+	for end > 0 {
+		r := rune(name[end-1])
+		if r != '.' && r != ' ' {
+			break
+		}
+		end--
+	}
+	if end == len(name) {
+		return name
+	}
+	var b strings.Builder
+	b.WriteString(name[:end])
+	for _, r := range name[end:] {
+		if r == '.' {
+			b.WriteRune('．')
+		} else {
+			b.WriteRune('\u00a0') // no-break space: looks the same, and Windows keeps it
+		}
+	}
 	return b.String()
 }
 
 // NeedsLocalizing reports whether Localize would change the path.
 func NeedsLocalizing(relPath string) bool {
-	for _, r := range relPath {
-		if r == '/' {
+	for _, part := range strings.Split(relPath, "/") {
+		for _, r := range part {
+			if current.runes[r] != 0 || r < 0x20 || r == 0x7f {
+				return true
+			}
+		}
+		if !current.windowsNames || part == "" {
 			continue
 		}
-		if reserved[r] != 0 || r < 0x20 || r == 0x7f {
+		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
+			return true
+		}
+		if base, _, _ := strings.Cut(part, "."); windowsDeviceNames[strings.ToLower(base)] {
 			return true
 		}
 	}

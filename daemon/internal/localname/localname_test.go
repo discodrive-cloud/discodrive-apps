@@ -9,9 +9,9 @@ import (
 // the mapping can be tested from a Mac.
 func onRestrictedPlatform(t *testing.T) {
 	t.Helper()
-	prev := reserved
-	reserved = restricted
-	t.Cleanup(func() { reserved = prev })
+	prev := current
+	current = policy{runes: restricted}
+	t.Cleanup(func() { current = prev })
 }
 
 // Android's internal storage is a FUSE layer with FAT semantics, and Windows agrees with it:
@@ -102,6 +102,68 @@ func TestLocalizeIsAPassThroughWhereNothingIsRejected(t *testing.T) {
 		}
 		if NeedsLocalizing(p) {
 			t.Errorf("NeedsLocalizing(%q) is true on %s", p, runtime.GOOS)
+		}
+	}
+}
+
+// onWindows applies the rules Windows adds on top of the character substitutions, so they can
+// be tested from a Mac.
+func onWindows(t *testing.T) {
+	t.Helper()
+	prev := current
+	current = policy{runes: restricted, windowsNames: true}
+	t.Cleanup(func() { current = prev })
+}
+
+// Windows reserves a handful of names for devices, in any case and with any extension: a note
+// called "nul.md" cannot be created at all.
+func TestLocalizeEscapesWindowsDeviceNames(t *testing.T) {
+	onWindows(t)
+	cases := []struct{ in, want string }{
+		{"nul.md", "nul_.md"},
+		{"NUL.md", "NUL_.md"},
+		{"notes/con", "notes/con_"},
+		{"com4.txt", "com4_.txt"},
+		{"LPT9", "LPT9_"},
+		// Only the whole name counts — these are ordinary words.
+		{"console.md", "console.md"},
+		{"nullable.md", "nullable.md"},
+		{"my nul.md", "my nul.md"},
+	}
+	for _, c := range cases {
+		if got := Localize(c.in); got != c.want {
+			t.Errorf("Localize(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// A name may not end in a dot or a space on Windows.
+func TestLocalizeFixesTrailingDotsAndSpaces(t *testing.T) {
+	onWindows(t)
+	cases := []struct{ in, want string }{
+		{"note .md", "note .md"}, // inner space is fine
+		{"note.", "note．"},
+		{"note ", "note "},
+		{"deep./file..", "deep．/file．．"},
+		{"ok.md", "ok.md"},
+	}
+	for _, c := range cases {
+		if got := Localize(c.in); got != c.want {
+			t.Errorf("Localize(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// Android rejects the characters but has no quarrel with device names or trailing dots, and
+// rewriting those would change names for no reason.
+func TestAndroidLeavesWindowsOnlyNamesAlone(t *testing.T) {
+	prev := current
+	current = policy{runes: restricted}
+	t.Cleanup(func() { current = prev })
+
+	for _, p := range []string{"nul.md", "note.", "note "} {
+		if got := Localize(p); got != p {
+			t.Errorf("Localize(%q) = %q, want it unchanged", p, got)
 		}
 	}
 }

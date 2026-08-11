@@ -44,7 +44,10 @@ All notable changes to this project are documented in this file.
   common in note titles — now sync. Android's storage and Windows refuse such names, so
   the file downloaded and then could not be put in place. They are stored under
   look-alike characters, and the client remembers the real name, so editing one still
-  updates the right file on the server instead of creating a copy.
+  updates the right file on the server instead of creating a copy. On Windows the same
+  applies to names it reserves for devices (`nul.md`, `con`, `com1`) and to names ending
+  in a dot or a space. Filesystems that accept all of these — macOS, Linux — store every
+  name exactly as it is on the server.
 - One file that cannot be written no longer stops the sync. The pass used to give up at
   the first such file and, never getting past it, every later pass failed the same way —
   a phone could sit there having created every folder and not one file. The rest is now
