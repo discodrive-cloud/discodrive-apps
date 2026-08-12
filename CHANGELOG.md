@@ -48,6 +48,12 @@ All notable changes to this project are documented in this file.
   applies to names it reserves for devices (`nul.md`, `con`, `com1`) and to names ending
   in a dot or a space. Filesystems that accept all of these — macOS, Linux — store every
   name exactly as it is on the server.
+- A file whose name is too long for the filesystem now syncs under a shortened one
+  instead of failing to be created. The limit is 255 either way, but Windows counts
+  characters while macOS and Linux count bytes, so a Cyrillic title runs out of room at
+  about 127 characters — well within reach of a note titled with a question. The
+  extension is kept, and a short digest goes in so two long titles sharing a prefix stay
+  separate files.
 - One file that cannot be written no longer stops the sync. The pass used to give up at
   the first such file and, never getting past it, every later pass failed the same way —
   a phone could sit there having created every folder and not one file. The rest is now

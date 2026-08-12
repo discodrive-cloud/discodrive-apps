@@ -2,6 +2,7 @@ package localname
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -111,7 +112,7 @@ func TestLocalizeIsAPassThroughWhereNothingIsRejected(t *testing.T) {
 func onWindows(t *testing.T) {
 	t.Helper()
 	prev := current
-	current = policy{runes: restricted, windowsNames: true}
+	current = policy{runes: restricted, windowsNames: true, utf16Units: true}
 	t.Cleanup(func() { current = prev })
 }
 
@@ -165,5 +166,66 @@ func TestAndroidLeavesWindowsOnlyNamesAlone(t *testing.T) {
 		if got := Localize(p); got != p {
 			t.Errorf("Localize(%q) = %q, want it unchanged", p, got)
 		}
+	}
+}
+
+// Every filesystem in play caps a single name at 255 — NTFS counts UTF-16 units, ext4 and
+// APFS count UTF-8 bytes, so a Cyrillic title runs out of room at about 127 characters. A
+// note whose heading is a long question hits this, and the file simply cannot be created.
+
+func TestLocalizeShortensOverlongNames(t *testing.T) {
+	long := strings.Repeat("a", 300) + ".md"
+	got := Localize(long)
+	if len(got) > 255 {
+		t.Errorf("length %d, want at most 255", len(got))
+	}
+	if !strings.HasSuffix(got, ".md") {
+		t.Errorf("extension lost: %q", got)
+	}
+	if got != Localize(long) {
+		t.Error("not stable across calls")
+	}
+}
+
+// Shortening must not merge two different names into one.
+func TestShortenedNamesStayDistinct(t *testing.T) {
+	a := Localize(strings.Repeat("a", 300) + "-one.md")
+	b := Localize(strings.Repeat("a", 300) + "-two.md")
+	if a == b {
+		t.Errorf("two names collapsed into %q", a)
+	}
+}
+
+// Counted the way the filesystem counts: two bytes per Cyrillic character off Windows.
+func TestOverlongIsMeasuredInTheFilesystemsUnits(t *testing.T) {
+	name := strings.Repeat("я", 200) + ".md" // 400 bytes, 200 UTF-16 units
+	if !NeedsLocalizing(name) {
+		t.Error("400 bytes should be too long where names are counted in bytes")
+	}
+	if got := Localize(name); len(got) > 255 {
+		t.Errorf("length %d bytes, want at most 255", len(got))
+	}
+}
+
+// Ordinary names keep their exact form, including long-but-legal ones.
+func TestNamesWithinTheLimitAreUntouched(t *testing.T) {
+	for _, n := range []string{"note.md", strings.Repeat("a", 200) + ".md", "папка/заметка.md"} {
+		if got := Localize(n); got != n {
+			t.Errorf("Localize(%q) changed it to %q", n, got)
+		}
+	}
+}
+
+// NTFS counts UTF-16 units, so a Cyrillic name that is too long by bytes still fits there.
+// Measuring in the wrong unit would shorten names on Windows for no reason — and, worse,
+// rename files already sitting on disk.
+func TestWindowsCountsUTF16NotBytes(t *testing.T) {
+	onWindows(t)
+	name := strings.Repeat("я", 200) + ".md" // 400 bytes, but 200 UTF-16 units
+	if NeedsLocalizing(name) {
+		t.Errorf("%d-character name should fit on NTFS", 200)
+	}
+	if got := Localize(name); got != name {
+		t.Errorf("name was shortened on Windows: %q", got)
 	}
 }
