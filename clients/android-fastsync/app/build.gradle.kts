@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersion = "0.1"
+val appVersion = "0.0.5"
 
 // Names the APK after the product instead of the module. Both Android apps live in a module
 // called "app", so both built an "app-debug.apk" — and the release workflow copies every APK
@@ -18,7 +18,9 @@ android {
         applicationId = "org.discodrive.fastsync"
         minSdk = 30
         targetSdk = 34
-        versionCode = 1
+        // Bumped on every release: Android refuses to install a build over one with the
+        // same code, so leaving it behind means updating only by reinstalling.
+        versionCode = 2
         versionName = appVersion
     }
     buildFeatures { compose = true }
