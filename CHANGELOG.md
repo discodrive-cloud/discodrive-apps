@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.0.5
+
 ### Changed
 
 - Mobile apps: the first sync after pairing is far quicker. Change-feed pages are
@@ -85,6 +87,8 @@ All notable changes to this project are documented in this file.
   it is in the background. Connect and TLS setup are bounded, idle connections are
   probed, and pairing and change-feed requests carry deadlines. Whole transfers stay
   unbounded, so slow uploads and downloads are unaffected.
+
+## 0.0.4
 
 ### Added
 
