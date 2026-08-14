@@ -134,12 +134,23 @@ make bind-android           # только gomobile-биндинг для Androi
 
 DiscoDrive распространяется как **source-available** под лицензией [PolyForm Noncommercial License 1.0.0](../LICENSE).
 
-- ✅ **Бесплатно для любого некоммерческого использования** — используйте для себя, семьи, для хобби, учёбы или экспериментов. Ради этого всё и сделано.
+- ✅ **Бесплатно для любого некоммерческого использования** — разворачивайте для себя, семьи, для хобби, учёбы или экспериментов. Ради этого всё и сделано.
 - ✅ **Изменяйте как угодно** — при условии сохранения обязательного указания авторства.
 - ❌ **Коммерческое использование запрещено.**
 
-Нужно коммерческое использование? Доступна отдельная коммерческая лицензия — напишите на [discodrive@kosmosoid.dev](mailto:discodrive@kosmosoid.dev).
+Нужно коммерческое использование? Доступна отдельная коммерческая лицензия — напишите на [info@discodrive.app](mailto:info@discodrive.app).
 
 ---
 
-DiscoDrive — некоммерческий проект, который делает один человек. Отзывы и предложения приветствуются: [discodrive@kosmosoid.dev](mailto:discodrive@kosmosoid.dev).
+## ❤️ Поддержать проект
+
+DiscoDrive создаёт и развивает один человек. Отзывы и предложения приветствуются — пишите на [info@discodrive.app](mailto:info@discodrive.app).
+
+А если Вам нравится DiscoDrive и хочется, чтобы он рос и дальше — поддержите проект:
+
+- **[Поставьте звезду на GitHub](https://github.com/discodrive-cloud/discodrive-apps)** ⭐
+- **[Boosty](https://boosty.to/kosmosoid/donate)**
+- **[Ko-fi](https://ko-fi.com/kosmosoid)**
+- **[Криптовалюта](https://nowpayments.io/donation?api_key=7P893T0-48B4KZH-Q6PXBBT-D79X9TK)** — через NOWPayments
+
+Спасибо! Каждый вклад помогает проекту двигаться вперёд.

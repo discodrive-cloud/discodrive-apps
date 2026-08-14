@@ -134,12 +134,23 @@ Build-Artefakte landen in `dist/`. Vollständige Liste der Ziele — `make help`
 
 DiscoDrive ist **source-available** unter der [PolyForm Noncommercial License 1.0.0](../LICENSE).
 
-- ✅ **Kostenlos für jede nicht-kommerzielle Nutzung** — nutze es für dich selbst, deine Familie, als Hobby, zum Lernen oder für Experimente. Genau dafür ist es gemacht.
+- ✅ **Kostenlos für jede nicht-kommerzielle Nutzung** — hoste es für dich selbst, deine Familie, als Hobby, zum Lernen oder für Experimente. Genau dafür ist es gemacht.
 - ✅ **Ändern, wie du willst** — solange du den vorgeschriebenen Urheberrechtshinweis beibehältst.
 - ❌ **Kommerzielle Nutzung ist nicht erlaubt.**
 
-Du brauchst kommerzielle Nutzung? Eine separate kommerzielle Lizenz ist verfügbar — schreib an [discodrive@kosmosoid.dev](mailto:discodrive@kosmosoid.dev).
+Du brauchst kommerzielle Nutzung? Eine separate kommerzielle Lizenz ist verfügbar — schreib an [info@discodrive.app](mailto:info@discodrive.app).
 
 ---
 
-DiscoDrive ist ein nicht-kommerzielles Projekt, das von einer einzigen Person erstellt wird. Rückmeldungen und Vorschläge sind willkommen: [discodrive@kosmosoid.dev](mailto:discodrive@kosmosoid.dev).
+## ❤️ Das Projekt unterstützen
+
+DiscoDrive wird von einer einzigen Person gebaut und gepflegt. Rückmeldungen und Vorschläge sind willkommen — schreib an [info@discodrive.app](mailto:info@discodrive.app).
+
+Und wenn dir DiscoDrive gefällt und du möchtest, dass es weiter wächst — unterstütze das Projekt:
+
+- **[Gib ihm einen Stern auf GitHub](https://github.com/discodrive-cloud/discodrive-apps)** ⭐
+- **[Ko-fi](https://ko-fi.com/kosmosoid)**
+- **[Boosty](https://boosty.to/kosmosoid/donate)**
+- **[Kryptowährung](https://nowpayments.io/donation?api_key=7P893T0-48B4KZH-Q6PXBBT-D79X9TK)** — über NOWPayments
+
+Danke! Jeder Beitrag bringt das Projekt voran.

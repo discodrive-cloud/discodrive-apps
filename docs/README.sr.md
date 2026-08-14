@@ -134,12 +134,23 @@ make bind-android           # само gomobile биндинг за Android
 
 DiscoDrive се дистрибуира као **source-available** под лиценцом [PolyForm Noncommercial License 1.0.0](../LICENSE).
 
-- ✅ **Бесплатно за сваку некомерцијалну употребу** — користи га за себе, породицу, хоби, учење или експерименте. Управо због тога је и направљен.
+- ✅ **Бесплатно за сваку некомерцијалну употребу** — постави га за себе, породицу, хоби, учење или експерименте. Управо због тога је и направљен.
 - ✅ **Мењај како год хоћеш** — уз услов да задржиш обавезно навођење ауторства.
 - ❌ **Комерцијална употреба није дозвољена.**
 
-Треба ти комерцијална употреба? Доступна је засебна комерцијална лиценца — пиши на [discodrive@kosmosoid.dev](mailto:discodrive@kosmosoid.dev).
+Треба ти комерцијална употреба? Доступна је засебна комерцијална лиценца — пиши на [info@discodrive.app](mailto:info@discodrive.app).
 
 ---
 
-DiscoDrive је некомерцијални пројекат који прави једна особа. Повратне информације и предлози су добродошли: [discodrive@kosmosoid.dev](mailto:discodrive@kosmosoid.dev).
+## ❤️ Подржи пројекат
+
+DiscoDrive прави и одржава једна особа. Повратне информације и предлози су добродошли — пиши на [info@discodrive.app](mailto:info@discodrive.app).
+
+А ако ти се DiscoDrive свиђа и желиш да расте и даље — подржи пројекат:
+
+- **[Дај звездицу на GitHub-у](https://github.com/discodrive-cloud/discodrive-apps)** ⭐
+- **[Ko-fi](https://ko-fi.com/kosmosoid)**
+- **[Boosty](https://boosty.to/kosmosoid/donate)**
+- **[Криптовалуте](https://nowpayments.io/donation?api_key=7P893T0-48B4KZH-Q6PXBBT-D79X9TK)** — преко NOWPayments
+
+Хвала! Сваки допринос помаже пројекту да иде напред.
