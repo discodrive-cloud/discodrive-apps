@@ -6,7 +6,7 @@
 set -eu
 
 VER="${1:?usage: gen-brew-formula.sh <version>}"
-BASE="https://github.com/kosmosoid/discodrive-apps/releases/download/v${VER}"
+BASE="https://github.com/discodrive-cloud/discodrive-apps/releases/download/v${VER}"
 
 sha() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -24,7 +24,7 @@ SHA_LINUX_AMD64=$(sha linux-amd64)
 cat <<EOF
 class DiscodriveDaemon < Formula
   desc "Headless sync daemon for the DiscoDrive personal cloud"
-  homepage "https://github.com/kosmosoid/discodrive-apps"
+  homepage "https://github.com/discodrive-cloud/discodrive-apps"
   version "${VER}"
   license "PolyForm-Noncommercial-1.0.0"
 

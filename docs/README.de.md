@@ -47,7 +47,7 @@ Eine plattformübergreifende GUI-App (macOS, Windows, Linux) mit **On-Demand**-M
 
 Fertige Binärdateien für Linux, Windows und macOS (Daemon und Desktop-Client) sowie eine `.apk` für Android werden auf der Releases-Seite veröffentlicht:
 
-### 👉 [github.com/kosmosoid/discodrive-apps/releases](https://github.com/kosmosoid/discodrive-apps/releases)
+### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) und **Windows** (`.exe` + Installer) sind **nicht signiert**. Beim ersten Start zeigen Gatekeeper (macOS) bzw. SmartScreen (Windows) eine Warnung.
 - **iOS** ist nicht in den Releases enthalten (du musst es selbst bauen und per Xcode auf einem iPhone installieren).

@@ -47,7 +47,7 @@ A cross-platform GUI app (macOS, Windows, Linux) with an **on-demand** model.
 
 Prebuilt binaries for Linux, Windows and macOS (daemon and desktop client) and an `.apk` for Android are published on the releases page:
 
-### 👉 [github.com/kosmosoid/discodrive-apps/releases](https://github.com/kosmosoid/discodrive-apps/releases)
+### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) and **Windows** (`.exe` + installer) are **unsigned**. On first launch Gatekeeper (macOS) or SmartScreen (Windows) will show a warning.
 - **iOS** is not included in releases (you need to build it yourself and install it on an iPhone via Xcode).

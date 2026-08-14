@@ -47,7 +47,7 @@
 
 Собранные бинарные файлы под Linux, Windows и macOS (демон и десктоп-клиент) и `.apk` для Android публикуются на странице релизов:
 
-### 👉 [github.com/kosmosoid/discodrive-apps/releases](https://github.com/kosmosoid/discodrive-apps/releases)
+### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) и **Windows** (`.exe` + установщик) **не подписаны**. При первом запуске Gatekeeper (macOS) или SmartScreen (Windows) покажут предупреждение.
 - **iOS** в релизы не входит (нужно собрать самостоятельно и установить на iPhone с помощью xcode).

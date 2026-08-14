@@ -47,7 +47,7 @@
 
 Готове бинарне датотеке за Linux, Windows и macOS (демон и десктоп клијент) и `.apk` за Android објављују се на страници издања:
 
-### 👉 [github.com/kosmosoid/discodrive-apps/releases](https://github.com/kosmosoid/discodrive-apps/releases)
+### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) и **Windows** (`.exe` + инсталер) **нису потписани**. При првом покретању, Gatekeeper (macOS) или SmartScreen (Windows) приказаће упозорење.
 - **iOS** није укључен у издања (треба га сам изградити и инсталирати на iPhone помоћу Xcode-а).

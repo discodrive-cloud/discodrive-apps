@@ -47,7 +47,7 @@ Una app gráfica multiplataforma (macOS, Windows, Linux) con un modelo **bajo de
 
 Los binarios ya compilados para Linux, Windows y macOS (demonio y cliente de escritorio) y un `.apk` para Android se publican en la página de releases:
 
-### 👉 [github.com/kosmosoid/discodrive-apps/releases](https://github.com/kosmosoid/discodrive-apps/releases)
+### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) y **Windows** (`.exe` + instalador) **no están firmados**. En el primer arranque, Gatekeeper (macOS) o SmartScreen (Windows) mostrarán una advertencia.
 - **iOS** no se incluye en las releases (hay que compilarlo uno mismo e instalarlo en un iPhone mediante Xcode).
