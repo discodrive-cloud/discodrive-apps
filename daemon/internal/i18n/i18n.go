@@ -712,14 +712,16 @@ var catalog = map[string]map[string]string{
 		"sr": "Трезор",
 		"de": "Tresor",
 	},
+	// Says where to get the other flavour rather than how to compile one: whoever meets
+	// this installed a build, they did not make it.
 	"tray_no_tray_build": {
-		"en": "tray not built: rebuild with `go build -tags tray ./cmd/discodrive`",
-		"ru": "трей не собран: пересобери с `go build -tags tray ./cmd/discodrive`",
-		"uk": "трей не зібрано: перезбери з `go build -tags tray ./cmd/discodrive`",
-		"fr": "tray non compilé : recompilez avec `go build -tags tray ./cmd/discodrive`",
-		"es": "tray no compilado: recompila con `go build -tags tray ./cmd/discodrive`",
-		"sr": "треј није компајлиран: поново компајлирај са `go build -tags tray ./cmd/discodrive`",
-		"de": "Tray nicht kompiliert: neu kompilieren mit `go build -tags tray ./cmd/discodrive`",
+		"en": "this build has no tray icon. Install the desktop flavour: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, or take a -tray build from the releases page",
+		"ru": "в этой сборке нет иконки в трее. Поставьте десктопный вариант: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, либо возьмите сборку -tray со страницы релизов",
+		"uk": "у цій збірці немає іконки в треї. Установіть десктопний варіант: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, або візьміть збірку -tray зі сторінки релізів",
+		"fr": "cette version n'a pas d'icône de barre de menus. Installez la variante bureau : `brew install discodrive-cloud/tap/discodrive-daemon-tray`, ou prenez une version -tray sur la page des releases",
+		"es": "esta compilación no tiene icono en la barra de menús. Instala la variante de escritorio: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, o toma una compilación -tray de la página de releases",
+		"sr": "ова верзија нема икону у траци. Инсталирај десктоп варијанту: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, или узми -tray верзију са странице релиза",
+		"de": "diese Version hat kein Menüleisten-Symbol. Installiere die Desktop-Variante: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, oder nimm einen -tray-Build von der Releases-Seite",
 	},
 
 	// ── autostart platform strings ────────────────────────────────────────────

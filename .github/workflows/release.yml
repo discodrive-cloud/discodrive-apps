@@ -206,12 +206,13 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VER="${GITHUB_REF_NAME#v}"
-          scripts/gen-brew-formula.sh "$VER" > discodrive-daemon.rb
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/discodrive-cloud/homebrew-tap.git" tap
-          mv discodrive-daemon.rb tap/Formula/discodrive-daemon.rb
+          # Both flavours of the same release: headless, and the desktop one with a tray icon.
+          scripts/gen-brew-formula.sh "$VER"      > tap/Formula/discodrive-daemon.rb
+          scripts/gen-brew-formula.sh "$VER" tray > tap/Formula/discodrive-daemon-tray.rb
           cd tap
           git config user.name  "discodrive-cloud"
           git config user.email "info@discodrive.app"
-          git add Formula/discodrive-daemon.rb
+          git add Formula/discodrive-daemon.rb Formula/discodrive-daemon-tray.rb
           git diff --cached --quiet || git commit -m "discodrive-daemon $VER"
           git push
