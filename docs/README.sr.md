@@ -144,7 +144,7 @@ DiscoDrive се дистрибуира као **source-available** под лиц
 
 ## ❤️ Подржи пројекат
 
-DiscoDrive прави и одржава једна особа. Повратне информације и предлози су добродошли — пиши на [info@discodrive.app](mailto:info@discodrive.app).
+DiscoDrive се развија сопственим снагама, без инвестиција. Повратне информације и предлози су добродошли — пиши на [info@discodrive.app](mailto:info@discodrive.app).
 
 А ако ти се DiscoDrive свиђа и желиш да расте и даље — подржи пројекат:
 

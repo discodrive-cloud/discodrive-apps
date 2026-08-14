@@ -144,7 +144,7 @@ DiscoDrive поширюється як **source-available** за ліцензі�
 
 ## ❤️ Підтримати проєкт
 
-DiscoDrive створює й розвиває одна людина. Відгуки та пропозиції вітаються — пиши на [info@discodrive.app](mailto:info@discodrive.app).
+DiscoDrive розвивається власними силами, без інвестицій. Відгуки та пропозиції вітаються — пиши на [info@discodrive.app](mailto:info@discodrive.app).
 
 А якщо тобі подобається DiscoDrive і хочеться, щоб він ріс і далі — підтримай проєкт:
 

@@ -144,7 +144,7 @@ Besoin d'un usage commercial ? Une licence commerciale distincte est disponible 
 
 ## ❤️ Soutenir le projet
 
-DiscoDrive est conçu et maintenu par une seule personne. Les retours et suggestions sont les bienvenus — écrivez à [info@discodrive.app](mailto:info@discodrive.app).
+DiscoDrive est développé par ses propres moyens, sans investisseurs. Les retours et suggestions sont les bienvenus — écrivez à [info@discodrive.app](mailto:info@discodrive.app).
 
 Et si DiscoDrive vous plaît et que vous souhaitez le voir grandir — soutenez le projet :
 

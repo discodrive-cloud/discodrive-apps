@@ -144,7 +144,7 @@ DiscoDrive es **source-available** bajo la licencia [PolyForm Noncommercial Lice
 
 ## ❤️ Apoya el proyecto
 
-DiscoDrive lo crea y mantiene una sola persona. Los comentarios y sugerencias son bienvenidos — escribe a [info@discodrive.app](mailto:info@discodrive.app).
+DiscoDrive se desarrolla por sus propios medios, sin inversión externa. Los comentarios y sugerencias son bienvenidos — escribe a [info@discodrive.app](mailto:info@discodrive.app).
 
 Y si te gusta DiscoDrive y quieres que siga creciendo — apoya el proyecto:
 

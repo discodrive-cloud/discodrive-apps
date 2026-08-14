@@ -144,7 +144,7 @@ Du brauchst kommerzielle Nutzung? Eine separate kommerzielle Lizenz ist verfügb
 
 ## ❤️ Das Projekt unterstützen
 
-DiscoDrive wird von einer einzigen Person gebaut und gepflegt. Rückmeldungen und Vorschläge sind willkommen — schreib an [info@discodrive.app](mailto:info@discodrive.app).
+DiscoDrive wird aus eigener Kraft entwickelt, ohne Investitionen. Rückmeldungen und Vorschläge sind willkommen — schreib an [info@discodrive.app](mailto:info@discodrive.app).
 
 Und wenn dir DiscoDrive gefällt und du möchtest, dass es weiter wächst — unterstütze das Projekt:
 

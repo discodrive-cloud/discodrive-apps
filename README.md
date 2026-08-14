@@ -144,7 +144,7 @@ Need commercial use? A separate commercial license is available — write to [in
 
 ## ❤️ Support the project
 
-DiscoDrive is built and maintained by one person. Feedback and suggestions are welcome — write to [info@discodrive.app](mailto:info@discodrive.app).
+DiscoDrive is developed independently, with no outside investment. Feedback and suggestions are welcome — write to [info@discodrive.app](mailto:info@discodrive.app).
 
 And if you enjoy DiscoDrive and want to see it keep growing — support the project:
 
