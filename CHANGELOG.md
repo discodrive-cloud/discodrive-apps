@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Homebrew carries both flavours of the daemon: `discodrive-daemon` as before, and
+  `discodrive-daemon-tray` for the desktop one with a menu bar icon. They install the same
+  binary, so Homebrew asks you to remove one before installing the other. `discodrive tray`
+  on a headless build now says where to get the other flavour rather than how to compile
+  one.
+
+### Fixed
+
+- Desktop app: turning "open at login" off unregistered nothing — it deleted the login
+  item's file and left the system still holding the registration for the rest of the
+  session, pointing at an app that may since have moved. Turning it back on could then
+  fail outright.
+
 ## 0.0.5
 
 ### Changed
