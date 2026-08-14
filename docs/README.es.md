@@ -57,8 +57,8 @@ Los binarios ya compilados para Linux, Windows y macOS (demonio y cliente de esc
 El demonio de sincronización también puede instalarse desde nuestro tap de Homebrew:
 
 ```sh
-brew tap kosmosoid/tap
-brew trust kosmosoid/tap   # solo en versiones recientes de Homebrew
+brew tap discodrive-cloud/tap
+brew trust discodrive-cloud/tap   # solo en versiones recientes de Homebrew
 brew install discodrive-daemon
 ```
 

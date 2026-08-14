@@ -207,11 +207,11 @@ jobs:
         run: |
           VER="${GITHUB_REF_NAME#v}"
           scripts/gen-brew-formula.sh "$VER" > discodrive-daemon.rb
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/kosmosoid/homebrew-tap.git" tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/discodrive-cloud/homebrew-tap.git" tap
           mv discodrive-daemon.rb tap/Formula/discodrive-daemon.rb
           cd tap
-          git config user.name  "kosmosoid"
-          git config user.email "kosmosoid@users.noreply.github.com"
+          git config user.name  "discodrive-cloud"
+          git config user.email "info@discodrive.app"
           git add Formula/discodrive-daemon.rb
           git diff --cached --quiet || git commit -m "discodrive-daemon $VER"
           git push

@@ -57,8 +57,8 @@ Fertige Binärdateien für Linux, Windows und macOS (Daemon und Desktop-Client) 
 Der Sync-Daemon lässt sich auch aus unserem Homebrew-Tap installieren:
 
 ```sh
-brew tap kosmosoid/tap
-brew trust kosmosoid/tap   # nur bei neueren Homebrew-Versionen nötig
+brew tap discodrive-cloud/tap
+brew trust discodrive-cloud/tap   # nur bei neueren Homebrew-Versionen nötig
 brew install discodrive-daemon
 ```
 

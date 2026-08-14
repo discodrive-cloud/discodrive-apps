@@ -57,8 +57,8 @@ Prebuilt binaries for Linux, Windows and macOS (daemon and desktop client) and a
 The sync daemon can also be installed from our Homebrew tap:
 
 ```sh
-brew tap kosmosoid/tap
-brew trust kosmosoid/tap   # newer Homebrew versions only
+brew tap discodrive-cloud/tap
+brew trust discodrive-cloud/tap   # newer Homebrew versions only
 brew install discodrive-daemon
 ```
 

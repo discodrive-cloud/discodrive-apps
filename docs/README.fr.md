@@ -57,8 +57,8 @@ Des binaires prêts à l’emploi pour Linux, Windows et macOS (démon et client
 Le démon de synchronisation peut aussi être installé depuis notre tap Homebrew :
 
 ```sh
-brew tap kosmosoid/tap
-brew trust kosmosoid/tap   # uniquement pour les versions récentes de Homebrew
+brew tap discodrive-cloud/tap
+brew trust discodrive-cloud/tap   # uniquement pour les versions récentes de Homebrew
 brew install discodrive-daemon
 ```
 

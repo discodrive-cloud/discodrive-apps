@@ -57,8 +57,8 @@
 Демон синхронізації можна також установити з нашого Homebrew tap:
 
 ```sh
-brew tap kosmosoid/tap
-brew trust kosmosoid/tap   # лише для свіжих версій Homebrew
+brew tap discodrive-cloud/tap
+brew trust discodrive-cloud/tap   # лише для свіжих версій Homebrew
 brew install discodrive-daemon
 ```
 
