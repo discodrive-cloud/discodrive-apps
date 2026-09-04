@@ -49,17 +49,18 @@ Des binaires prêts à l’emploi pour Linux, Windows et macOS (démon et client
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
-- **macOS** (`.dmg`) et **Windows** (`.exe` + installateur) ne sont **pas signés**. Au premier lancement, Gatekeeper (macOS) ou SmartScreen (Windows) afficheront un avertissement.
+- **macOS** (`.dmg`) est signé avec un Developer ID et notarisé par Apple : il s’ouvre sans avertissement. **Windows** (`.exe` + installateur) n’est **pas signé** : au premier lancement, SmartScreen affichera un avertissement.
 - **iOS** n’est pas inclus dans les releases (il faut le compiler soi-même et l’installer sur un iPhone via Xcode).
 
-### 🍺 Homebrew (démon — macOS et Linux)
+### 🍺 Homebrew (macOS et Linux)
 
 Le démon de synchronisation peut aussi être installé depuis notre tap Homebrew :
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # uniquement pour les versions récentes de Homebrew
-brew install discodrive-daemon
+brew install discodrive-daemon      # démon de synchronisation
+brew install --cask discodrive      # client de bureau (macOS)
 ```
 
 Ensuite, appairez le démon avec votre serveur et activez le démarrage automatique :

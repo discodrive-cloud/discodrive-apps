@@ -49,17 +49,18 @@ Los binarios ya compilados para Linux, Windows y macOS (demonio y cliente de esc
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
-- **macOS** (`.dmg`) y **Windows** (`.exe` + instalador) **no están firmados**. En el primer arranque, Gatekeeper (macOS) o SmartScreen (Windows) mostrarán una advertencia.
+- **macOS** (`.dmg`) está firmado con Developer ID y notarizado por Apple, así que se abre sin advertencias. **Windows** (`.exe` + instalador) **no está firmado**: en el primer arranque SmartScreen mostrará una advertencia.
 - **iOS** no se incluye en las releases (hay que compilarlo uno mismo e instalarlo en un iPhone mediante Xcode).
 
-### 🍺 Homebrew (demonio — macOS y Linux)
+### 🍺 Homebrew (macOS y Linux)
 
 El demonio de sincronización también puede instalarse desde nuestro tap de Homebrew:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # solo en versiones recientes de Homebrew
-brew install discodrive-daemon
+brew install discodrive-daemon      # demonio de sincronización
+brew install --cask discodrive      # cliente de escritorio (macOS)
 ```
 
 Después, empareja el demonio con tu servidor y activa el arranque automático:

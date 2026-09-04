@@ -49,17 +49,18 @@ Prebuilt binaries for Linux, Windows and macOS (daemon and desktop client) and a
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
-- **macOS** (`.dmg`) and **Windows** (`.exe` + installer) are **unsigned**. On first launch Gatekeeper (macOS) or SmartScreen (Windows) will show a warning.
+- **macOS** (`.dmg`) is signed with Developer ID and notarized by Apple, so it opens without warnings. **Windows** (`.exe` + installer) is **unsigned**: on first launch SmartScreen will show a warning.
 - **iOS** is not included in releases (you need to build it yourself and install it on an iPhone via Xcode).
 
-### 🍺 Homebrew (daemon — macOS and Linux)
+### 🍺 Homebrew (macOS and Linux)
 
 The sync daemon can also be installed from our Homebrew tap:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # newer Homebrew versions only
-brew install discodrive-daemon
+brew install discodrive-daemon      # sync daemon
+brew install --cask discodrive      # desktop client (macOS)
 ```
 
 Then pair the daemon with your server and enable autostart:

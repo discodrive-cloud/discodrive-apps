@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- macOS releases are signed with Developer ID and notarized by Apple: the desktop `.dmg`
+  and both flavours of the daemon. The app opens straight away instead of needing
+  "right-click → Open", and the desktop client is now a Homebrew cask as well —
+  `brew install --cask discodrive-cloud/tap/discodrive`. Windows builds are still unsigned.
+
 - Homebrew carries both flavours of the daemon: `discodrive-daemon` as before, and
   `discodrive-daemon-tray` for the desktop one with a menu bar icon. They install the same
   binary, so Homebrew asks you to remove one before installing the other. `discodrive tray`

@@ -49,17 +49,18 @@
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
-- **macOS** (`.dmg`) и **Windows** (`.exe` + инсталер) **нису потписани**. При првом покретању, Gatekeeper (macOS) или SmartScreen (Windows) приказаће упозорење.
+- **macOS** (`.dmg`) је потписан Developer ID-ом и нотаризован код Apple-а, па се отвара без упозорења. **Windows** (`.exe` + инсталер) **није потписан**: при првом покретању SmartScreen ће приказати упозорење.
 - **iOS** није укључен у издања (треба га сам изградити и инсталирати на iPhone помоћу Xcode-а).
 
-### 🍺 Homebrew (демон — macOS и Linux)
+### 🍺 Homebrew (macOS и Linux)
 
 Демон за синхронизацију може се инсталирати и из нашег Homebrew tap-а:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # само за новије верзије Homebrew-а
-brew install discodrive-daemon
+brew install discodrive-daemon      # демон за синхронизацију
+brew install --cask discodrive      # десктоп клијент (macOS)
 ```
 
 Затим упарите демон са сервером и укључите аутоматско покретање:
