@@ -28,9 +28,9 @@ OUT := $(DIST)/$(OS)-$(ARCH)$(if $(filter 1,$(TRAY)),-tray,)
 GRADLE_DD := $(if $(wildcard clients/android-discodrive/gradlew),./gradlew,gradle)
 GRADLE_FS := $(if $(wildcard clients/android-fastsync/gradlew),./gradlew,gradle)
 
-.PHONY: help daemon daemon-all daemon-tray-all bind-ios bind-android \
+.PHONY: help daemon daemon-all daemon-tray-all daemon-macos-release bind-ios bind-android \
         app-macos app-ios app-ios-fastsync app-android app-android-fastsync \
-        desktop app-desktop-macos dmg-desktop-macos desktop-linux desktop-windows \
+        desktop app-desktop-macos sign-desktop-macos dmg-desktop-macos desktop-linux desktop-windows \
         all-go test test-go test-swift doctor clean
 
 help:
@@ -38,9 +38,11 @@ help:
 	@echo "  daemon                headless sync daemon for OS/ARCH  (TRAY=1 ⇒ menubar/tray flavor)"
 	@echo "  daemon-all            server daemon (no tray): darwin amd64+arm64, linux amd64, windows amd64"
 	@echo "  daemon-tray-all       desktop daemon (tray): linux amd64+arm64, windows amd64 (+darwin on macOS)"
+	@echo "  daemon-macos-release  darwin daemon, both flavours × amd64+arm64, signed + notarized, tarred"
 	@echo "  desktop               desktop client for host (darwin/universal on macOS)"
-	@echo "  app-desktop-macos     universal DiscoDrive.app (ad-hoc signed)"
-	@echo "  dmg-desktop-macos     package the desktop .app into dist/*.dmg  (VERSION=x.y.z names the file)"
+	@echo "  app-desktop-macos     universal DiscoDrive.app (ad-hoc signed by Wails)"
+	@echo "  sign-desktop-macos    re-sign the built .app with Developer ID + hardened runtime"
+	@echo "  dmg-desktop-macos     signed + notarized dist/*.dmg  (VERSION=x.y.z names the file)"
 	@echo "  desktop-linux         desktop client Linux build via Debian Docker image"
 	@echo "  desktop-windows       desktop client Windows .exe + NSIS installers (amd64+arm64, cross-built)"
 	@echo "  bind-ios              gomobile xcframework → daemon/mobile/build/"
@@ -81,6 +83,17 @@ ifeq ($(HOST_OS),darwin)
 	$(MAKE) daemon OS=darwin ARCH=arm64 TRAY=1
 endif
 
+# Release-grade darwin daemon: every flavour and arch, Developer-ID signed, notarized as
+# one zip, then tarred as discodrive-daemon-<os>-<arch>[-tray].tar.gz for the release and
+# the Homebrew formulas. Signing degrades to ad-hoc + a notice without a certificate;
+# SIGN_REQUIRED=1 makes that an error (CI sets it).
+daemon-macos-release:
+	$(MAKE) daemon OS=darwin ARCH=amd64
+	$(MAKE) daemon OS=darwin ARCH=arm64
+	$(MAKE) daemon OS=darwin ARCH=amd64 TRAY=1
+	$(MAKE) daemon OS=darwin ARCH=arm64 TRAY=1
+	scripts/macos-release-daemon.sh
+
 # ---------- DESKTOP ----------
 DESKTOP_DIR := $(DAEMON_DIR)/cmd/discodrive-wails
 
@@ -89,6 +102,10 @@ desktop app-desktop-macos:
 	  wails build -platform darwin/universal -clean
 	@echo "built → $(DESKTOP_DIR)/build/bin/discodrive-wails.app"
 
+sign-desktop-macos:
+	scripts/macos-sign.sh $(DESKTOP_DIR)/build/bin/discodrive-wails.app
+
+# Signs the .app, builds the .dmg, signs and notarizes it (see scripts/macos-*.sh).
 dmg-desktop-macos: app-desktop-macos
 	scripts/package-macos-dmg.sh $(VERSION)
 
@@ -188,5 +205,13 @@ doctor:
 	$(call _have,makensis, (desktop Windows installers), brew install makensis)
 	$(call _have,x86_64-w64-mingw32-gcc, (Windows daemon-tray cross-build), brew install mingw-w64)
 	@echo "Env:"
+ifeq ($(HOST_OS),darwin)
+	@security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application" \
+	  && echo "  ok   Developer ID Application certificate (signed macOS releases)" \
+	  || echo "  warn no Developer ID Application certificate — macOS builds are ad-hoc signed"
+	@xcrun notarytool history --keychain-profile "$${NOTARY_PROFILE:-discodrive}" >/dev/null 2>&1 \
+	  && echo "  ok   notarytool keychain profile '$${NOTARY_PROFILE:-discodrive}'" \
+	  || echo "  warn no notarytool profile '$${NOTARY_PROFILE:-discodrive}' — see dev/ops/macos-signing.md"
+endif
 	@[ -n "$$ANDROID_NDK_HOME" ] && echo "  ok   ANDROID_NDK_HOME=$$ANDROID_NDK_HOME" || echo "  MISS ANDROID_NDK_HOME — set for Android bindings"
 	@[ -n "$$ANDROID_HOME" ] && echo "  ok   ANDROID_HOME=$$ANDROID_HOME" || echo "  warn ANDROID_HOME unset"
