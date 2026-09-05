@@ -27,4 +27,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app
         INFOPLIST_FILE: Resources/Info.plist
         # App icon — prebuilt AppIcon.icns (CFBundleIconFile); actool truncated the large slots.
-        # IMPORTANT: do NOT enable ENABLE_APP_SANDBOX — otherwise AMFI rejects it under a free team.
+        # Sandboxed (see the entitlements) and hardened: both are conditions for hosting the
+        # File Provider extension, for notarization and for the App Store.
+        CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
+        ENABLE_HARDENED_RUNTIME: YES

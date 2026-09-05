@@ -31,9 +31,23 @@ final class AppState: ObservableObject {
     private var refreshing = false
     private var eventsTask: Task<Void, Never>?
 
+    // Set by the macOS app at launch; nil on iOS. With a group the index lives in the group
+    // container, where the File Provider extension can open it too.
+    nonisolated(unsafe) static var appGroupID: String?
+
     private var appSupportDir: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("DiscoDrive", isDirectory: true)
+    }
+
+    // Where the index database goes: the App Group container when there is one (shared with
+    // the extension), the app's own Application Support otherwise.
+    private var indexDir: URL {
+        if let group = Self.appGroupID,
+           let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) {
+            return container.appendingPathComponent("DiscoDrive", isDirectory: true)
+        }
+        return appSupportDir
     }
 
     func bootstrap() {
@@ -59,9 +73,10 @@ final class AppState: ObservableObject {
     func activate(serverURL: URL, token: String) {
         let dir = appSupportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
         self.serverURL = serverURL
         self.client = APIClient(baseURL: serverURL, deviceToken: token)
-        self.index = try? IndexStore(path: dir.appendingPathComponent("index.sqlite").path)
+        self.index = try? IndexStore(path: indexDir.appendingPathComponent("index.sqlite").path)
         #if os(iOS)
         // Content goes directly into Documents (that is the "DiscoDrive" folder visible in Files.app
         // where the user drops files); the internal DB lives in Application Support.
@@ -171,11 +186,10 @@ final class AppState: ObservableObject {
         index = nil          // release the SQLite handles before deleting the files
         local = nil
         let fm = FileManager.default
-        let dir = appSupportDir
         for name in ["index.sqlite", "index.sqlite-wal", "index.sqlite-shm"] {
-            try? fm.removeItem(at: dir.appendingPathComponent(name))
+            try? fm.removeItem(at: indexDir.appendingPathComponent(name))
         }
-        try? fm.removeItem(at: dir.appendingPathComponent("local"))   // macOS: cache DB + content
+        try? fm.removeItem(at: appSupportDir.appendingPathComponent("local"))   // macOS: cache DB + content
         #if os(iOS)
         // iOS content lives in the app's Documents (the user-visible "DiscoDrive" folder) — clear it too.
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]

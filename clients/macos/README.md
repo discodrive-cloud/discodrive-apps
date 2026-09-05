@@ -3,19 +3,21 @@
 A windowed app for accessing DiscoDrive files: displays the full tree, fetches content
 **on demand**, and lets you **keep individual files local**. No Finder integration.
 
-## Why standalone and not File Provider
+## Where this is going
 
-Finder integration (File Provider) requires a sandbox extension, and App Sandbox under
-a **free** Apple ID is rejected by the macOS kernel (AMFI: ad-hoc/local signing + sandbox
-= denied). A paid Apple Developer account ($99) is required. So files live in an app
-window rather than in Finder. A File Provider variant is parked outside this repo
-until a paid Apple Developer account is available.
+The app is sandboxed and signed with the team's Developer ID (paid Apple Developer account
+since 2026-09). A File Provider extension — the DiscoDrive folder in Finder, like iCloud
+Drive — is being added next; until it lands, files are browsed in the app window. The
+index database lives in the App Group container (`~/Library/Group Containers/<team>.org.discodrive`)
+and the device token in the keychain access group of the same name, so the extension can
+share them. Both identifiers are declared in `Resources/Info.plist` next to the
+entitlements.
 
 ## Requirements
 
 - Xcode 26+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
-- Set your `DEVELOPMENT_TEAM` in `project.yml` (Xcode → Settings → Accounts → Team ID), or
-  switch signing to "Sign to Run Locally" in Xcode.
+- A paid Apple Developer team: `DEVELOPMENT_TEAM` in `project.yml`. The app is sandboxed
+  and uses an App Group and a keychain access group, which a free team cannot sign.
 
 ## Build and run
 
@@ -47,5 +49,5 @@ notarization. iOS will reuse the `clients/DiscoKit` core.
 
 ## Distribution
 
-A release without a paid account is signed locally → Gatekeeper will require
-"right-click → Open" on first launch. Notarization is unavailable without $99.
+Releases are signed with Developer ID and notarized (`scripts/macos-sign.sh`,
+`scripts/macos-notarize.sh`); the App Store is the eventual channel.

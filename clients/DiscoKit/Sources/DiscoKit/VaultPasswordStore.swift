@@ -40,7 +40,23 @@ public enum VaultPasswordStore {
 
     // Returns true if a password is already saved for the vault.
     public static func hasPassword(forVault key: String) -> Bool {
-        SecItemCopyMatching(baseQuery(key) as CFDictionary, nil) != errSecItemNotFound
+        migrateLegacy(key)
+        return SecItemCopyMatching(baseQuery(key) as CFDictionary, nil) != errSecItemNotFound
+    }
+
+    // A password saved before the app used an access group sits in the old per-app store;
+    // move it over once so a remembered vault stays remembered across the upgrade.
+    private static func migrateLegacy(_ key: String) {
+        guard KeychainConfig.accessGroup != nil,
+              SecItemCopyMatching(baseQuery(key) as CFDictionary, nil) == errSecItemNotFound else { return }
+        var q = KeychainConfig.query(service: service, account: key, group: nil)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let data = out as? Data, let pw = String(data: data, encoding: .utf8) else { return }
+        save(password: pw, forVault: key)
+        SecItemDelete(KeychainConfig.query(service: service, account: key, group: nil) as CFDictionary)
     }
 
     // Save a password (plain Keychain item, no access-control → no special entitlements needed).
@@ -71,16 +87,13 @@ public enum VaultPasswordStore {
     }
 
     private static func baseQuery(_ key: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: key]
+        KeychainConfig.query(service: service, account: key)
     }
 
     public static func delete(forVault key: String) {
-        SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-        ] as CFDictionary)
+        SecItemDelete(baseQuery(key) as CFDictionary)
+        if KeychainConfig.accessGroup != nil {
+            SecItemDelete(KeychainConfig.query(service: service, account: key, group: nil) as CFDictionary)
+        }
     }
 }

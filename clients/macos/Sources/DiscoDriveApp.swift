@@ -7,6 +7,11 @@ struct DiscoDriveApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        // The App Group and keychain group are shared with the File Provider extension and
+        // declared in Info.plist next to the entitlements, so the two cannot drift apart.
+        let info = Bundle.main.infoDictionary ?? [:]
+        KeychainConfig.accessGroup = info["DiscoDriveKeychainGroup"] as? String
+        AppState.appGroupID = info["DiscoDriveAppGroup"] as? String
         #if DEBUG
         // Debug builds may talk to a self-hosted server with a self-signed cert.
         // Release builds keep strict TLS validation.
