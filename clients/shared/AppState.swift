@@ -30,6 +30,9 @@ final class AppState: ObservableObject {
 
     private var refreshing = false
     private var eventsTask: Task<Void, Never>?
+    // Called after every successful refresh; the macOS app uses it to nudge the File
+    // Provider extension so Finder picks up the change without waiting.
+    var onRemoteChange: (() -> Void)?
 
     // Set by the macOS app at launch; nil on iOS. With a group the index lives in the group
     // container, where the File Provider extension can open it too.
@@ -214,6 +217,7 @@ final class AppState: ObservableObject {
             try index.setCursor(cursor)
             statusText = t("status.updated")
             syncStatus = .idle
+            onRemoteChange?()
         } catch {
             statusText = "\(t("status.refreshError")): \(error.localizedDescription)"
             syncStatus = .offline

@@ -9,8 +9,14 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
         try migrate()
     }
 
+    // On disk the index is shared between the app and the File Provider extension, two
+    // processes that both apply change pages. WAL lets one read while the other writes,
+    // and the busy timeout makes a second writer wait instead of failing with "locked".
     public convenience init(path: String) throws {
-        try self.init(dbQueue: try DatabaseQueue(path: path))
+        var config = Configuration()
+        config.busyMode = .timeout(10)
+        config.prepareDatabase { db in try db.execute(sql: "PRAGMA journal_mode = WAL") }
+        try self.init(dbQueue: try DatabaseQueue(path: path, configuration: config))
     }
 
     private func migrate() throws {
@@ -73,10 +79,23 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
         }
     }
 
+    // The cursor only moves forward: the app and the File Provider extension both apply
+    // change pages to this database, and whichever finishes an older page later must not
+    // wind it back behind what the other already recorded.
     public func setCursor(_ value: Int64) throws {
         try dbQueue.write { db in
+            let current = (try String.fetchOne(db, sql: "SELECT value FROM meta WHERE key='cursor'")).flatMap(Int64.init) ?? 0
+            guard value > current else { return }
             try db.execute(sql: "INSERT INTO meta(key,value) VALUES('cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                            arguments: [String(value)])
+        }
+    }
+
+    // Every node, folders first then by path — what the working-set enumerator hands the
+    // system on its first pass.
+    public func allNodes() throws -> [Node] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM nodes ORDER BY is_dir DESC, path").map(Self.rowToNode)
         }
     }
 

@@ -22,6 +22,8 @@ targets:
     sources: [Sources, ../shared, Resources/Assets.xcassets, Resources/AppIcon.icns]
     dependencies:
       - package: DiscoKit
+      - target: FileProviderExt
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app
@@ -30,4 +32,20 @@ targets:
         # Sandboxed (see the entitlements) and hardened: both are conditions for hosting the
         # File Provider extension, for notarization and for the App Store.
         CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+  # The DiscoDrive folder in Finder. Shares the index (App Group) and the token (keychain
+  # group) with the app; see FileProviderExt/Info.plist for the two NSExtension keys
+  # without which macOS refuses to launch it.
+  FileProviderExt:
+    type: app-extension
+    platform: macOS
+    sources: [FileProviderExt]
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.fileprovider
+        INFOPLIST_FILE: FileProviderExt/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: FileProviderExt/FileProviderExt.entitlements
         ENABLE_HARDENED_RUNTIME: YES

@@ -26,7 +26,16 @@ struct DiscoDriveApp: App {
             }
             .frame(minWidth: 700, minHeight: 480)
             .environmentObject(app)
-            .onAppear { app.bootstrap() }
+            .onAppear {
+                app.bootstrap()
+                // Finder shows the DiscoDrive folder while paired; the extension is
+                // nudged after every change the server streams to the app.
+                app.onRemoteChange = { FileProviderDomain.signalChanges() }
+                if app.paired { FileProviderDomain.register() }
+            }
+            .onChange(of: app.paired) { _, paired in
+                paired ? FileProviderDomain.register() : FileProviderDomain.unregister()
+            }
             .onChange(of: app.syncStatus) { _, status in appDelegate.setStatus(status) }
         }
         .commands {
