@@ -21,6 +21,8 @@ data class UiState(
     val lastSyncUnix: Long = 0,
     val lastError: String? = null,
     val pendingUserCode: String? = null,
+    // Where the first pass after pairing moved the folder's previous contents, if any.
+    val setAside: String? = null,
 )
 
 class SyncViewModel(app: Application) : AndroidViewModel(app) {
@@ -202,6 +204,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                 working = false,
                 state = st?.state ?: _ui.value.state,
                 lastSyncUnix = st?.lastSyncUnix ?: _ui.value.lastSyncUnix,
+                setAside = st?.setAside?.takeIf { it.isNotEmpty() } ?: _ui.value.setAside,
                 lastError = workerError ?: st?.lastError?.takeIf { it.isNotEmpty() },
             )
         }

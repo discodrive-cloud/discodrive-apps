@@ -15,6 +15,7 @@ import (
 
 func TestPushRefusesToDeleteMostOfTheIndex(t *testing.T) {
 	e, root := newEngine(t, &fakeSource{})
+	e.idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	// Ten files, known to the index and present on disk.
 	for i := range 10 {
 		name := filepath.Join(root, string(rune('a'+i))+".txt")
@@ -50,6 +51,7 @@ func TestPushRefusesToDeleteMostOfTheIndex(t *testing.T) {
 // Under the threshold everyday deletions go through untouched.
 func TestPushAllowsOrdinaryDeletions(t *testing.T) {
 	e, root := newEngine(t, &fakeSource{})
+	e.idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	for i := range 20 {
 		if err := os.WriteFile(filepath.Join(root, string(rune('a'+i))+".txt"), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
@@ -78,6 +80,7 @@ func TestPushAllowsOrdinaryDeletions(t *testing.T) {
 // is plainly deliberate, and blocking it would be the safety check making itself a nuisance.
 func TestPushAllowsClearingATinyFolder(t *testing.T) {
 	e, root := newEngine(t, &fakeSource{})
+	e.idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
 		if err := os.WriteFile(filepath.Join(root, n), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
@@ -103,6 +106,7 @@ func TestPushAllowsClearingATinyFolder(t *testing.T) {
 // The user can mean it. Once told so, the very next push goes through, and only that one.
 func TestConfirmedBulkDeleteGoesThroughOnce(t *testing.T) {
 	e, root := newEngine(t, &fakeSource{})
+	e.idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	for i := range 10 {
 		if err := os.WriteFile(filepath.Join(root, string(rune('a'+i))+".txt"), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)

@@ -150,9 +150,67 @@ func (i *Index) SetServerURL(u string) error {
 	return err
 }
 
-// Clear drops all known nodes and resets the cursor to 0, so the next pull rebuilds the
-// tree from scratch. Used when the sync scope changes. The scope_epoch is left untouched
-// (the caller sets it after a successful reconcile).
+// MirrorReady reports whether the sync folder has been established as this index's mirror,
+// i.e. a pull from the server has completed since the index was created or cleared. Until
+// then the folder's contents are whatever was there before — not something to upload.
+//
+// An index written by a version that did not record this is taken as ready when it has
+// pulled anything at all, so an upgrade does not treat every existing mirror as foreign.
+func (i *Index) MirrorReady() (bool, error) {
+	v, err := i.meta("mirror_ready")
+	if err != nil {
+		return false, err
+	}
+	if v != "" {
+		return v == "1", nil
+	}
+	cursor, err := i.Cursor()
+	return cursor > 0, err
+}
+
+func (i *Index) SetMirrorReady(ready bool) error {
+	v := "0"
+	if ready {
+		v = "1"
+	}
+	return i.setMeta("mirror_ready", v)
+}
+
+// KeepLocalOnce is the one-shot allowance a reset-in-place leaves behind: the next pull
+// keeps the folder's files as the mirror instead of setting them aside.
+func (i *Index) KeepLocalOnce() (bool, error) {
+	v, err := i.meta("keep_local_once")
+	return v == "1", err
+}
+
+func (i *Index) SetKeepLocalOnce(keep bool) error {
+	v := "0"
+	if keep {
+		v = "1"
+	}
+	return i.setMeta("keep_local_once", v)
+}
+
+func (i *Index) meta(key string) (string, error) {
+	var v string
+	err := i.db.QueryRow("SELECT value FROM meta WHERE key = ?", key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+func (i *Index) setMeta(key, value string) error {
+	_, err := i.db.Exec(
+		"INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value)
+	return err
+}
+
+// Clear drops all known nodes, resets the cursor to 0 and marks the mirror as not yet
+// established, so the next pull rebuilds the tree from scratch and treats the folder as
+// it would after a pairing. Used when the sync scope changes and when a device is
+// re-paired. The scope_epoch is left untouched (the caller sets it after a successful
+// reconcile).
 func (i *Index) Clear() error {
 	tx, err := i.db.Begin()
 	if err != nil {
@@ -162,9 +220,11 @@ func (i *Index) Clear() error {
 	if _, err := tx.Exec("DELETE FROM nodes"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(
-		"INSERT INTO meta(key, value) VALUES('cursor', '0') ON CONFLICT(key) DO UPDATE SET value = excluded.value"); err != nil {
-		return err
+	for _, kv := range [][2]string{{"cursor", "0"}, {"mirror_ready", "0"}} {
+		if _, err := tx.Exec(
+			"INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", kv[0], kv[1]); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

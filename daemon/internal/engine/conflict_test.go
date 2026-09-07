@@ -28,6 +28,7 @@ func TestConflictTwoSidedEdit(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 
 	// local edit present; the index knows a.txt (version 5, old base-hash)
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("local-edit"), 0o644)

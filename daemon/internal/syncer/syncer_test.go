@@ -47,6 +47,9 @@ func TestSyncOncePushThenPull(t *testing.T) {
 	}
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	// The order under test is that of an established mirror; a never-pulled index does
+	// not push at all (see engine.establishMirror).
+	idx.SetMirrorReady(true)
 	client := protocol.New(srv.URL, "kfd")
 	eng := engine.New(client, idx, root)
 	s := New(client, eng, root, filepath.Join(t.TempDir(), "status.json"))
@@ -93,6 +96,9 @@ func TestSyncOnceReconcilesOnEpochChange(t *testing.T) {
 	}
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	// The order under test is that of an established mirror; a never-pulled index does
+	// not push at all (see engine.establishMirror).
+	idx.SetMirrorReady(true)
 	client := protocol.New(srv.URL, "kfd")
 	eng := engine.New(client, idx, root)
 	s := New(client, eng, root, filepath.Join(t.TempDir(), "status.json"))

@@ -13,6 +13,8 @@ final class AppModel: ObservableObject {
     @Published var lastSyncUnix: Int64 = 0
     @Published var lastError: String?
     @Published var pendingUserCode: String?
+    // Where the first pass after pairing moved the folder's previous contents, if any.
+    @Published var setAside: String?
 
     private var client: MobileClient?
     private(set) var serverURL = ""
@@ -90,6 +92,7 @@ final class AppModel: ObservableObject {
             stateText = st.state
             lastSyncUnix = st.lastSyncUnix
             if !st.lastError.isEmpty { lastError = st.lastError }
+            if !st.setAside.isEmpty { setAside = st.setAside }
         }
         working = false
     }

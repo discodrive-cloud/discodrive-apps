@@ -85,6 +85,28 @@ func TestSyncOncePush(t *testing.T) {
 	srv := syncMux("", "", &pushed)
 	defer srv.Close()
 	c, dir := newClient(t, srv.URL)
+	// Whatever the folder held before the first pass is the device's previous life, not
+	// new work: after pairing the server is the truth, and it is set aside, not uploaded.
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SyncOnce(); err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if len(pushed) != 0 {
+		t.Fatalf("the first pass uploaded %v; nothing from before the pairing may go up", pushed)
+	}
+	st := c.Status()
+	if st.SetAside == "" {
+		t.Fatalf("status does not say where the old folder went: %+v", st)
+	}
+	if _, err := os.Stat(filepath.Join(st.SetAside, "old.txt")); err != nil {
+		t.Fatalf("old.txt is not in the set-aside folder %s: %v", st.SetAside, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old.txt")); !os.IsNotExist(err) {
+		t.Fatalf("old.txt is still in the sync folder")
+	}
+	// Work done after the pairing is pushed as before.
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}

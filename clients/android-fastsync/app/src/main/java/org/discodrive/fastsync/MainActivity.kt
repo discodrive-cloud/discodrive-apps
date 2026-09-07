@@ -126,6 +126,10 @@ fun SyncScreen(vm: SyncViewModel, ui: UiState) {
             if (ui.working) { CircularProgressIndicator(Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
             Text(if (ui.working) "Syncing…" else "Sync now")
         }
+        ui.setAside?.let {
+            Text("Files from before the pairing were set aside in $it. Nothing from there is uploaded — the server is the source of truth.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        }
         Text("State: ${ui.state} · last sync: ${lastSyncText(ui.lastSyncUnix)}",
             style = MaterialTheme.typography.bodySmall)
         ui.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error) }

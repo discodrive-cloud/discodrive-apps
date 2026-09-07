@@ -86,10 +86,13 @@ func cmdPair(args []string) {
 	if err != nil {
 		fatal(fmt.Sprintf(i18n.T("pair_wait_error"), err))
 	}
+	// Every pairing starts from a clean index, same server or not: the server is the
+	// truth from here on, and whatever the folder already holds is set aside by the
+	// first run rather than uploaded (see engine.establishMirror).
+	if err := removeStateDB(*cfgPath); err != nil {
+		fatal(fmt.Sprintf(i18n.T("pair_reset_error"), err))
+	}
 	if oldServer != "" && oldServer != *server {
-		if err := removeStateDB(*cfgPath); err != nil {
-			fatal(fmt.Sprintf(i18n.T("pair_reset_error"), err))
-		}
 		fmt.Printf(i18n.T("pair_server_changed"), syncDir)
 	}
 	cfg := config.Config{ServerURL: *server, DeviceToken: token, SyncDir: syncDir}
@@ -97,6 +100,7 @@ func cmdPair(args []string) {
 		fatal(fmt.Sprintf(i18n.T("pair_save_error"), err))
 	}
 	fmt.Printf(i18n.T("pair_done"), *cfgPath, syncDir)
+	fmt.Printf(i18n.T("pair_fresh_folder"), syncDir)
 }
 
 func cmdRun(args []string) {

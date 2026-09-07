@@ -19,6 +19,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- After pairing, the server is the source of truth — on every client that mirrors a folder
+  (the daemon, Fast Sync on Android and iOS). A folder that already held files when the
+  device was paired used to be read as a folder full of new files, and the first pass
+  uploaded all of it: re-pairing a laptop or a phone pushed its stale folder onto the
+  server, every time. Now nothing goes up before the first download has come down, and
+  whatever the folder held before the pairing is moved next to it (`<folder>.old-<date>`),
+  untouched and never uploaded, while a clean folder is filled from the server. The
+  daemon's `pair` starts from a clean index on every pairing, the same server included;
+  "download everything again" after a stopped sync still keeps the folder in place.
 - Desktop app: turning "open at login" off unregistered nothing — it deleted the login
   item's file and left the system still holding the registration for the rest of the
   session, pointing at an app that may since have moved. Turning it back on could then

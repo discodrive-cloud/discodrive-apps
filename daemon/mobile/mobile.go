@@ -69,6 +69,10 @@ type Status struct {
 	State        string
 	LastSyncUnix int64  // 0 if never synced successfully
 	LastError    string // last SyncOnce error text, "" if none
+	// SetAside is where the first pass after pairing moved the folder's previous contents,
+	// "" if there were none. After pairing the server is the truth: nothing that was in the
+	// folder before is uploaded; it is kept next to the folder for the user to sort out.
+	SetAside string
 }
 
 // Client is a sync handle for one paired device + one sync folder.
@@ -120,13 +124,14 @@ const BulkDeleteMarker = "refusing to delete"
 func (c *Client) ConfirmBulkDelete() { c.eng.ConfirmBulkDelete() }
 
 // ResetLocalIndex forgets what this device knows about the server's tree, so the next pass
-// fetches all of it again. Nothing on the server is touched and nothing local is deleted.
+// fetches all of it again. Nothing on the server is touched and nothing local is deleted or
+// moved: the folder stays the mirror, unlike after a pairing.
 //
 // This is the other answer to a sync stopped by the mass-deletion check, and usually the right
 // one: the folder went missing rather than the files being deleted, so the fix is to rebuild
 // the local copy, not to make the server match a mirror that no longer exists. Files still
 // present on disk are uploaded as new ones by the pass that follows.
-func (c *Client) ResetLocalIndex() error { return c.idx.Clear() }
+func (c *Client) ResetLocalIndex() error { return c.eng.ResetIndexKeepingFiles() }
 
 // SyncOnce runs one sync pass. Blocks; call off the UI thread. Concurrent calls serialize.
 func (c *Client) SyncOnce() error {
@@ -138,6 +143,9 @@ func (c *Client) SyncOnce() error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if aside := c.eng.SetAside(); aside != "" {
+		c.status.SetAside = aside
+	}
 	if err != nil {
 		c.status.State = syncState(err)
 		c.status.LastError = err.Error()

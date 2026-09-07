@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/localname"
@@ -33,6 +34,10 @@ type Engine struct {
 	// bulkDeleteConfirmed lets one push carry deletions past the safety threshold; see
 	// [Engine.ConfirmBulkDelete].
 	bulkDeleteConfirmed bool
+
+	// setAside is where the first pull moved the folder's previous contents, if it did;
+	// see [Engine.SetAside].
+	setAside string
 }
 
 func New(src Source, idx *index.Index, root string) *Engine {
@@ -50,6 +55,9 @@ func New(src Source, idx *index.Index, root string) *Engine {
 // change that failed is retried on the next pull rather than skipped. Changes after it are
 // applied now and re-applied then, which is harmless: applying is idempotent.
 func (e *Engine) PullOnce(ctx context.Context) error {
+	if err := e.establishMirror(); err != nil {
+		return err
+	}
 	since, err := e.idx.Cursor()
 	if err != nil {
 		return err
@@ -84,9 +92,97 @@ func (e *Engine) PullOnce(ctx context.Context) error {
 		}
 		since = cursor
 		if !hasMore {
+			// The server's tree has been fetched; from here on the folder is the mirror
+			// and what appears in it is the user's work to push. A brand-new account has
+			// no changes at all, and this is what lets its first files go up.
+			if err := e.idx.SetMirrorReady(true); err != nil {
+				return err
+			}
 			return errors.Join(failures...)
 		}
 	}
+}
+
+// SetAside is the folder the previous contents of the sync root were moved to by the
+// first pull, or "" if the root was empty or the mirror was already established. Hosts
+// show it to the user once; it is never read by the engine again.
+func (e *Engine) SetAside() string { return e.setAside }
+
+// ResetIndexKeepingFiles forgets the tree and re-pulls it on the next pass, but keeps the
+// folder as the mirror rather than setting it aside: the recovery for a sync stopped by the
+// mass-deletion check, where the files on disk are the right ones and only the index is
+// wrong. Files not on the server are then uploaded by the pass after the pull.
+func (e *Engine) ResetIndexKeepingFiles() error {
+	if err := e.idx.Clear(); err != nil {
+		return err
+	}
+	return e.idx.SetKeepLocalOnce(true)
+}
+
+// establishMirror runs before a pull into an index that has never pulled — a pairing, a
+// re-pairing, a wiped state database. After pairing the server is the truth: whatever the
+// folder holds is the device's previous life, not new files, and it is moved next to the
+// root (root.old-<stamp>) untouched, leaving a clean folder for the server's tree. Nothing
+// in it is ever uploaded. An empty folder (OS junk aside) needs no moving.
+func (e *Engine) establishMirror() error {
+	ready, err := e.idx.MirrorReady()
+	if err != nil || ready {
+		return err
+	}
+	if keep, err := e.idx.KeepLocalOnce(); err != nil {
+		return err
+	} else if keep {
+		return e.idx.SetKeepLocalOnce(false)
+	}
+	entries, err := os.ReadDir(e.root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	occupied := false
+	for _, ent := range entries {
+		if !isOSJunk(ent.Name()) && !strings.HasPrefix(ent.Name(), ".kf-tmp-") {
+			occupied = true
+			break
+		}
+	}
+	if !occupied {
+		return nil
+	}
+	if err := refuseToSetAside(e.root); err != nil {
+		return err
+	}
+	base := filepath.Clean(e.root) + ".old-" + time.Now().Format("20060102-150405")
+	aside := base
+	for n := 2; ; n++ {
+		if _, err := os.Lstat(aside); os.IsNotExist(err) {
+			break
+		}
+		aside = fmt.Sprintf("%s-%d", base, n)
+	}
+	if err := os.Rename(e.root, aside); err != nil {
+		return fmt.Errorf("set the previous folder aside: %w", err)
+	}
+	if err := os.MkdirAll(e.root, 0o755); err != nil {
+		return err
+	}
+	e.setAside = aside
+	return nil
+}
+
+// refuseToSetAside guards against a sync root that is not a folder of its own — the home
+// directory, a volume root — which must never be renamed out from under the user.
+func refuseToSetAside(root string) error {
+	clean := filepath.Clean(root)
+	if clean == filepath.Dir(clean) {
+		return fmt.Errorf("sync folder %s is a filesystem root; choose an empty folder of its own", root)
+	}
+	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == clean {
+		return errors.New("sync folder is the home directory; choose an empty folder of its own")
+	}
+	return nil
 }
 
 // ScopeEpoch returns the scope epoch the engine last reconciled to.
@@ -98,7 +194,9 @@ func (e *Engine) ScopeEpoch() (int64, error) { return e.idx.ScopeEpoch() }
 // mapped to the OLD scope and must not be pushed into the new one. The resulting local data
 // loss of the old mirror is expected and is gated behind the web danger-confirm modal.
 func (e *Engine) ResetForScope(ctx context.Context, epoch int64) error {
-	if err := e.idx.Clear(); err != nil {
+	// A scope change is not a pairing: the folder stays where it is and is reconciled,
+	// which keeps the in-scope files instead of downloading them all again.
+	if err := e.ResetIndexKeepingFiles(); err != nil {
 		return err
 	}
 	if err := e.PullOnce(ctx); err != nil {

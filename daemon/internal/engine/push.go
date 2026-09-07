@@ -130,6 +130,11 @@ func (e *Engine) guardBulkDelete(changes []LocalChange) error {
 }
 
 func (e *Engine) PushLocal(ctx context.Context, sink Sink) error {
+	// Nothing goes up before the first pull has come down: until then the folder holds
+	// the device's previous contents, not the user's new work, and the server is the truth.
+	if ready, err := e.idx.MirrorReady(); err != nil || !ready {
+		return err
+	}
 	changes, err := e.DetectLocal()
 	if err != nil {
 		return err

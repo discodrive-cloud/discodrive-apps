@@ -23,6 +23,10 @@ struct SyncView: View {
             .buttonStyle(.borderedProminent).controlSize(.large)
             .disabled(model.working)
 
+            if let aside = model.setAside {
+                Text("Files from before the pairing were set aside in \((aside as NSString).lastPathComponent). Nothing from there is uploaded — the server is the source of truth.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
             Text("State: \(model.stateText) · last sync: \(lastSyncText)")
                 .font(.caption).foregroundStyle(.secondary)
             if let e = model.lastError {

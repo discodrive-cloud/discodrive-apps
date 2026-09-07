@@ -3,6 +3,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"discodrive.org/daemon/internal/engine"
+	"discodrive.org/daemon/internal/i18n"
 	"discodrive.org/daemon/internal/protocol"
 )
 
@@ -86,7 +88,8 @@ func (s *Syncer) Run(ctx context.Context) error {
 
 	notify()
 	backoff := time.Second
-	failing := false // whether any sync errors occurred since the last success
+	failing := false   // whether any sync errors occurred since the last success
+	announced := false // the set-aside folder, if any, is reported once
 	debounce := time.NewTimer(time.Hour)
 	debounce.Stop()
 	pending := false
@@ -114,6 +117,10 @@ func (s *Syncer) Run(ctx context.Context) error {
 			} else {
 				now := time.Now()
 				s.writeStatus(Status{State: StateIdle, LastSync: now})
+				if aside := s.eng.SetAside(); aside != "" && !announced {
+					log.Print(fmt.Sprintf(i18n.T("run_set_aside"), aside))
+					announced = true
+				}
 				if failing {
 					log.Printf("discodrive: connection restored, sync complete")
 					failing = false

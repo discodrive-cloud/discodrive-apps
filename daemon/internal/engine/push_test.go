@@ -53,6 +53,7 @@ func TestPushLocalCreate(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hi"), 0o644)
 	e := New(nil, idx, root)
 	sink := newFakeSink()
@@ -73,6 +74,7 @@ func TestPushLocalUpdateSendsBaseVersion(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("v2"), 0o644)
 	idx.Put(index.Node{NodeID: "n1", RelPath: "a.txt", Version: 5, ContentHash: hashOf([]byte("v1")), Size: 2})
 	e := New(nil, idx, root)
@@ -90,6 +92,7 @@ func TestPushLocalRenameInPlaceUsesRename(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	body := []byte("same content")
 	os.WriteFile(filepath.Join(root, "b.txt"), body, 0o644)
 	idx.Put(index.Node{NodeID: "n1", RelPath: "a.txt", Version: 5, ContentHash: hashOf(body), Size: int64(len(body))})
@@ -119,6 +122,7 @@ func TestPushLocalMoveAcrossDirsUsesMove(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	body := []byte("payload")
 	os.MkdirAll(filepath.Join(root, "src"), 0o755)
 	os.MkdirAll(filepath.Join(root, "dst"), 0o755)
@@ -146,6 +150,7 @@ func TestPushLocalDirRenameMovesFilesBeforeDeletingOldDir(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	body := []byte("note")
 	// Local dir rename old -> new: on disk only the new tree exists.
 	os.MkdirAll(filepath.Join(root, "new"), 0o755)
@@ -189,6 +194,7 @@ func TestPushLocalDelete(t *testing.T) {
 	root := t.TempDir()
 	idx, _ := index.Open(filepath.Join(t.TempDir(), "s.db"))
 	defer idx.Close()
+	idx.SetMirrorReady(true) // pushes only happen from an established mirror
 	idx.Put(index.Node{NodeID: "n1", RelPath: "gone.txt", Version: 3, ContentHash: hashOf([]byte("x")), Size: 1})
 	e := New(nil, idx, root)
 	sink := newFakeSink()

@@ -199,6 +199,9 @@ final class AppState: ObservableObject {
         for item in (try? fm.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? [] {
             try? fm.removeItem(at: item)
         }
+        // Auto-upload's destination is a node id on the previous server; forget it with
+        // the rest, or the first pass after pairing would aim at a folder that is not there.
+        AutoUploadSettings.shared.reset()
         #endif
     }
 
