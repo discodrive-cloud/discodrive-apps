@@ -35,7 +35,7 @@ struct ServerVaultIO: VaultFileSource, VaultFileSink {
     func writeFile(_ relPath: String, _ data: Data) async throws {
         let parent = (relPath as NSString).deletingLastPathComponent
         if !parent.isEmpty { try await makeDir(parent) }
-        try await client.uploadFile(relPath: full(relPath), data: data)
+        try await client.upload(data: data, relPath: full(relPath))
     }
 
     func remove(_ relPath: String) async throws {

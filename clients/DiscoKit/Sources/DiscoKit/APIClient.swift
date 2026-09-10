@@ -187,20 +187,33 @@ public actor APIClient {
     /// connection dropped halfway through a large video continues from the server's
     /// next_chunk instead of starting over.
     ///
-    /// `relPath` is the server path (folder + name) the PUT needs; `parentID` is the folder's
-    /// node id (nil = root) the chunked session needs. The name is the last path component.
-    public func upload(fileURL: URL, relPath: String, parentID: String?, modifiedAt: Date?,
+    /// `relPath` is the server path (folder + name); both transports address the file by it.
+    public func upload(fileURL: URL, relPath: String, modifiedAt: Date?,
                        chunkSize: Int = ChunkedUploader.defaultChunkSize,
                        progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws {
         let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         if size > chunkSize {
             try await ChunkedUploader(api: self, chunkSize: chunkSize)
-                .upload(fileURL: fileURL, parentID: parentID, name: (relPath as NSString).lastPathComponent,
-                        modifiedAt: modifiedAt, progress: progress)
+                .upload(fileURL: fileURL, to: .path(relPath), modifiedAt: modifiedAt, progress: progress)
         } else {
             try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt)
             progress?(Int64(size), Int64(size))
         }
+    }
+
+    /// The same for content that only exists in memory (vault ciphertext): past one chunk
+    /// it is staged in a temporary file and sent through the resumable protocol.
+    public func upload(data: Data, relPath: String, modifiedAt: Date? = nil,
+                       chunkSize: Int = ChunkedUploader.defaultChunkSize) async throws {
+        guard data.count > chunkSize else {
+            try await uploadFile(relPath: relPath, data: data, modifiedAt: modifiedAt)
+            return
+        }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("ddk-upload-\(UUID().uuidString)")
+        try data.write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try await ChunkedUploader(api: self, chunkSize: chunkSize)
+            .upload(fileURL: tmp, to: .path(relPath), modifiedAt: modifiedAt)
     }
 
     // RFC3339 with fractional seconds — what the server parses, and what the Go clients send.
@@ -285,6 +298,23 @@ public actor APIClient {
                            modifiedAt: Date?) async throws -> UploadSession {
         var body: [String: Any] = ["name": name, "size": size]
         if let parentID { body["parent_id"] = parentID }
+        if let modifiedAt { body["modified_at"] = Self.rfc3339(modifiedAt) }
+        let data = try await send("POST", path: "upload/init",
+                                  body: try JSONSerialization.data(withJSONObject: body),
+                                  contentType: "application/json", ok: [200, 201])
+        struct Out: Decodable { let upload_id: String; let next_chunk: Int }
+        let out = try JSONDecoder().decode(Out.self, from: data)
+        return UploadSession(uploadID: out.upload_id, nextChunk: out.next_chunk)
+    }
+
+    /// Opens a session addressed by server path, the way `PUT /sync/file` is: the folder
+    /// chain is created on the way, and `baseVersion` — the version the file was edited
+    /// from, nil when unknown — makes a newer server version a conflict copy rather than
+    /// an overwrite. Needs a server that knows `path` on `/upload/init`.
+    public func uploadInit(path: String, baseVersion: Int64? = nil, size: Int64,
+                           modifiedAt: Date?) async throws -> UploadSession {
+        var body: [String: Any] = ["path": path, "size": size]
+        if let baseVersion { body["base_version"] = baseVersion }
         if let modifiedAt { body["modified_at"] = Self.rfc3339(modifiedAt) }
         let data = try await send("POST", path: "upload/init",
                                   body: try JSONSerialization.data(withJSONObject: body),

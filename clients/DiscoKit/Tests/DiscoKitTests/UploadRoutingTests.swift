@@ -50,15 +50,15 @@ final class UploadRoutingTests: XCTestCase {
         let (url, payload) = try fixture(10_000)
         let calls = Calls()
         let api = client(calls)
-        try await api.upload(fileURL: url, relPath: "/docs/big.bin", parentID: "d1",
+        try await api.upload(fileURL: url, relPath: "/docs/big.bin",
                              modifiedAt: Date(timeIntervalSince1970: 1_560_602_400), chunkSize: 4096)
         XCTAssertEqual(calls.puts, 0, "a file longer than a chunk must not go up in one PUT")
         XCTAssertEqual(calls.inits, 1)
         XCTAssertEqual(calls.chunks, 3)
         XCTAssertEqual(calls.completes, 1)
         XCTAssertEqual(calls.assembled, payload)
-        XCTAssertEqual(calls.initBody["parent_id"] as? String, "d1")
-        XCTAssertEqual(calls.initBody["name"] as? String, "big.bin")
+        XCTAssertEqual(calls.initBody["path"] as? String, "/docs/big.bin", "sessions are addressed by path, like a sync PUT")
+        XCTAssertNil(calls.initBody["parent_id"])
         XCTAssertEqual(calls.initBody["size"] as? Int, 10_000)
         XCTAssertNotNil(calls.initBody["modified_at"], "the content's own date must travel with the upload")
     }
@@ -67,7 +67,7 @@ final class UploadRoutingTests: XCTestCase {
         let (url, _) = try fixture(1000)
         let calls = Calls()
         let api = client(calls)
-        try await api.upload(fileURL: url, relPath: "/docs/small.bin", parentID: "d1", modifiedAt: nil, chunkSize: 4096)
+        try await api.upload(fileURL: url, relPath: "/docs/small.bin", modifiedAt: nil, chunkSize: 4096)
         XCTAssertEqual(calls.puts, 1)
         XCTAssertEqual(calls.inits, 0, "a file that fits in one chunk has nothing to resume")
     }
@@ -76,7 +76,29 @@ final class UploadRoutingTests: XCTestCase {
         let (url, _) = try fixture(4096)
         let calls = Calls()
         let api = client(calls)
-        try await api.upload(fileURL: url, relPath: "/a.bin", parentID: nil, modifiedAt: nil, chunkSize: 4096)
+        try await api.upload(fileURL: url, relPath: "/a.bin", modifiedAt: nil, chunkSize: 4096)
+        XCTAssertEqual(calls.puts, 1)
+        XCTAssertEqual(calls.inits, 0)
+    }
+
+    func testLargeInMemoryContentIsStagedAndChunked() async throws {
+        // Vault ciphertext only exists in memory; past one chunk it still resumes.
+        var payload = Data(count: 9_000)
+        for i in 0..<payload.count { payload[i] = UInt8(i % 251) }
+        let calls = Calls()
+        let api = client(calls)
+        try await api.upload(data: payload, relPath: "/vault/d/AB/file.c9r", chunkSize: 4096)
+        XCTAssertEqual(calls.puts, 0)
+        XCTAssertEqual(calls.inits, 1)
+        XCTAssertEqual(calls.chunks, 3)
+        XCTAssertEqual(calls.assembled, payload)
+        XCTAssertEqual(calls.initBody["path"] as? String, "/vault/d/AB/file.c9r")
+    }
+
+    func testSmallInMemoryContentGoesUpInOnePut() async throws {
+        let calls = Calls()
+        let api = client(calls)
+        try await api.upload(data: Data(repeating: 1, count: 100), relPath: "/vault/masterkey.cryptomator", chunkSize: 4096)
         XCTAssertEqual(calls.puts, 1)
         XCTAssertEqual(calls.inits, 0)
     }

@@ -33,9 +33,14 @@ public struct ChunkedUploader: Sendable {
         self.chunkSize = max(1, chunkSize)
     }
 
+    /// Where a session lands: a folder by node id (what auto-upload uses), or a server
+    /// path resolved like `PUT /sync/file`, optionally guarded by a base version.
+    public enum Target: Sendable {
+        case folder(parentID: String?, name: String)
+        case path(String, baseVersion: Int64? = nil)
+    }
+
     /// Uploads `fileURL` into `parentID` (nil = storage root) under `name`.
-    ///
-    /// `progress` is called with (sent, total) after each accepted chunk.
     public func upload(
         fileURL: URL,
         parentID: String?,
@@ -43,12 +48,33 @@ public struct ChunkedUploader: Sendable {
         modifiedAt: Date?,
         progress: (@Sendable (Int64, Int64) -> Void)? = nil
     ) async throws {
+        try await upload(fileURL: fileURL, to: .folder(parentID: parentID, name: name),
+                         modifiedAt: modifiedAt, progress: progress)
+    }
+
+    /// Uploads `fileURL` to `target`.
+    ///
+    /// `progress` is called with (sent, total) after each accepted chunk.
+    public func upload(
+        fileURL: URL,
+        to target: Target,
+        modifiedAt: Date?,
+        progress: (@Sendable (Int64, Int64) -> Void)? = nil
+    ) async throws {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
 
         let size = Int64((try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.intValue ?? 0)
+        func open() async throws -> APIClient.UploadSession {
+            switch target {
+            case .folder(let parentID, let name):
+                return try await api.uploadInit(parentID: parentID, name: name, size: size, modifiedAt: modifiedAt)
+            case .path(let relPath, let baseVersion):
+                return try await api.uploadInit(path: relPath, baseVersion: baseVersion, size: size, modifiedAt: modifiedAt)
+            }
+        }
 
-        var session = try await api.uploadInit(parentID: parentID, name: name, size: size, modifiedAt: modifiedAt)
+        var session = try await open()
         var next = session.nextChunk
         var attempts = 0
         var reInited = false
@@ -68,7 +94,7 @@ public struct ChunkedUploader: Sendable {
                 // restarted. Start a fresh one — once; a second loss is not a hiccup.
                 guard !reInited else { throw UploadError.sessionLost }
                 reInited = true
-                session = try await api.uploadInit(parentID: parentID, name: name, size: size, modifiedAt: modifiedAt)
+                session = try await open()
                 next = session.nextChunk
             } catch APIError.http(409) {
                 // We and the server disagree on the position; the server is authoritative.

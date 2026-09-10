@@ -263,15 +263,13 @@ final class AppState: ObservableObject {
 
     func upload(_ urls: [URL], toFolderPath folderPath: String) async {
         guard let client else { return }
-        // The chunked protocol addresses the folder by node id; the root has none.
-        let parentID = folderPath.isEmpty ? nil : (try? index?.node(atPath: folderPath))??.id
         for url in urls {
             let rel = folderPath + "/" + url.lastPathComponent
             // Streamed from disk, and resumable past one chunk: a big file neither has to
             // fit in memory nor starts over when the connection drops. A read failure
             // throws here instead of silently skipping the file.
             do {
-                try await client.upload(fileURL: url, relPath: rel, parentID: parentID,
+                try await client.upload(fileURL: url, relPath: rel,
                                         modifiedAt: APIClient.contentModificationDate(of: url))
             } catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
         }
