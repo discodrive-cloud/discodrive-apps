@@ -39,7 +39,7 @@ Una app gráfica multiplataforma (macOS, Windows, Linux) con un modelo **bajo de
 ### 📱 Apps móviles
 
 - **Clientes completos** — `android-discodrive` (Android) e `ios` (iOS): acceso bajo demanda a todo el almacenamiento.
-- **Folder-sync** — `android-fastsync` e `ios-fastsync`: apps mínimas para la sincronización completa de una carpeta elegida.
+- **Folder-sync** — en Android va integrado en el cliente completo (Ajustes → Sincronización de carpeta); `ios-fastsync` es la app mínima de iOS para la sincronización completa de una carpeta elegida.
 
 ---
 
@@ -120,7 +120,6 @@ make desktop-linux        # Linux (vía Docker, cualquier anfitrión) → dist/l
 
 ```bash
 make app-android            # Android, UI completa
-make app-android-fastsync   # Android, folder-sync
 make app-macos              # app de macOS (Xcode)
 make app-ios                # app de iOS (Xcode)
 make bind-ios               # binding gomobile solo para Apple

@@ -39,7 +39,7 @@
 ### 📱 Мобилне апликације
 
 - **Потпуни клијенти** — `android-discodrive` (Android) и `ios` (iOS): приступ на захтев целом складишту.
-- **Folder-sync** — `android-fastsync` и `ios-fastsync`: минималне апликације за потпуну синхронизацију изабране фасцикле.
+- **Folder-sync** — на Android-у уграђен у пуни клијент (Подешавања → Синхронизација фасцикле); `ios-fastsync` је минимална iOS апликација за потпуну синхронизацију изабране фасцикле.
 
 ---
 
@@ -120,7 +120,6 @@ make desktop-linux        # Linux (преко Docker-а, било који хо�
 
 ```bash
 make app-android            # Android, пун UI
-make app-android-fastsync   # Android, folder-sync
 make app-macos              # macOS апликација (Xcode)
 make app-ios                # iOS апликација (Xcode)
 make bind-ios               # само gomobile биндинг за Apple

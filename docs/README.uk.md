@@ -39,7 +39,7 @@
 ### 📱 Мобільні застосунки
 
 - **Повні клієнти** — `android-discodrive` (Android) та `ios` (iOS): доступ на вимогу до всього сховища.
-- **Folder-sync** — `android-fastsync` та `ios-fastsync`: мінімальні застосунки для повної синхронізації обраної теки.
+- **Folder-sync** — на Android вбудований у повний клієнт (Налаштування → Синхронізація теки); `ios-fastsync` — мінімальний застосунок для iOS для повної синхронізації обраної теки.
 
 ---
 
@@ -120,7 +120,6 @@ make desktop-linux        # Linux (через Docker, будь-який хост
 
 ```bash
 make app-android            # Android, повний UI
-make app-android-fastsync   # Android, folder-sync
 make app-macos              # застосунок macOS (Xcode)
 make app-ios                # застосунок iOS (Xcode)
 make bind-ios               # лише gomobile-біндинг для Apple

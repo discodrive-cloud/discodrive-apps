@@ -39,7 +39,7 @@ Eine plattformübergreifende GUI-App (macOS, Windows, Linux) mit **On-Demand**-M
 ### 📱 Mobil-Apps
 
 - **Vollständige Clients** — `android-discodrive` (Android) und `ios` (iOS): On-Demand-Zugriff auf den gesamten Speicher.
-- **Folder-Sync** — `android-fastsync` und `ios-fastsync`: minimale Apps für die vollständige Synchronisation eines ausgewählten Ordners.
+- **Folder-Sync** — unter Android in den vollständigen Client eingebaut (Einstellungen → Ordner-Synchronisation); `ios-fastsync` ist die minimale iOS-App für die vollständige Synchronisation eines ausgewählten Ordners.
 
 ---
 
@@ -120,7 +120,6 @@ make desktop-linux        # Linux (via Docker, jeder Host) → dist/linux/
 
 ```bash
 make app-android            # Android, volle UI
-make app-android-fastsync   # Android, Folder-Sync
 make app-macos              # macOS-App (Xcode)
 make app-ios                # iOS-App (Xcode)
 make bind-ios               # nur gomobile-Binding für Apple

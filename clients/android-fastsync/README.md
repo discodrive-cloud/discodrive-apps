@@ -1,5 +1,9 @@
 # DiscoDriveFastSync (Android)
 
+> **Deprecated (2026-09).** Folder sync is built into the full client
+> (`clients/android-discodrive`, Settings → Folder sync) and this app is no longer
+> released. The code stays one release for reference and will then be removed.
+
 Minimal app: pair + manual/background sync of a folder via `kfmobile.aar`.
 
 ## Build

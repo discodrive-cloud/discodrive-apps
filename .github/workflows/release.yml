@@ -169,8 +169,9 @@ jobs:
       - name: Build Android bindings + apps (debug)
         run: |
           make bind-android
+          # Folder sync lives inside the full client now; the separate Fast Sync app is no
+          # longer released for Android.
           (cd clients/android-discodrive && gradle assembleDebug) || echo "android-discodrive build needs gradle setup"
-          (cd clients/android-fastsync   && gradle assembleDebug) || echo "android-fastsync build needs gradle setup"
       - name: Collect apks
         run: |
           mkdir -p out

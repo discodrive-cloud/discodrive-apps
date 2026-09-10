@@ -17,6 +17,17 @@ All notable changes to this project are documented in this file.
   on a headless build now says where to get the other flavour rather than how to compile
   one.
 
+### Added
+
+- Android app: the folder chosen on the server can be kept on the phone from the app
+  itself — "Folder sync" in the settings — so Fast Sync no longer has to run next to it.
+  It is the same engine the desktop app runs, in `/sdcard/DiscoDriveSync`, two-way, with a
+  pass in the foreground so leaving the app does not cut it off, a check every twenty
+  minutes in the background, and the server's event stream held while the app is on
+  screen so a change made elsewhere lands within seconds. The separate Fast Sync app is
+  no longer released for Android; the iOS one stays until the Files app integration
+  replaces it.
+
 ### Changed
 
 - Files picked by hand in the mobile and macOS apps' browsers now go up through the

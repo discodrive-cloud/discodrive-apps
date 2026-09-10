@@ -39,7 +39,7 @@
 ### 📱 Мобильные приложения
 
 - **Полные клиенты** — `android-discodrive` (Android) и `ios` (iOS): on-demand-доступ ко всему хранилищу.
-- **Folder-sync** — `android-fastsync` и `ios-fastsync`: минимальные приложения для полной синхронизации выбранной папки.
+- **Folder-sync** — на Android встроен в полный клиент (Настройки → Синхронизация папки); `ios-fastsync` — минимальное приложение для iOS для полной синхронизации выбранной папки.
 
 ---
 
@@ -120,7 +120,6 @@ make desktop-linux        # Linux (через Docker, любой хост) → d
 
 ```bash
 make app-android            # Android, полный UI
-make app-android-fastsync   # Android, folder-sync
 make app-macos              # macOS app (Xcode)
 make app-ios                # iOS app (Xcode)
 make bind-ios               # только gomobile-биндинг для Apple
