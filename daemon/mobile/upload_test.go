@@ -18,7 +18,8 @@ import (
 // order and lets a test inject one failure at a chosen chunk, which is how resume and
 // re-init are exercised.
 type uploadSrv struct {
-	mu sync.Mutex
+	multipart int // POST /files/upload calls — the single-request path for small files
+	mu        sync.Mutex
 
 	inits    []initReq
 	assembly map[string]*bytes.Buffer
@@ -50,6 +51,13 @@ func (u *uploadSrv) start(t *testing.T) *httptest.Server {
 	})
 	mux.HandleFunc("GET /sync/changes", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"changes": []any{}, "cursor": 0, "has_more": false})
+	})
+	mux.HandleFunc("POST /files/upload", func(w http.ResponseWriter, r *http.Request) {
+		u.mu.Lock()
+		u.multipart++
+		u.mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"m1","name":"x","is_dir":false,"version":1}`))
 	})
 	mux.HandleFunc("POST /upload/init", func(w http.ResponseWriter, r *http.Request) {
 		var req initReq
@@ -275,5 +283,46 @@ func TestUploadAsDoesNotRefresh(t *testing.T) {
 	}
 	if before != after {
 		t.Fatalf("cursor moved %d → %d: UploadAs must not refresh the index", before, after)
+	}
+}
+
+// Upload (the browser's plain upload, used for files the user picks by hand) takes the
+// resumable chunked path once a file is longer than one chunk; a dropped connection then
+// continues from the server's next_chunk instead of restarting a multi-gigabyte video.
+func TestUploadUsesTheChunkedProtocolForLargeFiles(t *testing.T) {
+	u := newUploadSrv()
+	srv := u.start(t)
+	b := newTestBrowser(t, srv.URL)
+	b.chunkSize = 4 << 10
+
+	path := writeFile(t, 20<<10, time.Date(2021, 1, 2, 3, 4, 5, 0, time.UTC))
+	want, _ := os.ReadFile(path)
+	if err := b.Upload(path, ""); err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if u.multipart != 0 {
+		t.Fatalf("a %d-byte file went through the single-request path", len(want))
+	}
+	if len(u.inits) != 1 || u.inits[0].Name != "IMG_1.jpg" {
+		t.Fatalf("inits = %+v, want one under the local basename", u.inits)
+	}
+	if got := u.landed(t); !bytes.Equal(got, want) {
+		t.Fatalf("reassembled %d bytes, want %d", len(got), len(want))
+	}
+}
+
+// A file that fits in one chunk has nothing to resume; it goes up in one request as before.
+func TestUploadSendsSmallFilesInOneRequest(t *testing.T) {
+	u := newUploadSrv()
+	srv := u.start(t)
+	b := newTestBrowser(t, srv.URL)
+	b.chunkSize = 4 << 10
+
+	path := writeFile(t, 1<<10, time.Now())
+	if err := b.Upload(path, ""); err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if u.multipart != 1 || len(u.inits) != 0 {
+		t.Fatalf("multipart=%d inits=%d, want the single-request path only", u.multipart, len(u.inits))
 	}
 }

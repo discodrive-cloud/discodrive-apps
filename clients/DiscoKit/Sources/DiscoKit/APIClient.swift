@@ -182,6 +182,27 @@ public actor APIClient {
         throw APIError.notAuthenticated
     }
 
+    /// The one way to upload a file that lives on disk. A file that fits in one chunk goes
+    /// up in a single PUT; anything longer takes the resumable chunked protocol, so a
+    /// connection dropped halfway through a large video continues from the server's
+    /// next_chunk instead of starting over.
+    ///
+    /// `relPath` is the server path (folder + name) the PUT needs; `parentID` is the folder's
+    /// node id (nil = root) the chunked session needs. The name is the last path component.
+    public func upload(fileURL: URL, relPath: String, parentID: String?, modifiedAt: Date?,
+                       chunkSize: Int = ChunkedUploader.defaultChunkSize,
+                       progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws {
+        let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        if size > chunkSize {
+            try await ChunkedUploader(api: self, chunkSize: chunkSize)
+                .upload(fileURL: fileURL, parentID: parentID, name: (relPath as NSString).lastPathComponent,
+                        modifiedAt: modifiedAt, progress: progress)
+        } else {
+            try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt)
+            progress?(Int64(size), Int64(size))
+        }
+    }
+
     // RFC3339 with fractional seconds — what the server parses, and what the Go clients send.
     private static func modifiedAtHeader(_ date: Date?) -> [String: String] {
         guard let date else { return [:] }

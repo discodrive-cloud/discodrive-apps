@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"time"
 
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/localname"
@@ -273,18 +272,30 @@ func (b *Browser) Mkdir(parentNodeID, name string) error {
 }
 
 // Upload pushes a local file into parentNodeID ("" = root), then refreshes the index.
+//
+// A file longer than one chunk goes through the resumable chunked protocol, like UploadAs,
+// so a connection dropped halfway continues from the server's next_chunk rather than
+// starting over. A file that fits in one chunk has nothing to resume and goes up in a
+// single request.
 func (b *Browser) Upload(localPath, parentNodeID string) error {
 	f, err := os.Open(localPath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	// Carry the file's own date so a photo from 2019 does not land dated today.
-	var modTime time.Time
-	if fi, serr := f.Stat(); serr == nil {
-		modTime = fi.ModTime()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
 	}
-	if err := b.client.UploadFile(context.Background(), parentNodeID, filepath.Base(localPath), f, modTime); err != nil {
+	if fi.Size() > b.chunkSize {
+		f.Close()
+		if err := b.UploadAs(localPath, parentNodeID, filepath.Base(localPath)); err != nil {
+			return err
+		}
+		return b.Refresh()
+	}
+	// Carry the file's own date so a photo from 2019 does not land dated today.
+	if err := b.client.UploadFile(context.Background(), parentNodeID, filepath.Base(localPath), f, fi.ModTime()); err != nil {
 		return err
 	}
 	return b.Refresh()

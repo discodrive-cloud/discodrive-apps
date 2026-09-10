@@ -17,6 +17,15 @@ All notable changes to this project are documented in this file.
   on a headless build now says where to get the other flavour rather than how to compile
   one.
 
+### Changed
+
+- Files picked by hand in the mobile and macOS apps' browsers now go up through the
+  resumable chunked protocol once they are longer than 8 MiB, the way auto-upload and the
+  desktop client already did. A connection dropped halfway through a large video
+  continues from where the server got to instead of starting over; the file's size is
+  declared up front, so a short upload is refused rather than published truncated. Small
+  files still go up in one request.
+
 ### Fixed
 
 - After pairing, the server is the source of truth — on every client that mirrors a folder
