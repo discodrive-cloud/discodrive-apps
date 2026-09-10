@@ -101,4 +101,22 @@
     <string name="au_backfill_start">Les envoyer</string>
     <string name="au_backfill_queued">%1$d fichiers en file</string>
     <string name="dialog_ok">OK</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Synchronisation du dossier</string>
+    <string name="sync_master">Synchroniser le dossier du serveur</string>
+    <string name="sync_desc">Le dossier choisi sur le serveur est conservé sur ce téléphone, comme l’application de bureau le conserve sur un ordinateur.</string>
+    <string name="sync_two_way">La synchronisation est bidirectionnelle : un fichier supprimé dans ce dossier l’est aussi sur le serveur, et inversement.</string>
+    <string name="sync_folder">Dossier</string>
+    <string name="sync_now">Synchroniser maintenant</string>
+    <string name="sync_syncing">Synchronisation…</string>
+    <string name="sync_state">État : %1$s · dernière synchronisation : %2$s</string>
+    <string name="sync_never">jamais</string>
+    <string name="sync_set_aside">Les fichiers présents avant le jumelage ont été mis de côté dans %1$s. Rien n’en est envoyé : le serveur fait foi.</string>
+    <string name="sync_bulk_blocked">La synchronisation s’est arrêtée : elle aurait supprimé une grande partie des fichiers du serveur. Si le dossier a été vidé par erreur, retéléchargez tout ; si les suppressions sont voulues, confirmez-les.</string>
+    <string name="sync_bulk_resync">Tout retélécharger</string>
+    <string name="sync_bulk_confirm">Supprimer aussi sur le serveur</string>
+    <string name="sync_channel">Synchronisation du dossier</string>
+    <string name="sync_notification">Synchronisation du dossier du serveur…</string>
+    <string name="sync_live">Les changements sur le serveur arrivent tant que l’application est ouverte ; en arrière-plan, le dossier est vérifié environ toutes les 20 minutes.</string>
 </resources>

@@ -101,4 +101,22 @@
     <string name="au_backfill_start">Загрузить</string>
     <string name="au_backfill_queued">В очереди: %1$d</string>
     <string name="dialog_ok">ОК</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Синхронизация папки</string>
+    <string name="sync_master">Синхронизировать папку сервера</string>
+    <string name="sync_desc">Папка, выбранная на сервере, хранится на этом телефоне так же, как настольное приложение хранит её на компьютере.</string>
+    <string name="sync_two_way">Синхронизация двусторонняя: файл, удалённый в этой папке, удаляется и на сервере, и наоборот.</string>
+    <string name="sync_folder">Папка</string>
+    <string name="sync_now">Синхронизировать сейчас</string>
+    <string name="sync_syncing">Синхронизация…</string>
+    <string name="sync_state">Состояние: %1$s · последняя синхронизация: %2$s</string>
+    <string name="sync_never">никогда</string>
+    <string name="sync_set_aside">Файлы, лежавшие здесь до привязки, отложены в %1$s. Ничего оттуда не загружается: правда за сервером.</string>
+    <string name="sync_bulk_blocked">Синхронизация остановлена: она удалила бы большую часть файлов на сервере. Если папку опустошили по ошибке, скачайте всё заново; если удаление намеренное, подтвердите его.</string>
+    <string name="sync_bulk_resync">Скачать всё заново</string>
+    <string name="sync_bulk_confirm">Удалить и на сервере</string>
+    <string name="sync_channel">Синхронизация папки</string>
+    <string name="sync_notification">Синхронизация папки сервера…</string>
+    <string name="sync_live">Изменения на сервере приходят, пока приложение открыто; в фоне папка проверяется примерно каждые 20 минут.</string>
 </resources>

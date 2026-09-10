@@ -56,6 +56,13 @@ class Prefs(context: Context) {
             e.commit()
         }
 
+    // --- folder sync ---
+
+    /** Whether the folder chosen on the server is mirrored on this phone (see sync/). */
+    var folderSync: Boolean
+        get() = sp.getBoolean("folderSync", false)
+        set(v) { sp.edit().putBoolean("folderSync", v).apply() }
+
     // --- auto-upload ---
 
     /** Master switch. Off until the user turns it on; nothing is uploaded in the meantime. */

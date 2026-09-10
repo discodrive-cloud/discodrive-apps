@@ -123,4 +123,22 @@
     <string name="au_backfill_start">Upload them</string>
     <string name="au_backfill_queued">%1$d files queued</string>
     <string name="dialog_ok">OK</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Folder sync</string>
+    <string name="sync_master">Sync the server folder</string>
+    <string name="sync_desc">The folder chosen on the server is kept on this phone, the same way the desktop app keeps it on a computer.</string>
+    <string name="sync_two_way">Sync is two-way: a file deleted in this folder is deleted on the server too, and the other way round.</string>
+    <string name="sync_folder">Folder</string>
+    <string name="sync_now">Sync now</string>
+    <string name="sync_syncing">Syncing…</string>
+    <string name="sync_state">State: %1$s · last sync: %2$s</string>
+    <string name="sync_never">never</string>
+    <string name="sync_set_aside">Files from before the pairing were set aside in %1$s. Nothing from there is uploaded — the server is the source of truth.</string>
+    <string name="sync_bulk_blocked">The sync stopped: it would have deleted a large share of the files on the server. If the folder was emptied by mistake, download everything again; if the deletions are intended, confirm them.</string>
+    <string name="sync_bulk_resync">Download everything again</string>
+    <string name="sync_bulk_confirm">Delete on the server too</string>
+    <string name="sync_channel">Folder sync</string>
+    <string name="sync_notification">Syncing the server folder…</string>
+    <string name="sync_live">Changes on the server arrive while the app is open; in the background the folder is checked about every 20 minutes.</string>
 </resources>

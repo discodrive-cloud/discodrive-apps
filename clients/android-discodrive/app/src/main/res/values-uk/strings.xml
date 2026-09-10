@@ -101,4 +101,22 @@
     <string name="au_backfill_start">Завантажити</string>
     <string name="au_backfill_queued">У черзі: %1$d</string>
     <string name="dialog_ok">ОК</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Синхронізація теки</string>
+    <string name="sync_master">Синхронізувати теку сервера</string>
+    <string name="sync_desc">Тека, вибрана на сервері, зберігається на цьому телефоні так само, як настільний застосунок зберігає її на комп’ютері.</string>
+    <string name="sync_two_way">Синхронізація двостороння: файл, видалений у цій теці, видаляється й на сервері, і навпаки.</string>
+    <string name="sync_folder">Тека</string>
+    <string name="sync_now">Синхронізувати зараз</string>
+    <string name="sync_syncing">Синхронізація…</string>
+    <string name="sync_state">Стан: %1$s · остання синхронізація: %2$s</string>
+    <string name="sync_never">ніколи</string>
+    <string name="sync_set_aside">Файли, що були тут до прив’язки, відкладено в %1$s. Нічого звідти не вивантажується: істина за сервером.</string>
+    <string name="sync_bulk_blocked">Синхронізацію зупинено: вона видалила б більшу частину файлів на сервері. Якщо теку спорожнили помилково, завантажте все знову; якщо видалення навмисне, підтвердьте його.</string>
+    <string name="sync_bulk_resync">Завантажити все знову</string>
+    <string name="sync_bulk_confirm">Видалити й на сервері</string>
+    <string name="sync_channel">Синхронізація теки</string>
+    <string name="sync_notification">Синхронізація теки сервера…</string>
+    <string name="sync_live">Зміни на сервері надходять, поки застосунок відкритий; у фоні тека перевіряється приблизно кожні 20 хвилин.</string>
 </resources>

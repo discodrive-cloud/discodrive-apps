@@ -101,4 +101,22 @@
     <string name="au_backfill_start">Отпреми</string>
     <string name="au_backfill_queued">У реду: %1$d</string>
     <string name="dialog_ok">У реду</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Синхронизација фасцикле</string>
+    <string name="sync_master">Синхронизуј фасциклу сервера</string>
+    <string name="sync_desc">Фасцикла изабрана на серверу чува се на овом телефону, као што је десктоп апликација чува на рачунару.</string>
+    <string name="sync_two_way">Синхронизација је двосмерна: датотека обрисана у овој фасцикли брише се и на серверу, и обрнуто.</string>
+    <string name="sync_folder">Фасцикла</string>
+    <string name="sync_now">Синхронизуј сада</string>
+    <string name="sync_syncing">Синхронизација…</string>
+    <string name="sync_state">Стање: %1$s · последња синхронизација: %2$s</string>
+    <string name="sync_never">никад</string>
+    <string name="sync_set_aside">Датотеке од пре упаривања склоњене су у %1$s. Ништа одатле се не отпрема: сервер је извор истине.</string>
+    <string name="sync_bulk_blocked">Синхронизација је заустављена: обрисала би велики део датотека на серверу. Ако је фасцикла испражњена грешком, преузми све поново; ако је брисање намерно, потврди га.</string>
+    <string name="sync_bulk_resync">Преузми све поново</string>
+    <string name="sync_bulk_confirm">Обриши и на серверу</string>
+    <string name="sync_channel">Синхронизација фасцикле</string>
+    <string name="sync_notification">Синхронизација фасцикле сервера…</string>
+    <string name="sync_live">Промене на серверу стижу док је апликација отворена; у позадини се фасцикла проверава отприлике на сваких 20 минута.</string>
 </resources>

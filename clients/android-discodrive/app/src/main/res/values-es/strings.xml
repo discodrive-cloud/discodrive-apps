@@ -101,4 +101,22 @@
     <string name="au_backfill_start">Subirlos</string>
     <string name="au_backfill_queued">%1$d archivos en cola</string>
     <string name="dialog_ok">OK</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Sincronización de carpeta</string>
+    <string name="sync_master">Sincronizar la carpeta del servidor</string>
+    <string name="sync_desc">La carpeta elegida en el servidor se mantiene en este teléfono, igual que la aplicación de escritorio la mantiene en un ordenador.</string>
+    <string name="sync_two_way">La sincronización es bidireccional: un archivo borrado en esta carpeta se borra también en el servidor, y al revés.</string>
+    <string name="sync_folder">Carpeta</string>
+    <string name="sync_now">Sincronizar ahora</string>
+    <string name="sync_syncing">Sincronizando…</string>
+    <string name="sync_state">Estado: %1$s · última sincronización: %2$s</string>
+    <string name="sync_never">nunca</string>
+    <string name="sync_set_aside">Los archivos anteriores al emparejamiento se apartaron en %1$s. Nada de ahí se sube: el servidor manda.</string>
+    <string name="sync_bulk_blocked">La sincronización se detuvo: habría borrado gran parte de los archivos del servidor. Si la carpeta se vació por error, descarga todo de nuevo; si los borrados son intencionados, confírmalos.</string>
+    <string name="sync_bulk_resync">Descargar todo de nuevo</string>
+    <string name="sync_bulk_confirm">Borrar también en el servidor</string>
+    <string name="sync_channel">Sincronización de carpeta</string>
+    <string name="sync_notification">Sincronizando la carpeta del servidor…</string>
+    <string name="sync_live">Los cambios en el servidor llegan mientras la aplicación está abierta; en segundo plano la carpeta se comprueba cada 20 minutos aproximadamente.</string>
 </resources>

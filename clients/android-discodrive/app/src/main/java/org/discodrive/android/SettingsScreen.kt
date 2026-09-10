@@ -14,7 +14,7 @@ import androidx.core.os.LocaleListCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync: () -> Unit, onBack: () -> Unit) {
     var langMenu by remember { mutableStateOf(false) }
     var unpairDialog by remember { mutableStateOf(false) }
 
@@ -77,6 +77,14 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onBack: () ->
                 Text(stringResource(R.string.au_title), style = MaterialTheme.typography.labelLarge)
                 Text(
                     stringResource(if (vm.autoUploadOn) R.string.on else R.string.off),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            HorizontalDivider()
+            Column(Modifier.clickable { onFolderSync() }) {
+                Text(stringResource(R.string.sync_title), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    stringResource(if (vm.folderSyncOn) R.string.on else R.string.off),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

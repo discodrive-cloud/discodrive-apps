@@ -17,6 +17,9 @@ import kotlinx.coroutines.withContext
 import mobile.Browser
 import androidx.work.WorkManager
 import org.discodrive.android.autoupload.AutoUploadWorker
+import org.discodrive.android.sync.SyncEvents
+import org.discodrive.android.sync.SyncHolder
+import org.discodrive.android.sync.SyncWorker
 import org.json.JSONArray
 import java.io.File
 
@@ -359,17 +362,23 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         // longer has a token for, and a scheduled pass would keep failing in the background.
         prefs.autoUpload = false
         AutoUploadWorker.cancel(getApplication())
+        // Folder sync goes the same way: its engine is bound to this pairing.
+        prefs.folderSync = false
+        SyncWorker.cancel(getApplication())
+        SyncEvents.stop(getApplication())
         opened = false
         opening = false
         prefs.clear()
         _ui.value = BrowseState()
         // Off the main thread: closing waits for work in flight to finish. The index goes with
         // it — one that outlives the pairing lists files this device no longer has any claim to.
-        viewModelScope.launch { withContext(Dispatchers.IO) { BrowserHolder.wipe(getApplication()) } }
+        viewModelScope.launch { withContext(Dispatchers.IO) { BrowserHolder.wipe(getApplication()); SyncHolder.wipe(getApplication()) } }
     }
 
     /** Shown on the settings row; the auto-upload screen owns everything else. */
     val autoUploadOn: Boolean get() = prefs.autoUpload
+    /** Shown on the settings row; the folder-sync screen owns everything else. */
+    val folderSyncOn: Boolean get() = prefs.folderSync
 }
 
 private fun displayName(ctx: Context, uri: Uri): String {

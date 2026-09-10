@@ -101,4 +101,22 @@
     <string name="au_backfill_start">Hochladen</string>
     <string name="au_backfill_queued">%1$d Dateien in der Warteschlange</string>
     <string name="dialog_ok">OK</string>
+
+    <!-- Folder sync -->
+    <string name="sync_title">Ordner-Synchronisation</string>
+    <string name="sync_master">Server-Ordner synchronisieren</string>
+    <string name="sync_desc">Der auf dem Server gewählte Ordner wird auf diesem Telefon gehalten, so wie die Desktop-App ihn auf einem Computer hält.</string>
+    <string name="sync_two_way">Die Synchronisation läuft in beide Richtungen: eine in diesem Ordner gelöschte Datei wird auch auf dem Server gelöscht, und umgekehrt.</string>
+    <string name="sync_folder">Ordner</string>
+    <string name="sync_now">Jetzt synchronisieren</string>
+    <string name="sync_syncing">Synchronisiere…</string>
+    <string name="sync_state">Status: %1$s · letzte Synchronisation: %2$s</string>
+    <string name="sync_never">nie</string>
+    <string name="sync_set_aside">Dateien von vor der Kopplung wurden in %1$s abgelegt. Nichts davon wird hochgeladen – der Server ist maßgeblich.</string>
+    <string name="sync_bulk_blocked">Die Synchronisation wurde angehalten: sie hätte einen großen Teil der Dateien auf dem Server gelöscht. Wurde der Ordner versehentlich geleert, alles erneut herunterladen; sind die Löschungen beabsichtigt, bestätigen.</string>
+    <string name="sync_bulk_resync">Alles erneut herunterladen</string>
+    <string name="sync_bulk_confirm">Auch auf dem Server löschen</string>
+    <string name="sync_channel">Ordner-Synchronisation</string>
+    <string name="sync_notification">Server-Ordner wird synchronisiert…</string>
+    <string name="sync_live">Änderungen auf dem Server kommen an, solange die App offen ist; im Hintergrund wird der Ordner etwa alle 20 Minuten geprüft.</string>
 </resources>

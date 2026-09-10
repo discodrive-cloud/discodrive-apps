@@ -1,6 +1,8 @@
 package org.discodrive.android
 
 import org.discodrive.android.autoupload.AutoUploadScreen
+import org.discodrive.android.sync.SyncEvents
+import org.discodrive.android.sync.SyncScreen
 
 import android.content.Intent
 import android.net.Uri
@@ -31,6 +33,9 @@ class MainActivity : AppCompatActivity() {
         setContent { DiscoDriveTheme { Root(vm, vaultVm) } }
     }
     override fun onResume() { super.onResume(); vm.openIfPaired() }
+    // The server's event stream is held only while the app is on screen (see SyncEvents).
+    override fun onStart() { super.onStart(); SyncEvents.start(this) }
+    override fun onStop() { SyncEvents.stop(this); super.onStop() }
 }
 
 @Composable
@@ -41,6 +46,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
     var hasPerm by remember { mutableStateOf(vm.hasStoragePermission()) }
     var showSettings by remember { mutableStateOf(false) }
     var showAutoUpload by remember { mutableStateOf(false) }
+    var showFolderSync by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         hasPerm = vm.hasStoragePermission()
         vm.openIfPaired()
@@ -56,7 +62,10 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
         vaultUi.loading || vaultUi.error != null ->
             VaultOpeningScreen(vaultUi.loading, vaultUi.error) { vaultVm.dismissError() }
         ui.paired && showAutoUpload -> AutoUploadScreen(viewModel()) { showAutoUpload = false }
-        ui.paired && showSettings -> SettingsScreen(vm, onAutoUpload = { showSettings = false; showAutoUpload = true }) { showSettings = false }
+        ui.paired && showFolderSync -> SyncScreen(viewModel()) { showFolderSync = false }
+        ui.paired && showSettings -> SettingsScreen(vm,
+            onAutoUpload = { showSettings = false; showAutoUpload = true },
+            onFolderSync = { showSettings = false; showFolderSync = true }) { showSettings = false }
         ui.paired -> BrowserScreen(vm, ui,
             onUnlock = { root, pwd ->
                 val tok = vm.token
