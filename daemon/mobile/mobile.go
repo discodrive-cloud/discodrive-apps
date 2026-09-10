@@ -83,6 +83,10 @@ type Client struct {
 
 	mu     sync.Mutex
 	status Status
+
+	// The event stream, while one is held (see StartEvents).
+	eventsCancel context.CancelFunc
+	eventsDone   chan struct{}
 }
 
 // New builds a sync client. syncDir is the app-sandbox folder to mirror; stateDBPath is a
@@ -199,7 +203,9 @@ func (c *Client) Status() *Status {
 	return &s
 }
 
-// Close releases the local index. The Client must not be used afterwards.
+// Close drops the event stream, if any, and releases the local index. The Client must not
+// be used afterwards.
 func (c *Client) Close() error {
+	c.StopEvents()
 	return c.idx.Close()
 }

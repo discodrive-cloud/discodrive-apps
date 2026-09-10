@@ -68,7 +68,7 @@ func (s *Syncer) Run(ctx context.Context) error {
 	go s.watch(ctx, notify)
 	go func() {
 		for ctx.Err() == nil {
-			if err := listenEvents(ctx, s.client, notify); err != nil && ctx.Err() == nil {
+			if err := s.client.ListenEvents(ctx, notify); err != nil && ctx.Err() == nil {
 				time.Sleep(2 * time.Second)
 			}
 		}

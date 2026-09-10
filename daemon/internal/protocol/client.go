@@ -384,11 +384,6 @@ func (c *Client) DeleteRemote(ctx context.Context, relPath string) error {
 	return nil
 }
 
-// Events opens an SSE stream at /sync/events (for the daemon listener). The caller reads the body.
-func (c *Client) Events(ctx context.Context) (*http.Response, error) {
-	return c.do(ctx, http.MethodGet, "/sync/events")
-}
-
 // Language fetches the user's preferred language from GET /me/language.
 // Returns "en" on any error (server unreachable, not paired, etc.).
 func (c *Client) Language(ctx context.Context) (string, error) {
