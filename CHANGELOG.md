@@ -30,12 +30,16 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Files picked by hand in the mobile and macOS apps' browsers now go up through the
-  resumable chunked protocol once they are longer than 8 MiB, the way auto-upload and the
-  desktop client already did. A connection dropped halfway through a large video
-  continues from where the server got to instead of starting over; the file's size is
-  declared up front, so a short upload is refused rather than published truncated. Small
-  files still go up in one request.
+- Every upload longer than 8 MiB now goes through the resumable chunked protocol: the
+  daemon's and Fast Sync's sync passes, files picked by hand in the mobile and macOS
+  browsers, and vault contents, the way auto-upload and the desktop client already did.
+  A connection dropped halfway through a large video continues from where the server got
+  to instead of starting over; the file's size is declared up front, so a short upload is
+  refused rather than published truncated. The sync engines keep their conflict
+  detection: the session carries the version the file was edited from, and the server
+  files a conflict copy rather than overwriting a newer one (needs a server with that
+  support; an older server answers the session request with an error and the pass
+  reports it). Small files still go up in one request.
 
 ### Fixed
 

@@ -269,10 +269,28 @@ func replayableBody(r io.Reader) (func() (io.Reader, error), int64, error) {
 	return func() (io.Reader, error) { return bytes.NewReader(buf), nil }, int64(len(buf)), nil
 }
 
+// PushChunkSize is the chunk length of the resumable protocol, and the size past which
+// PushFile uses it instead of one PUT: a file that fits in a chunk has nothing to resume.
+var PushChunkSize int64 = 8 << 20
+
+// PushFile sends a file to relPath, conflict-aware by baseVersion. A file longer than
+// PushChunkSize goes through the resumable chunked protocol when r can be read at an
+// offset (a file on disk, a buffer) — a dropped connection then continues from the
+// server's next_chunk instead of starting over — addressed by path and base version so
+// the outcome is the same a PUT would give: the node, and whether it became a conflict.
 func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader, modTime time.Time) (engine.RemoteNode, bool, error) {
 	newBody, size, err := replayableBody(r)
 	if err != nil {
 		return engine.RemoteNode{}, false, err
+	}
+	if size > PushChunkSize {
+		if ra, ok := r.(io.ReaderAt); ok {
+			var start int64
+			if s, ok := r.(io.Seeker); ok {
+				start, _ = s.Seek(0, io.SeekCurrent)
+			}
+			return c.pushChunked(ctx, relPath, baseVersion, io.NewSectionReader(ra, start, size), size, modTime)
+		}
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		tok, err := c.token(ctx)
@@ -591,6 +609,66 @@ func (c *Client) UploadChunk(ctx context.Context, uploadID string, n int, r io.R
 	return 0, fmt.Errorf("authorization failed")
 }
 
+// UploadInitByPath opens a resumable session that lands at relPath the way PUT /sync/file
+// would (scope applied server-side, folder chain created), with the base version the
+// engine edited so a newer server version becomes a conflict copy rather than being
+// overwritten. Returns the session id and the chunk to start from.
+func (c *Client) UploadInitByPath(ctx context.Context, relPath string, baseVersion *int64, size int64, modTime time.Time) (string, int, error) {
+	body := map[string]any{"path": relPath, "size": size}
+	if baseVersion != nil {
+		body["base_version"] = *baseVersion
+	}
+	if !modTime.IsZero() {
+		body["modified_at"] = modTime.UTC().Format(time.RFC3339Nano)
+	}
+	resp, err := c.doJSON(ctx, http.MethodPost, "/upload/init", body)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", 0, statusErr(resp, "/upload/init")
+	}
+	var out struct {
+		UploadID  string `json:"upload_id"`
+		NextChunk int    `json:"next_chunk"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", 0, err
+	}
+	return out.UploadID, out.NextChunk, nil
+}
+
+// pushChunked drives one file through the resumable protocol: init by path, resume from
+// the server's next_chunk, send chunks in order, retry a failed chunk a few times after
+// asking the server where it stands, then complete — whose answer is the push result.
+func (c *Client) pushChunked(ctx context.Context, relPath string, baseVersion *int64, ra io.ReaderAt, size int64, modTime time.Time) (engine.RemoteNode, bool, error) {
+	id, next, err := c.UploadInitByPath(ctx, relPath, baseVersion, size, modTime)
+	if err != nil {
+		return engine.RemoteNode{}, false, err
+	}
+	attempts := 0
+	for int64(next)*PushChunkSize < size {
+		start := int64(next) * PushChunkSize
+		end := min(start+PushChunkSize, size)
+		n, err := c.UploadChunk(ctx, id, next, io.NewSectionReader(ra, start, end-start), nil)
+		if err != nil {
+			attempts++
+			if attempts >= 3 || ctx.Err() != nil {
+				_ = c.UploadAbort(ctx, id)
+				return engine.RemoteNode{}, false, err
+			}
+			if st, serr := c.UploadStatus(ctx, id); serr == nil {
+				next = st
+			}
+			continue
+		}
+		attempts = 0
+		next = n
+	}
+	return c.UploadCompleteResult(ctx, id)
+}
+
 // UploadStatus returns the next chunk index the server expects (for resume).
 func (c *Client) UploadStatus(ctx context.Context, uploadID string) (int, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/upload/"+url.PathEscape(uploadID))
@@ -612,11 +690,33 @@ func (c *Client) UploadStatus(ctx context.Context, uploadID string) (int, error)
 
 // UploadComplete finalizes the upload, creating the server file.
 func (c *Client) UploadComplete(ctx context.Context, uploadID string) error {
+	_, _, err := c.UploadCompleteResult(ctx, uploadID)
+	return err
+}
+
+// UploadCompleteResult finalizes the upload and returns what a sync PUT would: the
+// published node, and whether the server kept its own newer version and filed this one
+// as a conflict copy.
+func (c *Client) UploadCompleteResult(ctx context.Context, uploadID string) (engine.RemoteNode, bool, error) {
 	resp, err := c.do(ctx, http.MethodPost, "/upload/"+url.PathEscape(uploadID)+"/complete")
 	if err != nil {
-		return err
+		return engine.RemoteNode{}, false, err
 	}
-	return okClose(resp, "/upload complete")
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return engine.RemoteNode{}, false, statusErr(resp, "/upload complete")
+	}
+	var out struct {
+		Node struct {
+			ID      string `json:"id"`
+			Version int64  `json:"version"`
+		} `json:"node"`
+		Conflicted bool `json:"conflicted"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return engine.RemoteNode{}, false, err
+	}
+	return engine.RemoteNode{NodeID: out.Node.ID, Version: out.Node.Version}, out.Conflicted, nil
 }
 
 // UploadAbort discards an in-progress upload session.
