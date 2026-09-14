@@ -48,7 +48,7 @@ struct BrowserView: View {
             items.map { SidebarNode(id: $0.node.id, name: $0.node.name, icon: "folder",
                                     children: $0.children.map(map)) }
         }
-        return [SidebarNode(id: kRootTag, name: "DiscoDrive", icon: "opticaldisc", children: nil)]
+        return [SidebarNode(id: kRootTag, name: "DiscoDrive", icon: "DDLogo", children: nil)]
             + map(app.folderTree())
     }
 
@@ -56,7 +56,10 @@ struct BrowserView: View {
         NavigationSplitView {
             List(selection: $selectedFolder) {
                 OutlineGroup(sidebarModel(), children: \.children) { item in
-                    Label(item.name, systemImage: item.icon).tag(Optional(item.id))
+                    // The root wears the logo (a custom symbol from Assets); folders a system one.
+                    Label { Text(item.name) } icon: {
+                        item.id == kRootTag ? Image("DDLogo").renderingMode(.template) : Image(systemName: item.icon)
+                    }.tag(Optional(item.id))
                 }
             }
             .listStyle(.sidebar)
