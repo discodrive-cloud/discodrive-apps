@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: "1.25"
+  GO_VERSION: "1.26"
   WAILS_VERSION: "v2.12.0"
 
 jobs:
@@ -162,9 +162,10 @@ jobs:
         run: |
           sdkmanager "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          # gobind is installed pinned, so `gomobile init` — which would fetch gobind@latest
+          # and with it whatever Go version x/mobile asks for that week — is not needed.
           go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260611195102-4dd8f1dbf5d2
           go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260611195102-4dd8f1dbf5d2
-          "$(go env GOPATH)/bin/gomobile" init
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Build Android bindings + apps (debug)
         run: |
