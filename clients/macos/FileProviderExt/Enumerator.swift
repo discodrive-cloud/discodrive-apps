@@ -31,7 +31,7 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
                 default:             nodes = try core.index.children(of: container.rawValue)
                 }
                 for chunk in stride(from: 0, to: nodes.count, by: 500) {
-                    observer.didEnumerate(nodes[chunk..<min(chunk + 500, nodes.count)].map(ProviderItem.init(node:)))
+                    observer.didEnumerate(nodes[chunk..<min(chunk + 500, nodes.count)].map(core.item(for:)))
                 }
                 observer.finishEnumerating(upTo: nil)
             } catch {
@@ -46,7 +46,7 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
             do {
                 let since = SyncAnchorCodec.decode(anchor.rawValue) ?? 0
                 let delta = try await core.pull(since: since)
-                let updated = delta.updated.compactMap { try? core.index.node(id: $0) }.map(ProviderItem.init(node:))
+                let updated = delta.updated.compactMap { try? core.index.node(id: $0) }.map(core.item(for:))
                 if !updated.isEmpty { observer.didUpdate(updated) }
                 if !delta.deleted.isEmpty {
                     observer.didDeleteItems(withIdentifiers: delta.deleted.map { NSFileProviderItemIdentifier($0) })

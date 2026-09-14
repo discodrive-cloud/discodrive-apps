@@ -63,6 +63,38 @@ final class ProviderCore: @unchecked Sendable {   // IndexStore and APIClient ar
         return delta
     }
 
+    /// The item for a node, read-only when it belongs to a vault.
+    func item(for node: Node) -> ProviderItem {
+        ProviderItem(node: node, writable: !((try? index.isInsideVault(path: node.path)) ?? false))
+    }
+
+    /// The server path of the folder an item identifier names ("" for the root).
+    func folderPath(_ id: NSFileProviderItemIdentifier) throws -> String {
+        if id == .rootContainer { return "" }
+        guard let node = try index.node(id: id.rawValue), node.isDir else { throw NSFileProviderError(.noSuchItem) }
+        return node.path
+    }
+
+    /// Pulls what the server now says and returns the node at `path`, which a write just
+    /// created or changed. The pull is what makes the extension's own write visible to
+    /// Finder with the server's id and version, the same as a change made elsewhere.
+    func pullAndFind(path: String) async throws -> Node {
+        _ = try await pull(since: try index.cursor())
+        guard let node = try index.node(atPath: path) else { throw NSFileProviderError(.noSuchItem) }
+        return node
+    }
+
+    // The client operations the write path uses, with transport failures translated.
+    func createFolder(path: String) async throws { try await mapErrors { try await client.createDir(relPath: path) } }
+    func upload(fileURL: URL, path: String, baseVersion: Int64?) async throws -> APIClient.UploadOutcome {
+        try await mapErrors { try await client.upload(fileURL: fileURL, relPath: path,
+                                                     modifiedAt: APIClient.contentModificationDate(of: fileURL),
+                                                     baseVersion: baseVersion) }
+    }
+    func rename(nodeID: String, to name: String) async throws { try await mapErrors { try await client.rename(nodeID: nodeID, newName: name) } }
+    func move(nodeID: String, toParent parent: String?) async throws { try await mapErrors { try await client.move(nodeID: nodeID, newParentID: parent) } }
+    func delete(nodeID: String) async throws { try await mapErrors { try await client.delete(nodeID: nodeID) } }
+
     func download(nodeID: String) async throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try await mapErrors { try await client.download(nodeID: nodeID, to: tmp) }
@@ -70,9 +102,10 @@ final class ProviderCore: @unchecked Sendable {   // IndexStore and APIClient ar
     }
 
     // Translate transport failures into the errors Finder knows how to present.
-    private func mapErrors<T>(_ body: () async throws -> T) async throws -> T {
+    func mapErrors<T>(_ body: () async throws -> T) async throws -> T {
         do { return try await body() }
         catch let e as URLError {
+            NSLog("DiscoDrive FP: transport failure %ld %@", e.code.rawValue, e.localizedDescription)
             throw NSFileProviderError(.serverUnreachable, userInfo: [NSUnderlyingErrorKey: e])
         } catch APIError.notAuthenticated {
             throw NSFileProviderError(.notAuthenticated)
@@ -80,6 +113,9 @@ final class ProviderCore: @unchecked Sendable {   // IndexStore and APIClient ar
             throw NSFileProviderError(.notAuthenticated)
         } catch APIError.http(let code) where code == 404 {
             throw NSFileProviderError(.noSuchItem)
+        } catch {
+            NSLog("DiscoDrive FP: %@", String(describing: error))
+            throw error
         }
     }
 }

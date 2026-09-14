@@ -161,7 +161,22 @@ public actor APIClient {
     //
     // modifiedAt travels in X-Modified-At so the server dates the content rather than the
     // upload; nil sends no header and leaves the server's own date in place.
+    /// What the server did with an upload: the node it landed as, and whether the server
+    /// kept its own newer version and filed this one as a conflict copy.
+    public struct UploadOutcome: Sendable, Equatable {
+        public let nodeID: String
+        public let version: Int64
+        public let conflicted: Bool
+    }
+
     public func uploadFile(relPath: String, fileURL: URL, modifiedAt: Date? = nil) async throws {
+        _ = try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt, baseVersion: nil)
+    }
+
+    /// The PUT with the version the file was edited from: a newer server version becomes a
+    /// conflict copy rather than being overwritten, and the outcome says so.
+    @discardableResult
+    public func uploadFile(relPath: String, fileURL: URL, modifiedAt: Date?, baseVersion: Int64?) async throws -> UploadOutcome {
         for attempt in 0..<2 {
             let tok = try await token()
             var comps = URLComponents(url: baseURL.appendingPathComponent("sync/file"),
@@ -172,14 +187,24 @@ public actor APIClient {
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
             for (k, v) in Self.modifiedAtHeader(modifiedAt) { req.setValue(v, forHTTPHeaderField: k) }
+            if let baseVersion { req.setValue(String(baseVersion), forHTTPHeaderField: "X-Base-Version") }
             // Re-reads the file from disk on the retry, so the 401 path stays whole-body.
-            let (_, resp) = try await session.upload(for: req, fromFile: fileURL)
+            let (data, resp) = try await session.upload(for: req, fromFile: fileURL)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; continue }
             guard code == 201 else { throw APIError.http(code) }
-            return
+            return Self.outcome(from: data)
         }
         throw APIError.notAuthenticated
+    }
+
+    static func outcome(from data: Data) -> UploadOutcome {
+        struct Out: Decodable {
+            struct N: Decodable { let id: String; let version: Int64? }
+            let node: N?; let conflicted: Bool?
+        }
+        let out = try? JSONDecoder().decode(Out.self, from: data)
+        return UploadOutcome(nodeID: out?.node?.id ?? "", version: out?.node?.version ?? 0, conflicted: out?.conflicted ?? false)
     }
 
     /// The one way to upload a file that lives on disk. A file that fits in one chunk goes
@@ -188,17 +213,18 @@ public actor APIClient {
     /// next_chunk instead of starting over.
     ///
     /// `relPath` is the server path (folder + name); both transports address the file by it.
-    public func upload(fileURL: URL, relPath: String, modifiedAt: Date?,
+    @discardableResult
+    public func upload(fileURL: URL, relPath: String, modifiedAt: Date?, baseVersion: Int64? = nil,
                        chunkSize: Int = ChunkedUploader.defaultChunkSize,
-                       progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws {
+                       progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> UploadOutcome {
         let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         if size > chunkSize {
-            try await ChunkedUploader(api: self, chunkSize: chunkSize)
-                .upload(fileURL: fileURL, to: .path(relPath), modifiedAt: modifiedAt, progress: progress)
-        } else {
-            try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt)
-            progress?(Int64(size), Int64(size))
+            return try await ChunkedUploader(api: self, chunkSize: chunkSize)
+                .upload(fileURL: fileURL, to: .path(relPath, baseVersion: baseVersion), modifiedAt: modifiedAt, progress: progress)
         }
+        let out = try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt, baseVersion: baseVersion)
+        progress?(Int64(size), Int64(size))
+        return out
     }
 
     /// The same for content that only exists in memory (vault ciphertext): past one chunk
@@ -343,7 +369,12 @@ public actor APIClient {
 
     /// Publishes the assembled file.
     public func uploadComplete(uploadID: String) async throws {
-        try await send("POST", path: "upload/\(uploadID)/complete", ok: [200, 201])
+        _ = try await uploadCompleteResult(uploadID: uploadID)
+    }
+
+    /// Publishes the assembled file and says what the server did with it.
+    public func uploadCompleteResult(uploadID: String) async throws -> UploadOutcome {
+        Self.outcome(from: try await send("POST", path: "upload/\(uploadID)/complete", ok: [200, 201]))
     }
 
     /// Discards an in-progress session and its staged bytes.
@@ -369,6 +400,12 @@ public actor APIClient {
     // Delete a node (file or folder) — moves it to the trash.
     public func delete(nodeID: String) async throws {
         try await send("DELETE", path: "files/\(nodeID)", ok: [204, 200])
+    }
+
+    // Move a node under another folder (nil = the storage root).
+    public func move(nodeID: String, newParentID: String?) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["parent_id": newParentID as Any? ?? NSNull()])
+        try await send("PATCH", path: "files/\(nodeID)/move", body: body, contentType: "application/json", ok: [200])
     }
 
     // Rename a node.

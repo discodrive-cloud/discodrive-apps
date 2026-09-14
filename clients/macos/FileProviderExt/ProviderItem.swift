@@ -2,11 +2,16 @@ import FileProvider
 import UniformTypeIdentifiers
 import DiscoKit
 
-// An index node as Finder sees it. Read-only for now: writing lands in the next phase.
+// An index node as Finder sees it. Writable unless it belongs to a Cryptomator vault:
+// the ciphertext layout is the vault's, and a stray write from Finder would corrupt it.
 final class ProviderItem: NSObject, NSFileProviderItem {
     let info: ProviderItemInfo
+    let writable: Bool
 
-    init(node: Node) { info = ProviderItemInfo(node: node) }
+    init(node: Node, writable: Bool = true) {
+        info = ProviderItemInfo(node: node)
+        self.writable = writable
+    }
 
     var itemIdentifier: NSFileProviderItemIdentifier { .init(info.identifier) }
     var parentItemIdentifier: NSFileProviderItemIdentifier {
@@ -19,7 +24,12 @@ final class ProviderItem: NSObject, NSFileProviderItem {
         return ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
     }
     var capabilities: NSFileProviderItemCapabilities {
-        info.isDirectory ? [.allowsReading, .allowsContentEnumerating] : [.allowsReading]
+        var caps: NSFileProviderItemCapabilities = info.isDirectory ? [.allowsReading, .allowsContentEnumerating] : [.allowsReading]
+        if writable {
+            caps.formUnion([.allowsRenaming, .allowsReparenting, .allowsDeleting])
+            caps.formUnion(info.isDirectory ? [.allowsAddingSubItems] : [.allowsWriting])
+        }
+        return caps
     }
     // Files are placeholders until opened; the system downloads on demand and may evict.
     var contentPolicy: NSFileProviderContentPolicy { info.isDirectory ? .inherited : .downloadLazily }
@@ -35,7 +45,7 @@ final class RootItem: NSObject, NSFileProviderItem {
     var parentItemIdentifier: NSFileProviderItemIdentifier { .rootContainer }
     var filename: String { "DiscoDrive" }
     var contentType: UTType { .folder }
-    var capabilities: NSFileProviderItemCapabilities { [.allowsReading, .allowsContentEnumerating] }
+    var capabilities: NSFileProviderItemCapabilities { [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems] }
     var itemVersion: NSFileProviderItemVersion {
         .init(contentVersion: Data("root".utf8), metadataVersion: Data("root".utf8))
     }

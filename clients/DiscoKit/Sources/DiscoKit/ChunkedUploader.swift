@@ -48,19 +48,20 @@ public struct ChunkedUploader: Sendable {
         modifiedAt: Date?,
         progress: (@Sendable (Int64, Int64) -> Void)? = nil
     ) async throws {
-        try await upload(fileURL: fileURL, to: .folder(parentID: parentID, name: name),
-                         modifiedAt: modifiedAt, progress: progress)
+        _ = try await upload(fileURL: fileURL, to: .folder(parentID: parentID, name: name),
+                             modifiedAt: modifiedAt, progress: progress)
     }
 
-    /// Uploads `fileURL` to `target`.
+    /// Uploads `fileURL` to `target`; returns what the server did with it.
     ///
     /// `progress` is called with (sent, total) after each accepted chunk.
+    @discardableResult
     public func upload(
         fileURL: URL,
         to target: Target,
         modifiedAt: Date?,
         progress: (@Sendable (Int64, Int64) -> Void)? = nil
-    ) async throws {
+    ) async throws -> APIClient.UploadOutcome {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
 
@@ -114,7 +115,7 @@ public struct ChunkedUploader: Sendable {
         }
 
         do {
-            try await api.uploadComplete(uploadID: session.uploadID)
+            return try await api.uploadCompleteResult(uploadID: session.uploadID)
         } catch APIError.http(400) {
             throw UploadError.fileChangedDuringUpload
         }

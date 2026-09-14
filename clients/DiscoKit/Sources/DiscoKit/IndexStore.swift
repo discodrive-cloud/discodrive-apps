@@ -117,6 +117,24 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
         }
     }
 
+    // Whether `path` is a Cryptomator vault or lies inside one: the folder itself, or any
+    // ancestor, holds a `vault.cryptomator`. Finder must not write there — the ciphertext
+    // layout is the vault's, not the user's.
+    public func isInsideVault(path: String) throws -> Bool {
+        var parts = path.split(separator: "/").map(String.init)
+        while !parts.isEmpty {
+            // Paths are stored as the server sends them, without a leading slash.
+            if try node(atPath: parts.joined(separator: "/") + "/vault.cryptomator") != nil { return true }
+            parts.removeLast()
+        }
+        return false
+    }
+
+    // The server path of `name` inside `folder` ("" = root), in the index's own spelling.
+    public static func path(in folder: String, name: String) -> String {
+        folder.isEmpty ? name : folder + "/" + name
+    }
+
     static func rowToNode(_ row: Row) -> Node {
         Node(id: row["id"], parentID: row["parent_id"], name: row["name"],
              isDir: (row["is_dir"] as Int64) != 0, version: row["version"],
