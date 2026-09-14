@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import DiscoKit
+import os
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -30,6 +31,7 @@ final class AppState: ObservableObject {
 
     private var refreshing = false
     private var eventsTask: Task<Void, Never>?
+    static let log = Logger(subsystem: "org.discodrive.app", category: "state")
     // Called after every successful refresh; the macOS app uses it to nudge the File
     // Provider extension so Finder picks up the change without waiting.
     var onRemoteChange: (() -> Void)?
@@ -90,6 +92,7 @@ final class AppState: ObservableObject {
         self.local = try? LocalStore(directory: dir.appendingPathComponent("local"))
         #endif
         self.paired = (index != nil && local != nil)
+        Self.log.notice("activated against \(serverURL.absoluteString, privacy: .public), index at \(self.indexDir.path, privacy: .public) (\(self.index == nil ? "FAILED" : "ok", privacy: .public)), paired=\(self.paired)")
         Task { await loadLanguage() }
         startLiveUpdates()
     }
@@ -206,7 +209,10 @@ final class AppState: ObservableObject {
     }
 
     func refresh() async {
-        guard let client, let index, !refreshing else { return }
+        guard let client, let index, !refreshing else {
+            Self.log.notice("refresh skipped (client=\(self.client == nil ? 0 : 1) index=\(self.index == nil ? 0 : 1) refreshing=\(self.refreshing))")
+            return
+        }
         refreshing = true; defer { refreshing = false }
         syncStatus = .syncing
         do {
@@ -220,10 +226,12 @@ final class AppState: ObservableObject {
             try index.setCursor(cursor)
             statusText = t("status.updated")
             syncStatus = .idle
+            Self.log.notice("refreshed: \((try? index.children(of: nil).count) ?? -1) root entries, cursor \(cursor)")
             onRemoteChange?()
         } catch {
             statusText = "\(t("status.refreshError")): \(error.localizedDescription)"
             syncStatus = .offline
+            Self.log.error("refresh failed: \(String(describing: error), privacy: .public)")
         }
     }
 
