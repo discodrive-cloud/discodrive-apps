@@ -18,8 +18,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// trayIcon is provided per-platform: PNG on macOS/Linux, ICO on Windows
-// (fyne/systray needs ICO bytes on Windows). See tray_other.go / tray_windows.go.
+// The tray icon is provided per platform — a template silhouette on macOS, a PNG on
+// Linux, an ICO on Windows (fyne/systray needs ICO bytes there). See tray_*.go.
 
 func main() {
 	// --hidden is passed by the open-at-login registration when "start minimized" is on,
@@ -29,9 +29,7 @@ func main() {
 
 	onReady := func() {
 		systray.SetTooltip("DiscoDrive")
-		if len(trayIcon) > 0 {
-			systray.SetIcon(trayIcon)
-		}
+		setTrayIcon()
 		mOpen := systray.AddMenuItem("Open DiscoDrive", "Show the window")
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("Quit", "Quit DiscoDrive")

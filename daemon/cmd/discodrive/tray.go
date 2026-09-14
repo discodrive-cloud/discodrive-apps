@@ -53,7 +53,8 @@ func cmdTray(args []string) {
 }
 
 func onReady(ctx context.Context, cancel context.CancelFunc, cfgPath, syncDir string) {
-	systray.SetIcon(trayIcon)
+	indicator := newTrayIndicator(applyTrayIcon)
+	indicator.set("")
 	systray.SetTitle("")
 	systray.SetTooltip("DiscoDrive sync")
 
@@ -81,6 +82,9 @@ func onReady(ctx context.Context, cancel context.CancelFunc, cfgPath, syncDir st
 				}
 			}
 			mStatus.SetTitle(label)
+			if err == nil {
+				indicator.set(st.State)
+			}
 		}
 		upd()
 		for {
