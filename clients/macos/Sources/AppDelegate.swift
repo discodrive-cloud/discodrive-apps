@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = trayImage(for: .offline)
+        statusItem.button?.appearsDisabled = true
         let menu = NSMenu()
         menu.delegate = self   // localize titles on open (language may have changed)
         menu.addItem(NSMenuItem(title: "", action: #selector(toggleWindow), keyEquivalent: ""))
@@ -95,21 +96,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     // MARK: - Tray Status Icon
 
+    // One silhouette of the logo, the way WireGuard does it: full while the server is in
+    // reach, dimmed while it is not, and blinking between the two while a pass runs. The
+    // shape never changes, so the state is legible at menu bar size where a badge was not.
+    private var blink: Timer?
+
     // Update the tray icon to reflect the current sync status (called from DiscoDriveApp).
     func setStatus(_ status: AppState.SyncStatus) {
-        statusItem?.button?.image = trayImage(for: status)
+        blink?.invalidate(); blink = nil
+        guard let button = statusItem?.button else { return }
+        switch status {
+        case .idle:
+            button.appearsDisabled = false
+        case .offline:
+            button.appearsDisabled = true
+        case .syncing:
+            button.appearsDisabled = false
+            blink = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak button] _ in
+                button?.appearsDisabled.toggle()
+            }
+        }
     }
 
-    // The status icons from Assets (Tray*) are silhouettes of the brand set — the logo,
-    // with a cross for offline and arrows while syncing — rendered as templates so they
-    // follow the menu bar like the system's own; a coloured icon there was hard to read.
+    // The logo's silhouette from Assets, or an SF Symbol when it is missing; a template
+    // either way, so it follows the menu bar's light and dark looks.
     private func trayImage(for status: AppState.SyncStatus) -> NSImage? {
-        let (asset, symbol): (String, String)
-        switch status {
-        case .idle:    (asset, symbol) = ("TrayIdle", "opticaldisc")
-        case .syncing: (asset, symbol) = ("TraySyncing", "arrow.triangle.2.circlepath")
-        case .offline: (asset, symbol) = ("TrayOffline", "opticaldisc.fill")
-        }
+        let (asset, symbol) = ("TrayLogo", "opticaldisc")
         let img = NSImage(named: asset)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: "DiscoDrive")
         img?.isTemplate = true
