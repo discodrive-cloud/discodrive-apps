@@ -1,13 +1,18 @@
 {
-  "images" : [
-    { "idiom" : "universal", "scale" : "1x", "filename" : "icon.png" },
-    { "idiom" : "universal", "scale" : "2x", "filename" : "icon@2x.png" }
+  "images": [
+    {
+      "idiom": "universal",
+      "scale": "1x",
+      "filename": "icon.png"
+    },
+    {
+      "idiom": "universal",
+      "scale": "2x",
+      "filename": "icon@2x.png"
+    }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
-  },
-  "properties" : {
-    "template-rendering-intent" : "template"
+  "info": {
+    "author": "xcode",
+    "version": 1
   }
 }

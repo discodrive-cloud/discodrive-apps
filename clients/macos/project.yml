@@ -19,7 +19,7 @@ targets:
   DiscoDrive:
     type: application
     platform: macOS
-    sources: [Sources, ../shared, Resources/Assets.xcassets, Resources/AppIcon.icns]
+    sources: [Sources, ../shared, Resources/Assets.xcassets, Resources/AppIcon.icns, Resources/DiscoDrive.icon]
     dependencies:
       - package: DiscoKit
       - target: FileProviderExt
@@ -28,7 +28,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app
         INFOPLIST_FILE: Resources/Info.plist
-        # App icon — prebuilt AppIcon.icns (CFBundleIconFile); actool truncated the large slots.
+        # App icon: the Icon Composer document (DiscoDrive.icon) for macOS 26's layered look,
+        # and a prebuilt AppIcon.icns (CFBundleIconFile) for everything older.
+        ASSETCATALOG_COMPILER_APPICON_NAME: DiscoDrive
         # Sandboxed (see the entitlements) and hardened: both are conditions for hosting the
         # File Provider extension, for notarization and for the App Store.
         CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements

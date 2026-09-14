@@ -100,7 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem?.button?.image = trayImage(for: status)
     }
 
-    // Custom icon from Assets (Tray*), falling back to an SF Symbol. Always rendered as template.
+    // The status icons from Assets (Tray*) are the coloured brand set — the logo, with a
+    // cross for offline and arrows while syncing — and are drawn as they are, like
+    // Dropbox's. Only the SF Symbol fallback is a template.
     private func trayImage(for status: AppState.SyncStatus) -> NSImage? {
         let (asset, symbol): (String, String)
         switch status {
@@ -108,8 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         case .syncing: (asset, symbol) = ("TraySyncing", "arrow.triangle.2.circlepath")
         case .offline: (asset, symbol) = ("TrayOffline", "opticaldisc.fill")
         }
-        let img = NSImage(named: asset)
-            ?? NSImage(systemSymbolName: symbol, accessibilityDescription: "DiscoDrive")
+        if let img = NSImage(named: asset) { return img }
+        let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "DiscoDrive")
         img?.isTemplate = true
         return img
     }

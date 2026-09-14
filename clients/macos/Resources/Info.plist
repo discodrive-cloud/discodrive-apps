@@ -5,6 +5,7 @@
   <key>CFBundleDisplayName</key><string>DiscoDrive</string>
   <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>DiscoDrive</string>
   <!-- Identifier, executable and package type are mandatory when the plist is hand-written:
        without them the sandbox cannot create the app's container and the app dies at launch. -->
   <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
