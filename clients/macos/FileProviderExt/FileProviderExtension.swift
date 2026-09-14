@@ -80,6 +80,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let task = Task<Void, Never> {
             do {
                 let core = try requireCore()
+                // Finder's own housekeeping files stay on this Mac; the system keeps them
+                // without asking again.
+                if LocalOnlyNames.isLocalOnly(template.filename) { throw NSFileProviderError(.excludedFromSync) }
                 let folder = try core.folderPath(template.parentItemIdentifier)
                 if try core.index.isInsideVault(path: folder) { throw NSFileProviderError(.noSuchItem) }
                 let path = IndexStore.path(in: folder, name: template.filename)
@@ -110,6 +113,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let task = Task<Void, Never> {
             do {
                 let core = try requireCore()
+                if LocalOnlyNames.isLocalOnly(item.filename) { throw NSFileProviderError(.excludedFromSync) }
                 guard var node = try core.index.node(id: item.itemIdentifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
                 if try core.index.isInsideVault(path: node.path) { throw NSFileProviderError(.noSuchItem) }
                 // Name and place first, so new contents go to where the file now lives.

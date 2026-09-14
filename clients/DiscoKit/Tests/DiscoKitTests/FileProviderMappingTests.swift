@@ -68,4 +68,13 @@ final class FileProviderMappingTests: XCTestCase {
         ])
         XCTAssertEqual(Set(try store.allNodes().map(\.id)), ["d", "f"])
     }
+
+    func testFinderHousekeepingNamesStayLocal() {
+        for name in [".DS_Store", "Icon\r", "._photo.jpg", ".localized"] {
+            XCTAssertTrue(LocalOnlyNames.isLocalOnly(name), name)
+        }
+        for name in ["Icon", "notes.md", ".hidden-but-mine", "photo.jpg"] {
+            XCTAssertFalse(LocalOnlyNames.isLocalOnly(name), name)
+        }
+    }
 }

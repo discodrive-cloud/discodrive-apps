@@ -38,3 +38,12 @@ public enum SyncAnchorCodec {
         String(data: data, encoding: .utf8).flatMap(Int64.init)
     }
 }
+
+// Names macOS invents for its own housekeeping — Finder's folder-icon file, .DS_Store,
+// AppleDouble forks — must never reach the server: they mean nothing anywhere else and
+// the daemon skips them on the way up too.
+public enum LocalOnlyNames {
+    public static func isLocalOnly(_ name: String) -> Bool {
+        name == ".DS_Store" || name == "Icon\r" || name.hasPrefix("._") || name == ".localized"
+    }
+}
