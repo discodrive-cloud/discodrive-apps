@@ -49,7 +49,7 @@ struct BrowserView: View {
                                     children: $0.children.map(map)) }
         }
         return [SidebarNode(id: kRootTag, name: "DiscoDrive", icon: "DDLogo", children: nil)]
-            + map(app.folderTree())
+            + map(app.tree)
     }
 
     var body: some View {

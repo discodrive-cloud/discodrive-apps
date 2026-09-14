@@ -29,6 +29,13 @@ final class AppState: ObservableObject {
     private(set) var index: IndexStore?
     private(set) var local: LocalStore?
 
+    // The folder tree and the set of vault folders, rebuilt from the index after every
+    // refresh — off the main thread, in one pass over the nodes. The views read these;
+    // they never query the database while drawing, which is what froze the window for
+    // seconds on every click (a query per folder, recursively, per redraw).
+    @Published private(set) var tree: [FolderItem] = []
+    @Published private(set) var vaultIDs: Set<String> = []
+
     private var refreshing = false
     private var eventsTask: Task<Void, Never>?
     static let log = Logger(subsystem: "org.discodrive.app", category: "state")
@@ -55,7 +62,12 @@ final class AppState: ObservableObject {
         return appSupportDir
     }
 
+    // Runs once, from init, so the first frame already knows whether the device is paired;
+    // calling it again later is harmless.
+    init() { bootstrap() }
+
     func bootstrap() {
+        guard !paired else { return }
         #if DEBUG
         // Lets an automated run pair the app without driving the pairing screen by hand:
         // the simulator has no way to type a device code, and the E2E checks need a real
@@ -92,6 +104,7 @@ final class AppState: ObservableObject {
         self.local = try? LocalStore(directory: dir.appendingPathComponent("local"))
         #endif
         self.paired = (index != nil && local != nil)
+        Task { await rebuildTree() }
         Self.log.notice("activated against \(serverURL.absoluteString, privacy: .public), index at \(self.indexDir.path, privacy: .public) (\(self.index == nil ? "FAILED" : "ok", privacy: .public)), paired=\(self.paired)")
         Task { await loadLanguage() }
         startLiveUpdates()
@@ -216,17 +229,24 @@ final class AppState: ObservableObject {
         refreshing = true; defer { refreshing = false }
         syncStatus = .syncing
         do {
-            var cursor = try index.cursor()
-            while true {
-                let page = try await client.changes(since: cursor, limit: 500)
-                try index.apply(page.changes)
-                cursor = page.cursor
-                if !page.hasMore { break }
-            }
-            try index.setCursor(cursor)
+            // The pull — network plus applying pages to SQLite — runs away from the main
+            // actor; the first one after pairing applies the whole tree and used to hold
+            // the window for its duration.
+            let cursor = try await Task.detached(priority: .userInitiated) { () throws -> Int64 in
+                var cursor = try index.cursor()
+                while true {
+                    let page = try await client.changes(since: cursor, limit: 500)
+                    try index.apply(page.changes)
+                    cursor = page.cursor
+                    if !page.hasMore { break }
+                }
+                try index.setCursor(cursor)
+                return cursor
+            }.value
+            await rebuildTree()
             statusText = t("status.updated")
             syncStatus = .idle
-            Self.log.notice("refreshed: \((try? index.children(of: nil).count) ?? -1) root entries, cursor \(cursor)")
+            Self.log.notice("refreshed: \(self.tree.count) root folders, cursor \(cursor)")
             onRemoteChange?()
         } catch {
             statusText = "\(t("status.refreshError")): \(error.localizedDescription)"
@@ -241,19 +261,38 @@ final class AppState: ObservableObject {
         (try? index?.children(of: parentID)) ?? []
     }
 
-    struct FolderItem: Identifiable {
+    struct FolderItem: Identifiable, Sendable {
         let node: Node
         var children: [FolderItem]?
         var id: String { node.id }
     }
 
-    func folderTree() -> [FolderItem] {
-        func build(_ parentID: String?) -> [FolderItem] {
-            children(of: parentID).filter(\.isDir).map { dir in
-                FolderItem(node: dir, children: build(dir.id).isEmpty ? nil : build(dir.id))
+    // The cached folder tree (see `tree`); kept for callers that used to build it here.
+    func folderTree() -> [FolderItem] { tree }
+
+    // One pass over the index, off the main thread: every folder's children, and which
+    // folders are Cryptomator vaults (they hold masterkey.cryptomator + vault.cryptomator).
+    func rebuildTree() async {
+        guard let index else { tree = []; vaultIDs = []; return }
+        let built = await Task.detached(priority: .userInitiated) { () -> ([FolderItem], Set<String>) in
+            guard let nodes = try? index.allNodes() else { return ([], []) }
+            var kids: [String?: [Node]] = [:]
+            var names: [String: Set<String>] = [:]
+            for n in nodes {
+                if n.isDir { kids[n.parentID, default: []].append(n) }
+                if let p = n.parentID, !n.isDir { names[p, default: []].insert(n.name) }
             }
-        }
-        return build(nil)
+            let vaults = Set(names.filter { $0.value.contains("masterkey.cryptomator") && $0.value.contains("vault.cryptomator") }.keys)
+            func build(_ parent: String?) -> [FolderItem] {
+                (kids[parent] ?? []).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { dir in
+                    let sub = build(dir.id)
+                    return FolderItem(node: dir, children: sub.isEmpty ? nil : sub)
+                }
+            }
+            return (build(nil), vaults)
+        }.value
+        tree = built.0
+        vaultIDs = built.1
     }
 
     func status(of node: Node) -> LocalStatus {
@@ -316,12 +355,9 @@ final class AppState: ObservableObject {
     @Published var vaultSession: VaultSession?     // != nil → show vault browser
     @Published var vaultRecoveryToShow: String?    // != nil → show new vault's recovery key
 
-    // A folder is a Cryptomator vault if it contains masterkey.cryptomator + vault.cryptomator.
-    func isVault(_ folder: Node) -> Bool {
-        guard folder.isDir, let index else { return false }
-        let names = Set(((try? index.children(of: folder.id)) ?? []).map(\.name))
-        return names.contains("masterkey.cryptomator") && names.contains("vault.cryptomator")
-    }
+    // A folder is a Cryptomator vault if it contains masterkey.cryptomator + vault.cryptomator;
+    // answered from the tree built at the last refresh, not from the database.
+    func isVault(_ folder: Node) -> Bool { folder.isDir && vaultIDs.contains(folder.id) }
 
     func openVault(_ folder: Node, password: String, remember: Bool = false) async {
         guard !vaultUnlocking else { return }
