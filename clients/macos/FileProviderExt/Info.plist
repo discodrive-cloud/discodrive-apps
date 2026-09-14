@@ -13,6 +13,13 @@
   <!-- Same groups as the app (Resources/Info.plist): the index and the token are shared. -->
   <key>DiscoDriveAppGroup</key><string>$(DEVELOPMENT_TEAM).org.discodrive</string>
   <key>DiscoDriveKeychainGroup</key><string>$(DEVELOPMENT_TEAM).org.discodrive</string>
+  <!-- The glyph Finder shows next to the domain in its sidebar: an SF Symbol, rendered as a
+       template like the system's own locations. The app icon is not used there. -->
+  <key>CFBundleIcons</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict><key>CFBundleSymbolName</key><string>opticaldisc</string></dict>
+  </dict>
   <key>NSExtension</key>
   <dict>
     <key>NSExtensionPointIdentifier</key><string>com.apple.fileprovider-nonui</string>
