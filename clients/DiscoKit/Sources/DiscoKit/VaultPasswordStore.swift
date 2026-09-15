@@ -97,3 +97,36 @@ public enum VaultPasswordStore {
         }
     }
 }
+
+/// The keys of an unlocked vault, handed from the app to the File Provider extension
+/// through the shared keychain group. They exist only while the vault is open: closing
+/// it deletes them, and so does quitting the app.
+public enum VaultKeyStore {
+    public static let service = "org.discodrive.vaultkeys"
+
+    static func query(vaultID: String) -> [String: Any] {
+        KeychainConfig.query(service: service, account: vaultID)
+    }
+
+    @discardableResult
+    public static func save(_ keys: Data, forVault vaultID: String) -> OSStatus {
+        delete(forVault: vaultID)
+        var q = query(vaultID: vaultID)
+        q[kSecValueData as String] = keys
+        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly   // Finder reads the vault while the screen is locked
+        return SecItemAdd(q as CFDictionary, nil)
+    }
+
+    public static func load(forVault vaultID: String) -> Data? {
+        var q = query(vaultID: vaultID)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
+        return out as? Data
+    }
+
+    public static func delete(forVault vaultID: String) {
+        SecItemDelete(query(vaultID: vaultID) as CFDictionary)
+    }
+}

@@ -16,6 +16,17 @@ public final class Vault: Sendable {
         case wrongPassword, badMasterkey, badVaultFile, unsupported(String)
     }
 
+    /// The unwrapped keys as 64 bytes (encryption key, then MAC key): what the app hands to
+    /// the File Provider extension through the keychain so it can serve an unlocked vault
+    /// without ever seeing the password.
+    public var rawKeys: Data { Data(encKey + macKey) }
+
+    public init(rawKeys: Data) throws {
+        guard rawKeys.count == 64 else { throw VaultError.badMasterkey }
+        self.encKey = Array(rawKeys[rawKeys.startIndex..<rawKeys.startIndex + 32])
+        self.macKey = Array(rawKeys[rawKeys.startIndex + 32..<rawKeys.startIndex + 64])
+    }
+
     private struct MasterkeyFile: Decodable {
         let scryptSalt: String
         let scryptCostParam: Int

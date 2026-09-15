@@ -47,6 +47,13 @@ extension Vault {
         return vault
     }
 
+    // Where addFile/createFolder put an entry of this name: its ciphertext path relative
+    // to the vault root, so a writer can look the entry up after the write.
+    public func entryPath(name: String, parentDirID: String) -> String {
+        let encName = encryptName(name, parentDirID: parentDirID)
+        return dirIdHash(parentDirID) + "/" + (encName.count > shorteningThreshold ? shortenedName(encName) : encName)
+    }
+
     // Add a file to a vault directory (parentDirID, "" = root).
     public func addFile(name: String, data: Data, parentDirID: String, sink: VaultFileSink) async throws {
         let storage = dirIdHash(parentDirID)
@@ -98,6 +105,44 @@ extension Vault {
             if let sub = child.dirID { try await deleteSubtreeStorage(dirID: sub, source: source, sink: sink) }
         }
         try? await sink.remove(dirIdHash(dirID))   // storage for this directory and all its files
+    }
+
+    // Move an entry into another directory, optionally under a new name. Cryptomator names
+    // are encrypted with the parent's directory id, so a file is re-encrypted under the new
+    // parent and a directory gets a fresh wrapper there; the subtree's storage never moves.
+    public func moveEntry(_ entry: VaultEntry, from parentDirID: String, to newParentDirID: String,
+                          as newName: String? = nil, source: VaultFileSource, sink: VaultFileSink) async throws {
+        let name = newName ?? entry.name
+        guard !name.isEmpty else { return }
+        if newParentDirID == parentDirID {
+            try await renameEntry(entry, to: name, parentDirID: parentDirID, source: source, sink: sink)
+            return
+        }
+        if entry.isDir, let subDirID = entry.dirID {
+            try await writeDirWrapper(name: name, subDirID: subDirID, parentDirID: newParentDirID, sink: sink)
+        } else if let cp = entry.contentPath {
+            let data = try await decryptFile(at: cp, source: source)
+            try await addFile(name: name, data: data, parentDirID: newParentDirID, sink: sink)
+        } else {
+            return
+        }
+        try await sink.remove(entry.encPath)
+    }
+
+    // The .c9r (or .c9s) wrapper that points a name in `parentDirID` at an existing subdirectory.
+    private func writeDirWrapper(name: String, subDirID: String, parentDirID: String, sink: VaultFileSink) async throws {
+        let storage = dirIdHash(parentDirID)
+        let enc = encryptName(name, parentDirID: parentDirID)
+        let base: String
+        if enc.count > shorteningThreshold {
+            base = storage + "/" + shortenedName(enc)
+            try await sink.makeDir(base)
+            try await sink.writeFile(base + "/name.c9s", Data(enc.utf8))
+        } else {
+            base = storage + "/" + enc
+            try await sink.makeDir(base)
+        }
+        try await sink.writeFile(base + "/dir.c9r", Data(subDirID.utf8))
     }
 
     // Rename an entry within the same directory.

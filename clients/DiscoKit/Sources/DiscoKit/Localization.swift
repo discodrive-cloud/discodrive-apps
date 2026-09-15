@@ -123,6 +123,32 @@ public enum L10n {
             "fr": "Erreur de mise à jour", "es": "Error de actualización", "sr": "Грешка при ажурирању",
             "de": "Aktualisierungsfehler",
         ],
+        "status.sessionExpired": [
+            "en": "The session has expired, pair this device again", "ru": "Сессия истекла, спарьте устройство заново",
+            "uk": "Сесія закінчилася, з’єднайте пристрій знову", "fr": "La session a expiré, associez à nouveau cet appareil",
+            "es": "La sesión ha caducado, empareja este dispositivo de nuevo", "sr": "Сесија је истекла, поново упарите уређај",
+            "de": "Die Sitzung ist abgelaufen, koppeln Sie dieses Gerät erneut",
+        ],
+        "status.serverError": [
+            "en": "The server reported an error, try again later", "ru": "Сервер сообщил об ошибке, попробуйте позже",
+            "uk": "Сервер повідомив про помилку, спробуйте пізніше", "fr": "Le serveur a signalé une erreur, réessayez plus tard",
+            "es": "El servidor informó de un error, inténtalo más tarde", "sr": "Сервер је пријавио грешку, покушајте касније",
+            "de": "Der Server hat einen Fehler gemeldet, versuchen Sie es später erneut",
+        ],
+        "status.offline": [
+            "en": "Server unreachable", "ru": "Сервер недоступен", "uk": "Сервер недоступний",
+            "fr": "Serveur inaccessible", "es": "Servidor inaccesible", "sr": "Сервер није доступан",
+            "de": "Server nicht erreichbar",
+        ],
+        "status.rejected": [
+            "en": "The server rejected the request", "ru": "Сервер отклонил запрос", "uk": "Сервер відхилив запит",
+            "fr": "Le serveur a rejeté la requête", "es": "El servidor rechazó la solicitud", "sr": "Сервер је одбио захтев",
+            "de": "Der Server hat die Anfrage abgelehnt",
+        ],
+        "status.opError": [
+            "en": "The operation failed", "de": "Der Vorgang ist fehlgeschlagen", "uk": "Операція не вдалася",
+            "fr": "L’opération a échoué", "es": "La operación falló", "ru": "Операция не удалась", "sr": "Операција није успела",
+        ],
         "status.downloadError": [
             "en": "Download error", "ru": "Ошибка скачивания", "uk": "Помилка завантаження",
             "fr": "Erreur de téléchargement", "es": "Error de descarga", "sr": "Грешка при преузимању",

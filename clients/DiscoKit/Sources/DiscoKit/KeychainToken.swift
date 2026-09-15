@@ -34,29 +34,41 @@ public enum KeychainToken {
         SecItemDelete(base as CFDictionary)
         var add = base
         add[kSecValueData as String] = Data(value.utf8)
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        add[kSecAttrAccessible as String] = Self.accessibility
         SecItemAdd(add as CFDictionary, nil)
     }
 
+    // The app sits in the menu bar and the File Provider extension serves Finder while
+    // the screen is locked, so the pairing must be readable then: after first unlock,
+    // not only while unlocked.
+    static var accessibility: String { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String }
+
     public static func load(service: String) -> String? {
-        if let v = read(KeychainConfig.query(service: service)) { return v }
+        if let (v, accessible) = read(KeychainConfig.query(service: service)) {
+            // An item saved by an earlier build under the stricter class is re-saved once.
+            if accessible != Self.accessibility { save(v, service: service) }
+            return v
+        }
         // An item saved before the app used an access group sits in the old per-app store.
         // Carry it over once, so a pairing made by the previous build survives the upgrade.
         guard KeychainConfig.accessGroup != nil,
-              let legacy = read(KeychainConfig.query(service: service, group: nil)) else { return nil }
+              let (legacy, _) = read(KeychainConfig.query(service: service, group: nil)) else { return nil }
         save(legacy, service: service)
         SecItemDelete(KeychainConfig.query(service: service, group: nil) as CFDictionary)
         return legacy
     }
 
-    private static func read(_ base: [String: Any]) -> String? {
+    // The value and the accessibility class it was saved with.
+    private static func read(_ base: [String: Any]) -> (String, String)? {
         var query = base
         query[kSecReturnData as String] = true
+        query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+              let item = out as? [String: Any], let data = item[kSecValueData as String] as? Data,
+              let value = String(data: data, encoding: .utf8) else { return nil }
+        return (value, item[kSecAttrAccessible as String] as? String ?? "")
     }
 
     public static func delete(service: String) {

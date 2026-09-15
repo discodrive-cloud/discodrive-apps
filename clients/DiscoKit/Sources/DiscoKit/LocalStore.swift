@@ -100,8 +100,26 @@ public final class LocalStore {
     }
 
     public func remove(nodeID: String) throws {
-        if let url = localURL(nodeID: nodeID) { try? FileManager.default.removeItem(at: url) }
+        if let url = localURL(nodeID: nodeID) {
+            try? FileManager.default.removeItem(at: url)
+            pruneEmptyParents(of: url)
+        }
         try dbQueue.write { db in try db.execute(sql: "DELETE FROM local WHERE node_id=?", arguments: [nodeID]) }
+    }
+
+    // The folders a download was placed in are only there because of it: once the last
+    // file in one is gone the folder goes too, and so on up to the content root. Finder's
+    // own housekeeping files do not keep a folder alive.
+    private func pruneEmptyParents(of url: URL) {
+        let fm = FileManager.default
+        let root = contentDir.standardizedFileURL.resolvingSymlinksInPath().path
+        var dir = url.deletingLastPathComponent()
+        while dir.standardizedFileURL.resolvingSymlinksInPath().path != root, dir.path.count > root.count,
+              let entries = try? fm.contentsOfDirectory(atPath: dir.path) {
+            guard entries.allSatisfy(LocalOnlyNames.isLocalOnly) else { return }
+            guard (try? fm.removeItem(at: dir)) != nil else { return }
+            dir = dir.deletingLastPathComponent()
+        }
     }
 
     public func evictCached() throws {

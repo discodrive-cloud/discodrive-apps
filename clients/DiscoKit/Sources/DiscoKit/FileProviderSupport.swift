@@ -47,3 +47,32 @@ public enum LocalOnlyNames {
         name == ".DS_Store" || name == "Icon\r" || name.hasPrefix("._") || name == ".localized"
     }
 }
+
+/// How an unlocked vault's entries are named as File Provider items. Cryptomator keeps no
+/// back-links, so a file's identifier carries the directory id it lives in (needed to
+/// decrypt its name) next to the id of its ciphertext node; a directory is its own
+/// Cryptomator directory id, and the vault root is the root container.
+public enum VaultItemID: Equatable, Sendable {
+    case root
+    case dir(dirID: String)
+    case file(parentDirID: String, nodeID: String)
+
+    public static func encode(_ id: VaultItemID) -> String {
+        switch id {
+        case .root: return ProviderItemInfo.rootIdentifier
+        case .dir(let d): return "dir:" + d
+        case .file(let p, let n): return "file:" + p + ":" + n
+        }
+    }
+
+    public static func decode(_ raw: String) -> VaultItemID? {
+        if raw == ProviderItemInfo.rootIdentifier { return .root }
+        if raw.hasPrefix("dir:") { return .dir(dirID: String(raw.dropFirst(4))) }
+        if raw.hasPrefix("file:") {
+            let rest = raw.dropFirst(5)
+            guard let colon = rest.firstIndex(of: ":") else { return nil }
+            return .file(parentDirID: String(rest[rest.startIndex..<colon]), nodeID: String(rest[rest.index(after: colon)...]))
+        }
+        return nil
+    }
+}

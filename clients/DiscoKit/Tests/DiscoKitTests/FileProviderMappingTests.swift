@@ -60,6 +60,24 @@ final class FileProviderMappingTests: XCTestCase {
         XCTAssertEqual(try store.cursor(), 12)
     }
 
+    func testASecondWriterWaitsForTheFirstInsteadOfFailing() throws {
+        // The app and the extension each open the same file; one holds a write while the
+        // other applies its page. The second must wait, not report "database is locked".
+        let path = NSTemporaryDirectory() + "index-\(UUID().uuidString).sqlite"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let a = try IndexStore(path: path), b = try IndexStore(path: path)
+        let held = DispatchSemaphore(value: 0)
+        let done = expectation(description: "a released")
+        DispatchQueue.global().async {
+            try? a.holdingWrite { held.signal(); Thread.sleep(forTimeInterval: 0.5) }
+            done.fulfill()
+        }
+        held.wait()
+        XCTAssertNoThrow(try b.setCursor(5))
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(try b.cursor(), 5)
+    }
+
     func testAllNodesListsEveryRow() throws {
         let store = try IndexStore(dbQueue: DatabaseQueue())
         try store.apply([

@@ -29,6 +29,27 @@ final class LocalStoreTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "a.txt")
     }
 
+    func testRemovingTheLastFileRemovesTheFoldersItWasIn() throws {
+        // folder1/folder2/folder3/file1 downloaded alone: removing it leaves no empty
+        // folders behind, a .DS_Store Finder dropped on the way does not count as content.
+        let (store, dir) = try makeStore()
+        try store.store(nodeID: "f1", version: 1, from: tmpFile("x"), pinned: false, relPath: "folder1/folder2/folder3/file1")
+        try Data().write(to: dir.appendingPathComponent("folder1/folder2/.DS_Store"))
+        try store.remove(nodeID: "f1")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("folder1").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.path), "the content root itself stays")
+    }
+
+    func testRemovingOneFileKeepsAFolderThatStillHoldsAnother() throws {
+        let (store, dir) = try makeStore()
+        try store.store(nodeID: "a", version: 1, from: tmpFile("x"), pinned: false, relPath: "folder1/folder2/a")
+        try store.store(nodeID: "b", version: 1, from: tmpFile("y"), pinned: false, relPath: "folder1/b")
+        try store.remove(nodeID: "a")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("folder1/folder2").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("folder1/b").path))
+        XCTAssertEqual(try store.status(nodeID: "b", serverVersion: 1), .cached)
+    }
+
     func testPinAndEvictKeepsPinned() throws {
         let (store, _) = try makeStore()
         try store.store(nodeID: "c", version: 1, from: try tmpFile("c"), pinned: false, relPath: "c.txt")
