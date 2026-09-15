@@ -27,6 +27,24 @@ struct BrowserView: View {
     @State private var createVaultPresented = false
     @State private var logoutConfirmPresented = false
 
+    static let sidebarLogo: NSImage = {
+        let img = NSImage(named: "DDLogo") ?? NSImage()
+        img.isTemplate = true
+        return img
+    }()
+
+    // The selected folder and its ancestors, top down; empty at the root.
+    private func folderChain() -> [Node] {
+        guard let sel = selectedFolder, sel != kRootTag else { return [] }
+        var chain: [Node] = []
+        var id: String? = sel
+        while let cur = id, let node = app.node(id: cur), chain.count < 64 {
+            chain.insert(node, at: 0)
+            id = node.parentID
+        }
+        return chain
+    }
+
     // Path of the currently selected folder (root → "").
     private var currentFolderPath: String {
         guard let sel = selectedFolder, sel != kRootTag else { return "" }
@@ -58,7 +76,9 @@ struct BrowserView: View {
                 OutlineGroup(sidebarModel(), children: \.children) { item in
                     // The root wears the logo (a custom symbol from Assets); folders a system one.
                     Label { Text(item.name) } icon: {
-                        item.id == kRootTag ? Image("DDLogo").renderingMode(.template) : Image(systemName: item.icon)
+                        // The sidebar tints template NSImages like its own symbols; a custom
+                        // symbol image loses its colour there once the row is not selected.
+                        item.id == kRootTag ? Image(nsImage: Self.sidebarLogo) : Image(systemName: item.icon)
                     }.tag(Optional(item.id))
                 }
             }
@@ -66,8 +86,42 @@ struct BrowserView: View {
         } detail: {
             let files = app.children(of: selectedFolder == kRootTag ? nil : selectedFolder)
             VStack(alignment: .leading, spacing: 0) {
-                Text("\(app.t("browse.count")): \(files.count)")
-                    .font(.caption).foregroundStyle(.secondary).padding(6)
+                // Failures surface here — a refresh that could not reach the server, an upload
+                // that was refused — instead of vanishing into a status line nobody shows.
+                if let error = app.lastError {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(error).font(.callout).lineLimit(2).textSelection(.enabled)
+                        Spacer()
+                        Button { app.lastError = nil } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless).help(app.t("dialog.cancel"))
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.12))
+                    Divider()
+                }
+                // Where we are, as a path one can climb back up one step at a time; the
+                // sidebar alone only offers the root once the tree is folded away.
+                HStack(spacing: 2) {
+                    let chain = folderChain()
+                    Button { selectedFolder = kRootTag; selectedFile = nil } label: {
+                        Image("DDLogo").renderingMode(.template)
+                    }
+                    .buttonStyle(.borderless).disabled(chain.isEmpty)
+                    ForEach(chain) { folder in
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        Button { selectedFolder = folder.id; selectedFile = nil } label: {
+                            Text(folder.name).lineLimit(1)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(folder.id == chain.last?.id)
+                        .fontWeight(folder.id == chain.last?.id ? .semibold : .regular)
+                    }
+                    Spacer()
+                    Text("\(app.t("browse.count")): \(files.count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .font(.callout).padding(.horizontal, 8).padding(.vertical, 5)
                 Divider()
                 if files.isEmpty {
                     Spacer()

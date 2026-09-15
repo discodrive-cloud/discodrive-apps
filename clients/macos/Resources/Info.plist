@@ -13,6 +13,14 @@
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+  <!-- discodrive://vault/open?id=… and …/close?id=… — what the Finder context menu sends. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>org.discodrive.app</string>
+      <key>CFBundleURLSchemes</key><array><string>discodrive</string></array>
+    </dict>
+  </array>
   <key>NSHumanReadableCopyright</key><string>© 2026 kosmosoid</string>
   <!-- Read at launch (DiscoDriveApp.init): the App Group and keychain access group shared
        with the File Provider extension. Must match DiscoDrive.entitlements. -->

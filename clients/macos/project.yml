@@ -41,7 +41,7 @@ targets:
   FileProviderExt:
     type: app-extension
     platform: macOS
-    sources: [FileProviderExt]
+    sources: [FileProviderExt, ../shared/ServerVaultIO.swift]
     dependencies:
       - package: DiscoKit
     settings:

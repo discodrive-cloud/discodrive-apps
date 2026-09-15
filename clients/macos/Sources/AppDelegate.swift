@@ -10,6 +10,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var statusItem: NSStatusItem!
     private weak var window: NSWindow?
 
+    // discodrive:// URLs land here, not in a SwiftUI onOpenURL: the delegate receives them
+    // even when the window is hidden in the tray, and no extra window gets opened for them.
+    // Whatever arrives before the app set its handler is replayed once it does.
+    var urlHandler: ((URL) -> Void)? {
+        didSet { pendingURLs.forEach { urlHandler?($0) }; pendingURLs = [] }
+    }
+    private var pendingURLs: [URL] = []
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let urlHandler { urls.forEach(urlHandler) } else { pendingURLs += urls }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         // The SwiftUI window is created slightly later — attach to it asynchronously.
@@ -18,6 +30,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     // Don't terminate when the window is closed — keep running in the tray.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // Open vaults do not outlive the app: their keys leave the keychain and their Finder
+    // locations disappear.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task { await VaultDomains.closeAll(); NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
 
     // Dock icon click (when policy is .regular) — show the window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -31,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let w = NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first else { return }
         window = w
         w.delegate = self
+        // One browser window: macOS restores the windows of the last run, and every
+        // restored copy beyond the first is closed here.
+        for extra in NSApp.windows where extra !== w && extra.className == w.className { extra.close() }
     }
 
     // Close button / ⌘W → hide to tray instead of closing.
@@ -44,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.setActivationPolicy(.accessory)   // remove from Dock
     }
 
-    private func showWindow() {
+    func showWindow() {
         if window == nil { attachWindow() }
         NSApp.setActivationPolicy(.regular)     // restore Dock icon
         NSApp.activate(ignoringOtherApps: true)

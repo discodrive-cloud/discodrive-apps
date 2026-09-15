@@ -16,6 +16,9 @@ final class AppState: ObservableObject {
     enum SyncStatus: Sendable { case idle, syncing, offline }
     @Published var syncStatus: SyncStatus = .offline
     @Published var statusText: String = ""
+    // The last failure the user should see; the browser shows it as a banner until
+    // dismissed. Set wherever an operation fails, cleared by the user.
+    @Published var lastError: String?
     @Published var revision: Int = 0   // bump → redraw statuses/previews (instead of manual objectWillChange)
     @Published var language: String = "en" {   // UI language (source of truth is the server)
         didSet { UserDefaults.standard.set(language, forKey: "ui_language") }
@@ -67,6 +70,12 @@ final class AppState: ObservableObject {
     init() { bootstrap() }
 
     func bootstrap() {
+        #if DEBUG
+        // DISCODRIVE_TEST_REPAIR=1 drops the current pairing first, so a test run can move
+        // the app to the test account without driving the log-out button.
+        if paired, ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1",
+           ProcessInfo.processInfo.environment["DISCODRIVE_TEST_TOKEN"] != nil { logout() }
+        #endif
         guard !paired else { return }
         #if DEBUG
         // Lets an automated run pair the app without driving the pairing screen by hand:
@@ -162,6 +171,25 @@ final class AppState: ObservableObject {
         statusText = ""
         paired = false
         syncStatus = .offline
+        forgetLocalState()
+    }
+
+    // After a pairing ends the server is the only truth: the index and the download
+    // bookkeeping go, and the downloaded files are set aside under a dated name rather
+    // than kept where the next pairing would mistake them for its own.
+    private func forgetLocalState() {
+        let fm = FileManager.default
+        for suffix in ["", "-wal", "-shm"] {
+            try? fm.removeItem(at: indexDir.appendingPathComponent("index.sqlite" + suffix))
+        }
+        let local = appSupportDir.appendingPathComponent("local", isDirectory: true)
+        try? fm.removeItem(at: local.appendingPathComponent("local.sqlite"))
+        let content = local.appendingPathComponent("content", isDirectory: true)
+        if fm.fileExists(atPath: content.path) {
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            try? fm.moveItem(at: content, to: local.appendingPathComponent("content.old-" + stamp, isDirectory: true))
+        }
+        Self.log.notice("local state forgotten after logout")
     }
 
     // iOS: URL to present in QuickLook (macOS opens files via NSWorkspace).
@@ -249,9 +277,44 @@ final class AppState: ObservableObject {
             Self.log.notice("refreshed: \(self.tree.count) root folders, cursor \(cursor)")
             onRemoteChange?()
         } catch {
-            statusText = "\(t("status.refreshError")): \(error.localizedDescription)"
-            syncStatus = .offline
+            // The full error goes to the log; the window gets a plain reason only when
+            // there is one worth reading. A hiccup in the shared index or a dropped
+            // connection is retried on the next refresh without a word.
             Self.log.error("refresh failed: \(String(describing: error), privacy: .public)")
+            switch Self.kind(of: error) {
+            case .sessionExpired:
+                statusText = t("status.sessionExpired"); lastError = statusText; syncStatus = .offline
+            case .offline, .serverError:
+                statusText = t("status.offline"); syncStatus = .offline
+            case .rejected, .unexplained:
+                syncStatus = .idle
+            }
+        }
+    }
+
+    enum FailureKind { case sessionExpired, offline, serverError, rejected, unexplained }
+
+    // What a failure means to the person at the window, if anything.
+    static func kind(of error: Error) -> FailureKind {
+        switch error {
+        case APIError.notAuthenticated, APIError.http(401), APIError.http(403): return .sessionExpired
+        case APIError.http(let code) where code >= 500: return .serverError
+        case APIError.http: return .rejected
+        case is URLError: return .offline
+        default: return .unexplained
+        }
+    }
+
+    // A plain-language reason for the banner, or nil when only the log can explain it.
+    func userMessage(for error: Error) -> String? {
+        switch Self.kind(of: error) {
+        case .sessionExpired: return t("status.sessionExpired")
+        case .offline: return t("status.offline")
+        case .serverError: return t("status.serverError")
+        case .rejected:
+            if case APIError.http(let code) = error { return "\(t("status.rejected")) (\(code))" }
+            return t("status.rejected")
+        case .unexplained: return nil
         }
     }
 
@@ -318,27 +381,37 @@ final class AppState: ObservableObject {
             do {
                 try await client.upload(fileURL: url, relPath: rel,
                                         modifiedAt: APIClient.contentModificationDate(of: url))
-            } catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
+            } catch { fail("status.uploadError", error) }
         }
         await refresh()
     }
 
+    // Reports a failed operation the user asked for: the banner names what failed and,
+    // when it can be said plainly, why; the log keeps the actual error.
+    private func fail(_ key: String, _ error: Error) {
+        Self.log.error("\(key, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        statusText = userMessage(for: error).map { "\(t(key)): \($0)" } ?? t(key)
+        lastError = statusText
+    }
+
     func createFolder(name: String, inFolderPath folderPath: String) async {
         guard let client, !name.isEmpty else { return }
-        try? await client.createDir(relPath: folderPath + "/" + name)
+        do { try await client.createDir(relPath: folderPath + "/" + name) } catch { fail("status.opError", error) }
         await refresh()
     }
 
     func deleteNode(_ node: Node) async {
         guard let client else { return }
-        try? await client.delete(nodeID: node.id)
-        try? local?.remove(nodeID: node.id)
+        do {
+            try await client.delete(nodeID: node.id)
+            try? local?.remove(nodeID: node.id)
+        } catch { fail("status.opError", error) }
         await refresh()
     }
 
     func renameNode(_ node: Node, to newName: String) async {
         guard let client, !newName.isEmpty, newName != node.name else { return }
-        try? await client.rename(nodeID: node.id, newName: newName)
+        do { try await client.rename(nodeID: node.id, newName: newName) } catch { fail("status.opError", error) }
         await refresh()
     }
 
@@ -354,6 +427,9 @@ final class AppState: ObservableObject {
     @Published var vaultUnlocking = false
     @Published var vaultSession: VaultSession?     // != nil → show vault browser
     @Published var vaultRecoveryToShow: String?    // != nil → show new vault's recovery key
+    // When set (macOS), an unlocked vault is handed here — it becomes a Finder location —
+    // instead of opening the in-app browser. Returns whether that worked.
+    var presentUnlockedVault: ((Vault, Node) async -> Bool)?
 
     // A folder is a Cryptomator vault if it contains masterkey.cryptomator + vault.cryptomator;
     // answered from the tree built at the last refresh, not from the database.
@@ -362,8 +438,8 @@ final class AppState: ObservableObject {
     func openVault(_ folder: Node, password: String, remember: Bool = false) async {
         guard !vaultUnlocking else { return }
         vaultUnlocking = true; defer { vaultUnlocking = false }
-        await unlock(folder) { io in try await Vault.open(source: io, password: password) }
-        if remember, vaultSession != nil {
+        let opened = await unlock(folder) { io in try await Vault.open(source: io, password: password) }
+        if remember, opened {
             VaultPasswordStore.save(password: password, forVault: folder.path)
         }
     }
@@ -371,7 +447,7 @@ final class AppState: ObservableObject {
     func openVaultWithRecovery(_ folder: Node, phrase: String) async {
         guard !vaultUnlocking else { return }
         vaultUnlocking = true; defer { vaultUnlocking = false }
-        await unlock(folder) { io in try await Vault.open(source: io, recoveryPhrase: phrase) }
+        _ = await unlock(folder) { io in try await Vault.open(source: io, recoveryPhrase: phrase) }
     }
 
     // Biometrics.
@@ -386,7 +462,7 @@ final class AppState: ObservableObject {
         vaultUnlockError = nil
         do {
             let pw = try await VaultPasswordStore.loadPassword(forVault: folder.path, reason: t("vault.unlockReason"))
-            await unlock(folder) { io in try await Vault.open(source: io, password: pw) }
+            _ = await unlock(folder) { io in try await Vault.open(source: io, password: pw) }
         } catch VaultPasswordStore.VaultPWError.cancelled {
             // user cancelled — silently do nothing
         } catch {
@@ -395,17 +471,27 @@ final class AppState: ObservableObject {
     }
 
     // Shared core: open a vault with the provided opener. Callers must set vaultUnlocking.
-    private func unlock(_ folder: Node, _ opener: (ServerVaultIO) async throws -> Vault) async {
-        guard let index, let client else { return }
+    // True once the vault is open, either as a session here or wherever the platform
+    // presents it.
+    @discardableResult
+    private func unlock(_ folder: Node, _ opener: (ServerVaultIO) async throws -> Vault) async -> Bool {
+        guard let index, let client else { return false }
         vaultUnlockError = nil
         let io = ServerVaultIO(vaultRoot: folder.path, index: index, client: client)
         do {
             let vault = try await opener(io)
+            if let present = presentUnlockedVault {
+                if await present(vault, folder) { vaultUnlockFolder = nil; return true }
+                vaultUnlockError = t("status.opError")
+                return false
+            }
             vaultSession = VaultSession(vault: vault, io: io, name: folder.name)
             vaultUnlockFolder = nil
+            return true
         } catch {
             vaultUnlockError = (error as? Vault.VaultError) == .wrongPassword
                 ? t("vault.wrongPassword") : error.localizedDescription
+            return false
         }
     }
 
@@ -420,7 +506,7 @@ final class AppState: ObservableObject {
             let vault = try await Vault.create(sink: io, password: password)
             vaultRecoveryToShow = vault.recoveryKey()
             await refresh()
-        } catch { statusText = "\(t("vault.createError")): \(error.localizedDescription)" }
+        } catch { fail("vault.createError", error) }
     }
 
     // MARK: - Task 13: download / open / pin
@@ -444,7 +530,7 @@ final class AppState: ObservableObject {
             revision += 1
             return local.localURL(nodeID: node.id)
         } catch {
-            statusText = "\(t("status.downloadError")): \(error.localizedDescription)"
+            fail("status.downloadError", error)
             return nil
         }
     }
@@ -497,7 +583,7 @@ final class AppState: ObservableObject {
             do {
                 try await client.uploadFile(relPath: f.rel, fileURL: f.url,
                                             modifiedAt: APIClient.contentModificationDate(of: f.url))
-            } catch { statusText = "\(t("status.uploadError")): \(error.localizedDescription)" }
+            } catch { fail("status.uploadError", error) }
         }
         await refresh()
         // Register uploaded files as local copies (show them as cached, skip re-downloading).
