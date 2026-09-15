@@ -7,11 +7,16 @@ import DiscoKit
 final class ProviderItem: NSObject, NSFileProviderItem {
     let info: ProviderItemInfo
     let writable: Bool
+    let vaultRoot: Bool
 
-    init(node: Node, writable: Bool = true) {
+    init(node: Node, writable: Bool = true, vaultRoot: Bool = false) {
         info = ProviderItemInfo(node: node)
         self.writable = writable
+        self.vaultRoot = vaultRoot
     }
+
+    // Read by the action rules in Info.plist: "Open vault" shows on a vault's folder.
+    var userInfo: [AnyHashable: Any]? { vaultRoot ? ["vault": 1] : nil }
 
     var itemIdentifier: NSFileProviderItemIdentifier { .init(info.identifier) }
     var parentItemIdentifier: NSFileProviderItemIdentifier {
@@ -34,8 +39,10 @@ final class ProviderItem: NSObject, NSFileProviderItem {
     // Files are placeholders until opened; the system downloads on demand and may evict.
     var contentPolicy: NSFileProviderContentPolicy { info.isDirectory ? .inherited : .downloadLazily }
     var documentSize: NSNumber? { info.isDirectory ? nil : NSNumber(value: info.size) }
+    // Whether a folder is a vault root is metadata too: Finder re-reads the item, and so
+    // the context-menu actions, when the flag flips.
     var itemVersion: NSFileProviderItemVersion {
-        .init(contentVersion: info.contentVersion, metadataVersion: info.metadataVersion)
+        .init(contentVersion: info.contentVersion, metadataVersion: info.metadataVersion + Data((vaultRoot ? ":vault" : "").utf8))
     }
 }
 

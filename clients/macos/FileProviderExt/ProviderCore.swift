@@ -1,3 +1,4 @@
+import os
 import Foundation
 import FileProvider
 import DiscoKit
@@ -22,7 +23,8 @@ enum ProviderConfig {
 // The extension's view of the server: the shared index plus an API client built from the
 // stored pairing. Nil when the app has not paired yet — every request then fails with
 // notAuthenticated, which Finder shows as "sign in required".
-final class ProviderCore: @unchecked Sendable {   // IndexStore and APIClient are thread-safe
+final class ProviderCore: @unchecked Sendable {
+    static let log = Logger(subsystem: "org.discodrive.ext", category: "provider")   // IndexStore and APIClient are thread-safe
     let index: IndexStore
     let client: APIClient
 
@@ -65,7 +67,9 @@ final class ProviderCore: @unchecked Sendable {   // IndexStore and APIClient ar
 
     /// The item for a node, read-only when it belongs to a vault.
     func item(for node: Node) -> ProviderItem {
-        ProviderItem(node: node, writable: !((try? index.isInsideVault(path: node.path)) ?? false))
+        let inVault = (try? index.isInsideVault(path: node.path)) ?? false
+        let isRoot = node.isDir && (try? index.node(atPath: node.path + "/vault.cryptomator")) != nil
+        return ProviderItem(node: node, writable: !inVault, vaultRoot: isRoot)
     }
 
     /// The server path of the folder an item identifier names ("" for the root).

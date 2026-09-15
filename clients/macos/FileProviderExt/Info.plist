@@ -29,6 +29,23 @@
          the domain is added; without EnabledByDefault the domain starts user-disabled and
          nothing syncs until it is switched on in System Settings. -->
     <key>NSExtensionFileProviderSupportsEnumeration</key><true/>
+    <!-- Context menu entries. The extension cannot show a window, so both hand the app a
+         URL: it asks for the password, or drops the vault's domain. -->
+    <key>NSExtensionFileProviderActions</key>
+    <array>
+      <dict>
+        <key>NSExtensionFileProviderActionIdentifier</key><string>org.discodrive.openVault</string>
+        <key>NSExtensionFileProviderActionName</key><string>Open vault</string>
+        <key>NSExtensionFileProviderActionActivationRule</key>
+        <string>fileproviderItems.@count == 1 AND SUBQUERY(fileproviderItems, $fileproviderItem, $fileproviderItem.userInfo.vault == 1).@count == 1</string>
+      </dict>
+      <dict>
+        <key>NSExtensionFileProviderActionIdentifier</key><string>org.discodrive.closeVault</string>
+        <key>NSExtensionFileProviderActionName</key><string>Close vault</string>
+        <key>NSExtensionFileProviderActionActivationRule</key>
+        <string>fileproviderItems.@count > 0 AND SUBQUERY(fileproviderItems, $fileproviderItem, $fileproviderItem.userInfo.vaultOpen == 1).@count == fileproviderItems.@count</string>
+      </dict>
+    </array>
     <key>NSExtensionFileProviderEnabledByDefault</key><true/>
   </dict>
 </dict>
