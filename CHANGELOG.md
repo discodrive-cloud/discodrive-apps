@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Added
+
+- macOS app: a Cryptomator vault opens as its own place in Finder. "Open vault" in the
+  context menu of a vault folder asks for the password once, and the vault appears in the
+  sidebar as "🔒 <name>" with its files in the clear; creating, editing, renaming, moving
+  and deleting inside it are encrypted on the way to the server. "Close vault" on any of
+  its files takes it away again, and quitting the app closes every open vault. The keys
+  live in the keychain only while a vault is open.
+
+- macOS app: a breadcrumb bar above the file list, so a deep folder is one click from any
+  of its parents instead of only from the root.
+
+### Changed
+
+- macOS and iOS apps: the window explains failures in plain words — an expired session, an
+  unreachable server, a request the server refused — and keeps internal errors out of
+  sight; every error goes to the system log under `org.discodrive.app` in full.
+
+- macOS app: "Remove local copy" also removes the folders the download was placed in
+  once they hold nothing but Finder's own housekeeping files.
+
+- macOS app: logging out forgets the index and the download bookkeeping and sets the
+  downloaded files aside under a dated name, so the next pairing starts from the server
+  alone. The pairing is readable while the screen is locked, so the app no longer shows
+  the pairing screen after a login with the screen still locked.
+
+### Fixed
+
+- macOS app: "database is locked" between the app and the Finder extension, which share
+  the index. Writes now take their lock up front and resolve folder parents for the rows
+  they touched rather than for the whole tree.
+
+- macOS Finder extension: a request to "create" a file the server already has (the
+  system sends those after a reimport) answers with the server's item instead of
+  uploading an empty file over it.
+
 ## 0.0.6
 
 ### Added
