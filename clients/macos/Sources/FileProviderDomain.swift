@@ -6,7 +6,9 @@ import os
 // The Finder side of the app: one domain, "DiscoDrive", registered while paired.
 enum FileProviderDomain {
     // Built fresh each time: NSFileProviderDomain is a plain value the system copies.
-    static var domain: NSFileProviderDomain { NSFileProviderDomain(identifier: .init("DiscoDrive"), displayName: "DiscoDrive") }
+    // The storage itself carries no name of its own: with more than one location Finder
+    // labels each "<app> - <domain name>", and "DiscoDrive - DiscoDrive" said nothing.
+    static var domain: NSFileProviderDomain { NSFileProviderDomain(identifier: .init("DiscoDrive"), displayName: "") }
 
     // No reimport, ever: on 2026-09-15 a reimportItems(below: .rootContainer) made the
     // system "create" every file it had on disk while the extension's listing was still
@@ -39,9 +41,9 @@ enum FileProviderDomain {
 // both. Vaults are closed when the app quits, so the keys never outlive it.
 enum VaultDomains {
     // Finder labels every location "<extension name> - <domain name>" with one icon for
-    // all of them, so the lock in the name is what tells a vault from the storage.
+    // all of them, so the open lock in the name is what tells an unlocked vault from the storage.
     static func domain(vaultID: String, name: String) -> NSFileProviderDomain {
-        NSFileProviderDomain(identifier: .init(VaultCoreDomainPrefix + vaultID), displayName: "🔒 " + name)
+        NSFileProviderDomain(identifier: .init(VaultCoreDomainPrefix + vaultID), displayName: "🔓 " + name)
     }
 
     @MainActor

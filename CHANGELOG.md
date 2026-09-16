@@ -8,7 +8,7 @@ All notable changes to this project are documented in this file.
 
 - macOS app: a Cryptomator vault opens as its own place in Finder. "Open vault" in the
   context menu of a vault folder asks for the password once, and the vault appears in the
-  sidebar as "🔒 <name>" with its files in the clear; creating, editing, renaming, moving
+  sidebar as "🔓 <name>" with its files in the clear; creating, editing, renaming, moving
   and deleting inside it are encrypted on the way to the server. "Close vault" on any of
   its files takes it away again, and quitting the app closes every open vault. The keys
   live in the keychain only while a vault is open.
