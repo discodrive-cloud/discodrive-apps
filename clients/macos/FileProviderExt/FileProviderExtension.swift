@@ -93,11 +93,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 guard let node = try core.index.node(id: itemIdentifier.rawValue) else {
                     throw NSFileProviderError(.noSuchItem)
                 }
-                let url = try await core.download(nodeID: node.id)
-                // The bytes belong to whatever the index says now; if the server moved on
-                // meanwhile the item's version tells the system to fetch again.
-                let current = try core.index.node(id: node.id) ?? node
-                completionHandler(url, core.item(for: current), nil)
+                // The item names the version the bytes really are — it comes back as the
+                // base of the next edit — not whatever the index holds by now.
+                let (url, item) = try await core.fetch(node)
+                completionHandler(url, item, nil)
             } catch is CancellationError {
                 completionHandler(nil, nil, NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
             } catch {
@@ -133,6 +132,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 if LocalOnlyNames.isLocalOnly(template.filename) { throw NSFileProviderError(.excludedFromSync) }
                 if let vc = vaultCore {
                     let parent = try vc.dirID(of: template.parentItemIdentifier)
+                    // As below for the storage itself: a name the vault already holds is
+                    // answered with that entry, never written over.
+                    if let existing = try await vc.existingItem(name: template.filename, in: parent) {
+                        ProviderCore.log.error("createItem for an existing vault entry: returning it (contents \(url == nil ? "none" : "offered", privacy: .public), fields \(fields.rawValue))")
+                        completionHandler(existing, [], false, nil)
+                        return
+                    }
                     let item = template.contentType == .folder
                         ? try await vc.createFolder(name: template.filename, in: parent)
                         : try await vc.createFile(name: template.filename, contents: try url ?? Self.emptyFile(), in: parent)
@@ -178,6 +184,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
         nonisolated(unsafe) let completionHandler = completionHandler
         nonisolated(unsafe) let item = item
+        let editedFrom = version.contentVersion   // what the system says the new contents are based on
         let progress = Progress(totalUnitCount: 1)
         let task = Task<Void, Never> {
             do {
@@ -215,10 +222,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 }
                 var fetchAgain = false
                 if changedFields.contains(.contents), let newContents, !node.isDir {
-                    // The version Finder edited from guards the upload: a newer server
-                    // version is kept and this one filed as a conflict copy next to it,
-                    // in which case Finder is told to fetch the server's file again.
-                    let outcome = try await core.upload(fileURL: newContents, path: node.path, baseVersion: node.version)
+                    // The version Finder edited from — the base it hands over, not the
+                    // index's current one — guards the upload: a newer server version is
+                    // kept and this one filed as a conflict copy next to it, in which case
+                    // Finder is told to fetch the server's file again.
+                    let base = ContentVersionCodec.uploadBase(editedFrom: editedFrom, current: node)
+                    let outcome = try await core.upload(fileURL: newContents, path: node.path, baseVersion: base)
                     fetchAgain = outcome.conflicted
                     node = try await core.pullAndFind(path: node.path)
                 }

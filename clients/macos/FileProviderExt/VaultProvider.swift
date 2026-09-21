@@ -34,6 +34,15 @@ final class VaultCore: @unchecked Sendable {
         try core.index.node(atPath: vaultRoot + "/" + entry.encPath)
     }
 
+    // An entry as Finder sees it. A file's size, version and content hash are those of its
+    // content blob: under a long name that is contents.c9r inside the .c9s wrapper, whose
+    // own node — the item's identity — has no size and does not change with the contents.
+    func item(_ entry: VaultEntry, _ node: Node, in parentDirID: String) -> VaultItem {
+        var content = node
+        if entry.nodePath != entry.encPath, let n = try? core.index.node(atPath: vaultRoot + "/" + entry.nodePath) { content = n }
+        return VaultItem(entry: entry, node: node, content: content, parentDirID: parentDirID)
+    }
+
     // Lists a directory and records what it learns about subdirectories, so a later
     // item(for:) after a restart can still place them.
     func entries(in dirID: String) async throws -> [(VaultEntry, Node)] {
@@ -61,7 +70,7 @@ final class VaultCore: @unchecked Sendable {
             guard let (e, n) = try await entries(in: parentDirID).first(where: { $0.1.id == nodeID }) else {
                 throw NSFileProviderError(.noSuchItem)
             }
-            return VaultItem(entry: e, node: n, parentDirID: parentDirID)
+            return item(e, n, in: parentDirID)
         }
     }
 
@@ -95,7 +104,7 @@ final class VaultCore: @unchecked Sendable {
         guard let (e, n) = try await entries(in: parentDirID).first(where: { $0.1.id == node.id }) else {
             throw NSFileProviderError(.noSuchItem)
         }
-        return VaultItem(entry: e, node: n, parentDirID: parentDirID)
+        return item(e, n, in: parentDirID)
     }
 
     // The directory id a container identifier names; the root is "".
@@ -105,6 +114,17 @@ final class VaultCore: @unchecked Sendable {
         case .dir(let d)?: return d
         default: throw NSFileProviderError(.noSuchItem)
         }
+    }
+
+    // The entry of this name already in the directory, as the server has it now. The system
+    // also asks to "create" what it finds on disk but cannot match to an item, as after a
+    // reimport: written again, a file would be replaced — by nothing, when no contents
+    // came with the request — and a folder would get a fresh directory id, leaving
+    // everything under the old one out of reach.
+    func existingItem(name: String, in parentDirID: String) async throws -> VaultItem? {
+        _ = try await core.pull(since: try core.index.cursor())
+        guard let (e, n) = try await entries(in: parentDirID).first(where: { $0.0.name == name }) else { return nil }
+        return item(e, n, in: parentDirID)
     }
 
     func createFile(name: String, contents: URL, in parentDirID: String) async throws -> VaultItem {
@@ -193,15 +213,9 @@ final class VaultCore: @unchecked Sendable {
     // Which directories a batch of changed ciphertext paths touches: their storage folder
     // (d/XX/YYYY…) is the hash of their directory id, known for every directory seen so far.
     func dirIDs(touchedBy paths: [String]) throws -> Set<String> {
-        var byStorage: [String: String] = ["d/" + vault.dirIdHash(""): ""]
-        for d in try core.index.vaultDirs(vault: vaultID) { byStorage["d/" + vault.dirIdHash(d.dirID)] = d.dirID }
-        var out = Set<String>()
         let prefix = vaultRoot + "/"
-        for p in paths where p.hasPrefix(prefix) {
-            let rel = String(p.dropFirst(prefix.count))
-            for (storage, dirID) in byStorage where rel.hasPrefix(storage + "/") { out.insert(dirID) }
-        }
-        return out
+        let rels = paths.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+        return vault.dirIDs(touchedBy: rels, knownDirIDs: try core.index.vaultDirs(vault: vaultID).map(\.dirID))
     }
 }
 
@@ -229,13 +243,15 @@ final class VaultItem: NSObject, NSFileProviderItem {
         self.size = size; self.version = version; self.contentHash = contentHash
     }
 
-    convenience init(entry: VaultEntry, node: Node, parentDirID: String) {
+    // `node` is the entry's own ciphertext node (the identity); `content` the one that
+    // carries the file's bytes — the same node unless the name is a long one.
+    convenience init(entry: VaultEntry, node: Node, content: Node, parentDirID: String) {
         let parent: VaultItemID = parentDirID.isEmpty ? .root : .dir(dirID: parentDirID)
         if entry.isDir, let sub = entry.dirID {
             self.init(id: .dir(dirID: sub), parent: parent, name: entry.name, isDir: true, size: 0, version: node.version, contentHash: "dir")
         } else {
             self.init(id: .file(parentDirID: parentDirID, nodeID: node.id), parent: parent, name: entry.name, isDir: false,
-                      size: vaultCleartextSize(ciphertext: node.size), version: node.version, contentHash: node.contentHash)
+                      size: vaultCleartextSize(ciphertext: content.size), version: content.version, contentHash: content.contentHash)
         }
     }
 
@@ -275,7 +291,7 @@ final class VaultEnumerator: NSObject, NSFileProviderEnumerator, @unchecked Send
     func invalidate() {}
 
     private func listing(_ dirID: String) async throws -> [VaultItem] {
-        try await vc.entries(in: dirID).map { VaultItem(entry: $0.0, node: $0.1, parentDirID: dirID) }
+        try await vc.entries(in: dirID).map { vc.item($0.0, $0.1, in: dirID) }
     }
 
     // The whole tree, for the working set.

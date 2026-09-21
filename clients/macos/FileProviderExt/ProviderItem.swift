@@ -9,8 +9,8 @@ final class ProviderItem: NSObject, NSFileProviderItem {
     let writable: Bool
     let vaultRoot: Bool
 
-    init(node: Node, writable: Bool = true, vaultRoot: Bool = false) {
-        info = ProviderItemInfo(node: node)
+    init(node: Node, writable: Bool = true, vaultRoot: Bool = false, unverifiedBytes: String? = nil) {
+        info = ProviderItemInfo(node: node, unverifiedBytes: unverifiedBytes)
         self.writable = writable
         self.vaultRoot = vaultRoot
     }

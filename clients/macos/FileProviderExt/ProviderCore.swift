@@ -66,10 +66,40 @@ final class ProviderCore: @unchecked Sendable {
     }
 
     /// The item for a node, read-only when it belongs to a vault.
-    func item(for node: Node) -> ProviderItem {
+    func item(for node: Node) -> ProviderItem { item(for: node, unverifiedBytes: nil) }
+
+    func item(for node: Node, unverifiedBytes: String?) -> ProviderItem {
         let inVault = (try? index.isInsideVault(path: node.path)) ?? false
         let isRoot = node.isDir && (try? index.node(atPath: node.path + "/vault.cryptomator")) != nil
-        return ProviderItem(node: node, writable: !inVault, vaultRoot: isRoot)
+        return ProviderItem(node: node, writable: !inVault, vaultRoot: isRoot, unverifiedBytes: unverifiedBytes)
+    }
+
+    /// Downloads a file and says which version the bytes are. The download carries no
+    /// version of its own, so the bytes are hashed and matched: against the node the index
+    /// held, else — the server had moved on — against what a pull brings. Bytes that still
+    /// match nothing (the server moved on again mid-download) are fetched anew; if that
+    /// never settles they are served without a version, and an edit of them is then
+    /// guarded as an edit of unknown base.
+    func fetch(_ node: Node) async throws -> (URL, ProviderItem) {
+        var known = node
+        var last: (url: URL, hash: String)?
+        for _ in 0..<3 {
+            if let last { try? FileManager.default.removeItem(at: last.url) }
+            let url = try await download(nodeID: known.id)
+            let hash = try ContentHash.sha256Hex(of: url)
+            if let owner = ContentHash.owner(ofDownloaded: hash, before: known, after: nil) { return (url, item(for: owner)) }
+            _ = try await pull(since: try index.cursor())
+            guard let now = try index.node(id: known.id) else {
+                try? FileManager.default.removeItem(at: url)
+                throw NSFileProviderError(.noSuchItem)
+            }
+            if let owner = ContentHash.owner(ofDownloaded: hash, before: known, after: now) { return (url, item(for: owner)) }
+            Self.log.error("downloaded bytes of \(known.id, privacy: .public) match neither v\(known.version) nor v\(now.version); fetching again")
+            last = (url, hash)
+            known = now
+        }
+        guard let last else { throw NSFileProviderError(.serverUnreachable) }
+        return (last.url, item(for: known, unverifiedBytes: last.hash))
     }
 
     /// The server path of the folder an item identifier names ("" for the root).
