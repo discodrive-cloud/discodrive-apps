@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"discodrive.org/daemon/internal/engine"
+	"discodrive.org/daemon/internal/vaultmgr"
 )
 
 // vaultTestServer is a richer fake that supports EnsureDir, PushFile, Download,
@@ -121,6 +123,15 @@ func TestVaultWriteBack(t *testing.T) {
 	}
 	ctrl, _ := newTestController(t, srv)
 
+	// Keep plaintext under the test directory instead of the user's cache.
+	cache := t.TempDir()
+	open := func() (string, error) {
+		return ctrl.openVaultCore(ctx, "myvault", func(vm *vaultmgr.Manager, vi vaultmgr.VaultInfo) (string, error) {
+			vm.CacheRoot = cache
+			return vm.Open(vi, "pw")
+		})
+	}
+
 	// --- Step 1: CreateVault + Refresh ---
 	phrase, err := ctrl.CreateVault(ctx, "", "myvault", "pw")
 	if err != nil {
@@ -134,7 +145,7 @@ func TestVaultWriteBack(t *testing.T) {
 	}
 
 	// --- Step 2: OpenVault ---
-	plain, err := ctrl.OpenVault(ctx, "myvault", "pw")
+	plain, err := open()
 	if err != nil {
 		t.Fatalf("OpenVault: %v", err)
 	}
@@ -158,7 +169,7 @@ func TestVaultWriteBack(t *testing.T) {
 	}
 
 	// --- Step 6: Reopen vault ---
-	plain2, err := ctrl.OpenVault(ctx, "myvault", "pw")
+	plain2, err := open()
 	if err != nil {
 		t.Fatalf("OpenVault (2): %v", err)
 	}
@@ -253,5 +264,87 @@ func TestVaultRecoveryOpen(t *testing.T) {
 	}
 	if _, err := os.Stat(plain); err != nil {
 		t.Fatalf("plaintext dir should exist: %v", err)
+	}
+}
+
+// Delayed downloads expose serialized vault opens without timing thresholds.
+type parallelVaultServer struct {
+	*vaultTestServer
+	probeMu      sync.Mutex
+	active, peak int
+	fail         error
+	paths        []string
+}
+
+func (s *parallelVaultServer) Download(ctx context.Context, id string, w io.Writer) error {
+	s.probeMu.Lock()
+	s.active++
+	if f, ok := w.(*os.File); ok {
+		s.paths = append(s.paths, f.Name())
+	}
+	if s.active > s.peak {
+		s.peak = s.active
+	}
+	s.probeMu.Unlock()
+	defer func() { s.probeMu.Lock(); s.active--; s.probeMu.Unlock() }()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(20 * time.Millisecond):
+	}
+	if s.fail != nil {
+		return s.fail
+	}
+	return s.vaultTestServer.Download(ctx, id, w)
+}
+
+func TestVaultDownloadsOverlap(t *testing.T) {
+	srv := &parallelVaultServer{vaultTestServer: &vaultTestServer{nodes: make(map[string][]byte)}}
+	ctrl, _ := newTestController(t, srv)
+	for i := 0; i < 17; i++ {
+		_, _, err := srv.PushFile(context.Background(), fmt.Sprintf("vault/d/%d", i), nil, strings.NewReader("ciphertext"), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, dir, err := ctrl.downloadVaultCiphertext(context.Background(), "vault")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	if srv.peak <= 1 || srv.peak > 6 {
+		t.Fatalf("in-flight downloads = %d, want 2..6", srv.peak)
+	}
+	for i := 0; i < 17; i++ {
+		data, err := os.ReadFile(filepath.Join(dir, "d", fmt.Sprint(i)))
+		if err != nil || string(data) != "ciphertext" {
+			t.Fatalf("file %d: %q, %v", i, data, err)
+		}
+	}
+}
+
+func TestVaultDownloadFailureDrainsAndCleansUp(t *testing.T) {
+	failure := errors.New("download failed")
+	srv := &parallelVaultServer{vaultTestServer: &vaultTestServer{nodes: make(map[string][]byte)}, fail: failure}
+	ctrl, _ := newTestController(t, srv)
+	for i := 0; i < 17; i++ {
+		if _, _, err := srv.PushFile(context.Background(), fmt.Sprintf("vault/d/%d", i), nil, strings.NewReader("ciphertext"), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, dir, err := ctrl.downloadVaultCiphertext(context.Background(), "vault")
+	if !errors.Is(err, failure) || dir != "" {
+		t.Fatalf("dir=%q err=%v", dir, err)
+	}
+	if srv.active != 0 {
+		t.Fatalf("%d downloads still running", srv.active)
+	}
+	if len(srv.paths) == 0 {
+		t.Fatal("no downloads attempted")
+	}
+	for _, p := range srv.paths {
+		if _, err := os.Stat(filepath.Dir(filepath.Dir(p))); !os.IsNotExist(err) {
+			t.Fatalf("temporary directory survived: %s, %v", p, err)
+		}
 	}
 }

@@ -50,37 +50,55 @@ extension Vault {
     // List decrypted entries of a directory. Port of decrypt.go (decryptDir).
     public func listEntries(dirID: String, source: VaultFileSource) async throws -> [VaultEntry] {
         let storage = dirIdHash(dirID)
-        var out = [VaultEntry]()
-        for e in try await source.listDir(storage) {
-            if e.name == "dirid.c9r" { continue }
-            // A server conflict name is not an encrypted entry. Keep the rest of the
-            // directory readable while its queued removal is retried, even on another device.
-            if e.name.contains(" (conflict, ") { continue }
-            let entryPath = storage + "/" + e.name
-
-            if e.name.hasSuffix(".c9s") && e.isDir {
-                let fullEnc = String(decoding: try await source.read(entryPath + "/name.c9s"), as: UTF8.self)
-                let plain = try decryptName(fullEnc, parentDirID: dirID)
-                let children = (try? await source.listDir(entryPath)) ?? []
-                if children.contains(where: { $0.name == "dir.c9r" }) {
-                    let subID = String(decoding: try await source.read(entryPath + "/dir.c9r"), as: UTF8.self)
-                    out.append(VaultEntry(name: plain, isDir: true, dirID: subID, contentPath: nil, encPath: entryPath))
-                } else if children.contains(where: { $0.name == "contents.c9r" }) {
-                    out.append(VaultEntry(name: plain, isDir: false, dirID: nil, contentPath: entryPath + "/contents.c9r", encPath: entryPath))
+        let entries = try await source.listDir(storage)
+        return try await withThrowingTaskGroup(of: (Int, VaultEntry?).self) { group in
+            var next = 0
+            var results = [VaultEntry?](repeating: nil, count: entries.count)
+            func enqueue(_ index: Int) {
+                group.addTask {
+                    try Task.checkCancellation()
+                    return (index, try await self.readEntry(entries[index], storage: storage,
+                                                           dirID: dirID, source: source))
                 }
-                continue
             }
-
-            guard e.name.hasSuffix(".c9r") else { continue }
-            let plain = try decryptName(e.name, parentDirID: dirID)
-            if e.isDir {
-                let subID = String(decoding: try await source.read(entryPath + "/dir.c9r"), as: UTF8.self)
-                out.append(VaultEntry(name: plain, isDir: true, dirID: subID, contentPath: nil, encPath: entryPath))
-            } else {
-                out.append(VaultEntry(name: plain, isDir: false, dirID: nil, contentPath: entryPath, encPath: entryPath))
+            while next < min(6, entries.count) { enqueue(next); next += 1 }
+            while let (index, entry) = try await group.next() {
+                results[index] = entry
+                if next < entries.count { enqueue(next); next += 1 }
             }
+            return results.compactMap { $0 }
         }
-        return out
+    }
+
+    private func readEntry(_ e: (name: String, isDir: Bool), storage: String,
+                           dirID: String, source: VaultFileSource) async throws -> VaultEntry? {
+        if e.name == "dirid.c9r" { return nil }
+        // A server conflict name is not an encrypted entry. Keep the rest of the
+        // directory readable while its queued removal is retried, even on another device.
+        if e.name.contains(" (conflict, ") { return nil }
+        let entryPath = storage + "/" + e.name
+
+        if e.name.hasSuffix(".c9s") && e.isDir {
+            let fullEnc = String(decoding: try await source.read(entryPath + "/name.c9s"), as: UTF8.self)
+            let plain = try decryptName(fullEnc, parentDirID: dirID)
+            let children = (try? await source.listDir(entryPath)) ?? []
+            if children.contains(where: { $0.name == "dir.c9r" }) {
+                let subID = String(decoding: try await source.read(entryPath + "/dir.c9r"), as: UTF8.self)
+                return VaultEntry(name: plain, isDir: true, dirID: subID, contentPath: nil, encPath: entryPath)
+            } else if children.contains(where: { $0.name == "contents.c9r" }) {
+                return VaultEntry(name: plain, isDir: false, dirID: nil, contentPath: entryPath + "/contents.c9r", encPath: entryPath)
+            }
+            return nil
+        }
+
+        guard e.name.hasSuffix(".c9r") else { return nil }
+        let plain = try decryptName(e.name, parentDirID: dirID)
+        if e.isDir {
+            let subID = String(decoding: try await source.read(entryPath + "/dir.c9r"), as: UTF8.self)
+            return VaultEntry(name: plain, isDir: true, dirID: subID, contentPath: nil, encPath: entryPath)
+        } else {
+            return VaultEntry(name: plain, isDir: false, dirID: nil, contentPath: entryPath, encPath: entryPath)
+        }
     }
 
     public func decryptFile(at contentPath: String, source: VaultFileSource) async throws -> Data {

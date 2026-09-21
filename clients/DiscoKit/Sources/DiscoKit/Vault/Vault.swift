@@ -46,9 +46,10 @@ public final class Vault: Sendable {
 
     // Open a vault via a source (server): downloads masterkey.cryptomator + vault.cryptomator.
     public static func open(source: VaultFileSource, password: String) async throws -> Vault {
-        let mkData = try await source.read("masterkey.cryptomator")
-        let jwt = String(decoding: try await source.read("vault.cryptomator"), as: UTF8.self)
-        return try open(masterkeyData: mkData, vaultJWT: jwt, password: password)
+        async let mkData = source.read("masterkey.cryptomator")
+        async let jwtData = source.read("vault.cryptomator")
+        return try await open(masterkeyData: mkData, vaultJWT: String(decoding: jwtData, as: UTF8.self),
+                              password: password)
     }
 
     static func open(masterkeyData mkData: Data, vaultJWT: String, password: String) throws -> Vault {

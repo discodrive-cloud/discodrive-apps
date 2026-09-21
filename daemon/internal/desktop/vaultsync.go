@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"discodrive.org/daemon/internal/safepath"
 	"discodrive.org/daemon/internal/vault"
@@ -206,6 +207,8 @@ func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath s
 		return nil, vaultmgr.VaultInfo{}, "", err
 	}
 
+	type download struct{ nodeID, localPath string }
+	var downloads []download
 	prefix := vaultRelPath + "/"
 	for _, n := range nodes {
 		if n.RelPath != vaultRelPath && !strings.HasPrefix(n.RelPath, prefix) {
@@ -237,22 +240,60 @@ func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath s
 				os.RemoveAll(tmp)
 				return nil, vaultmgr.VaultInfo{}, "", err
 			}
-			f, err := os.Create(localPath)
-			if err != nil {
-				os.RemoveAll(tmp)
-				return nil, vaultmgr.VaultInfo{}, "", err
-			}
-			dlErr := c.srv.Download(ctx, n.NodeID, f)
-			closeErr := f.Close()
-			if dlErr != nil {
-				os.RemoveAll(tmp)
-				return nil, vaultmgr.VaultInfo{}, "", dlErr
-			}
-			if closeErr != nil {
-				os.RemoveAll(tmp)
-				return nil, vaultmgr.VaultInfo{}, "", closeErr
-			}
+			downloads = append(downloads, download{n.NodeID, localPath})
 		}
+	}
+
+	// Bound both network requests and open files. Wait for every worker before
+	// removing the temporary directory, including on cancellation or an error.
+	downloadCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan download)
+	var workers sync.WaitGroup
+	var failed sync.Once
+	var downloadErr error
+	for i := 0; i < min(6, len(downloads)); i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for job := range jobs {
+				if downloadCtx.Err() != nil {
+					continue
+				}
+				err := func() error {
+					f, err := os.Create(job.localPath)
+					if err != nil {
+						return err
+					}
+					err = c.srv.Download(downloadCtx, job.nodeID, f)
+					closeErr := f.Close()
+					if err != nil {
+						return err
+					}
+					return closeErr
+				}()
+				if err != nil {
+					failed.Do(func() { downloadErr = err; cancel() })
+				}
+			}
+		}()
+	}
+dispatch:
+	for _, job := range downloads {
+		select {
+		case <-downloadCtx.Done():
+			break dispatch
+		case jobs <- job:
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	if downloadErr == nil {
+		downloadErr = ctx.Err()
+	}
+	if downloadErr != nil {
+		os.RemoveAll(tmp)
+		return nil, vaultmgr.VaultInfo{}, "", downloadErr
 	}
 
 	vm, err := vaultmgr.New(tmp)

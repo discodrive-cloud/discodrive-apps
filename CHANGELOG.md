@@ -18,6 +18,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Vault opening: native apps read independent metadata in parallel; Wails downloads
+  ciphertext with up to six requests at a time, draining workers before cleanup on failure.
+
 - macOS and iOS apps: the window explains failures in plain words — an expired session, an
   unreachable server, a request the server refused — and keeps internal errors out of
   sight; every error goes to the system log under `org.discodrive.app` in full.
