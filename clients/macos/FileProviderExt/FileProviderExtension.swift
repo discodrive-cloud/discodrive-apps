@@ -152,23 +152,33 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 // The system also asks to "create" what it finds on disk but cannot match to
                 // an item, as after a reimport: for a path the server already has, the answer
                 // is that item — never a fresh upload over it, and never an empty one.
+                _ = try await core.pull(since: try core.index.cursor())
                 if let existing = try core.index.node(atPath: path) {
                     ProviderCore.log.error("createItem for an existing path \(path, privacy: .public): returning the server's item (contents \(url == nil ? "none" : "offered", privacy: .public), fields \(fields.rawValue))")
                     completionHandler(core.item(for: existing), [], false, nil)
                     return
                 }
+                // The index may be behind: another client can have taken the name since.
+                // A new file therefore goes up as "create only if absent" (base version 0
+                // matches no existing file) — the server then keeps theirs and files this
+                // one beside it as a conflict copy, which is the item Finder gets back.
+                var outcome: APIClient.UploadOutcome?
                 if template.contentType == .folder {
-                    try await core.createFolder(path: path)
+                    try await core.createFolder(path: path)   // idempotent on the server
                 } else if let url {
-                    _ = try await core.upload(fileURL: url, path: path, baseVersion: nil)
+                    outcome = try await core.upload(fileURL: url, path: path, baseVersion: ContentVersionCodec.unknownBase)
                 } else if fields.contains(.contents) {
                     // Contents were promised but not handed over: nothing to put on the server.
                     throw NSFileProviderError(.noSuchItem)
                 } else {
                     // A file with no contents yet is created empty, as Finder's "New Document" does.
-                    _ = try await core.upload(fileURL: try Self.emptyFile(), path: path, baseVersion: nil)
+                    outcome = try await core.upload(fileURL: try Self.emptyFile(), path: path, baseVersion: ContentVersionCodec.unknownBase)
                 }
-                let node = try await core.pullAndFind(path: path)
+                if outcome?.conflicted == true {
+                    ProviderCore.log.error("createItem: \(path, privacy: .public) was taken meanwhile; kept as a conflict copy")
+                }
+                var node = try await core.pullAndFind(path: path)
+                if let id = outcome?.nodeID, !id.isEmpty, id != node.id, let own = try core.index.node(id: id) { node = own }
                 completionHandler(core.item(for: node), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, error)

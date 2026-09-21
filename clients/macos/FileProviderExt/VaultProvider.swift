@@ -129,12 +129,17 @@ final class VaultCore: @unchecked Sendable {
 
     func createFile(name: String, contents: URL, in parentDirID: String) async throws -> VaultItem {
         let data = try Data(contentsOf: contents)
-        try await core.mapErrors { try await vault.addFile(name: name, data: data, parentDirID: parentDirID, sink: io) }
+        try await refusingTakenNames(in: parentDirID) {
+            try await core.mapErrors { try await vault.addFile(name: name, data: data, parentDirID: parentDirID, sink: io, createOnly: true) }
+        }
         return try await entryItem(name: name, parentDirID: parentDirID)
     }
 
     func createFolder(name: String, in parentDirID: String) async throws -> VaultItem {
-        let sub = try await core.mapErrors { try await vault.createFolder(name: name, parentDirID: parentDirID, sink: io) }
+        var sub = ""
+        try await refusingTakenNames(in: parentDirID) {
+            sub = try await core.mapErrors { try await vault.createFolder(name: name, parentDirID: parentDirID, sink: io) }
+        }
         let item = try await entryItem(name: name, parentDirID: parentDirID)
         try core.index.rememberVaultDir(vault: vaultID, dirID: sub, parentDirID: parentDirID, name: name, entryNodeID: node(forEntryOf: item))
         return item
@@ -165,7 +170,9 @@ final class VaultCore: @unchecked Sendable {
     // the new name), a directory keeps its id and storage.
     func rename(_ id: VaultItemID, to newName: String) async throws -> VaultItem {
         let (e, parentDirID) = try await entryAndParent(id)
-        try await core.mapErrors { try await vault.renameEntry(e, to: newName, parentDirID: parentDirID, source: io, sink: io) }
+        try await refusingTakenNames(in: parentDirID) {
+            try await core.mapErrors { try await vault.renameEntry(e, to: newName, parentDirID: parentDirID, source: io, sink: io) }
+        }
         let item = try await entryItem(name: newName, parentDirID: parentDirID)
         if case .dir(let d) = id {
             try core.index.rememberVaultDir(vault: vaultID, dirID: d, parentDirID: parentDirID, name: newName, entryNodeID: node(forEntryOf: item))
@@ -178,14 +185,54 @@ final class VaultCore: @unchecked Sendable {
     func move(_ id: VaultItemID, to newParent: NSFileProviderItemIdentifier, as newName: String) async throws -> VaultItem {
         let (e, parentDirID) = try await entryAndParent(id)
         let target = try dirID(of: newParent)
-        try await core.mapErrors {
-            try await vault.moveEntry(e, from: parentDirID, to: target, as: newName, source: io, sink: io)
+        try await refusingTakenNames(in: target) {
+            try await core.mapErrors {
+                try await vault.moveEntry(e, from: parentDirID, to: target, as: newName, source: io, sink: io)
+            }
         }
         let item = try await entryItem(name: newName, parentDirID: target)
         if case .dir(let d) = id {
             try core.index.rememberVaultDir(vault: vaultID, dirID: d, parentDirID: target, name: newName, entryNodeID: node(forEntryOf: item))
         }
         return item
+    }
+
+    // A rename or move onto a name the directory already holds is refused by the vault —
+    // written through, a folder's entry would point at the moved directory and everything
+    // under the one it replaced would be out of reach. The check reads the index, so it
+    // is brought up to date first; Finder is told which item is in the way and asks the
+    // user, the way it does for any other location.
+    private func refusingTakenNames(in dirID: String, _ write: () async throws -> Void) async throws {
+        _ = try await core.pull(since: try core.index.cursor())
+        do { try await write() }
+        catch Vault.VaultError.nameTaken(let name) {
+            // Taken after the look above: the write was refused by the server, and what
+            // took the name is in the index once it is pulled.
+            _ = try await core.pull(since: try core.index.cursor())
+            guard let (e, n) = try await entries(in: dirID).first(where: { $0.0.name == name }) else {
+                throw NSFileProviderError(.cannotSynchronize)
+            }
+            throw NSError.fileProviderErrorForCollision(with: item(e, n, in: dirID))
+        }
+    }
+
+    // The known directories that are gone: their entry's node is no longer in the index and
+    // no listing just made (`seen`, item identifiers) still shows them. Called after the
+    // listings, which re-record a directory whose entry merely changed node — a rename
+    // elsewhere — so that one is not mistaken for a deletion.
+    //
+    // Keep the mapping for lagging enumerators too: another container's newer
+    // anchor does not acknowledge this container's deletion.
+    //
+    // `relisted`: every known directory was just listed (a delta with deletions does that),
+    // so `seen` is complete; otherwise nothing new is marked.
+    func vanishedDirs(notIn seen: Set<String>, relisted: Bool, since: Int64, cursor: Int64) throws -> [VaultItemID] {
+        for d in relisted ? try core.index.vaultDirs(vault: vaultID) : [] {
+            if seen.contains(VaultItemID.encode(.dir(dirID: d.dirID))) { continue }
+            if try core.index.node(id: d.entryNodeID) != nil { continue }
+            try core.index.markVaultDirGone(vault: vaultID, dirID: d.dirID, at: cursor)
+        }
+        return try core.index.vaultDirsGone(vault: vaultID, since: since).map { .dir(dirID: $0) }
     }
 
     func delete(_ id: VaultItemID) async throws {
@@ -346,9 +393,13 @@ final class VaultEnumerator: NSObject, NSFileProviderEnumerator, @unchecked Send
                     if !items.isEmpty { observer.didUpdate(items) }
                     seen.formUnion(items.map { VaultItemID.encode($0.id) })
                 }
-                if !delta.deleted.isEmpty {
+                let goneDirs = try vc.vanishedDirs(notIn: seen, relisted: !delta.deleted.isEmpty, since: since, cursor: delta.cursor).map(VaultItemID.encode)
+                if !delta.deleted.isEmpty || !goneDirs.isEmpty {
                     // A file whose ciphertext node vanished: its id carries the node id.
+                    // A folder is named by its directory id instead, and is gone when the
+                    // node of its entry is and no listing above still shows it.
                     let gone = delta.deleted.flatMap { n in dirs.map { VaultItemID.encode(.file(parentDirID: $0, nodeID: n)) } }
+                        + goneDirs
                     observer.didDeleteItems(withIdentifiers: gone.map(NSFileProviderItemIdentifier.init(_:)))
                 }
                 observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(SyncAnchorCodec.encode(delta.cursor)), moreComing: false)

@@ -61,7 +61,10 @@ final class ProviderCore: @unchecked Sendable {
             if !page.hasMore { break }
         }
         try index.setCursor(cursor)
-        delta.cursor = try index.cursor()
+        // The cursor of the pages read here, not the index's: the app applies pages to the
+        // same index, and an anchor past what this delta reports would have the system
+        // never ask for the changes in between.
+        delta.cursor = cursor
         return delta
     }
 

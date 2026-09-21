@@ -34,7 +34,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     // Open vaults do not outlive the app: their keys leave the keychain and their Finder
     // locations disappear.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        Task { await VaultDomains.closeAll(); NSApp.reply(toApplicationShouldTerminate: true) }
+        Task {
+            let closed = await VaultDomains.closeAll()
+            if !closed {
+                let alert = NSAlert()
+                alert.messageText = L10n.t("quit.vaultsStillOpen", L10n.currentLanguage)
+                alert.alertStyle = .warning
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+            NSApp.reply(toApplicationShouldTerminate: closed)
+        }
         return .terminateLater
     }
 

@@ -55,6 +55,13 @@ struct DiscoDriveApp: App {
                 // Finder shows the DiscoDrive folder while paired; the extension is
                 // nudged after every change the server streams to the app.
                 app.onRemoteChange = { FileProviderDomain.signalChanges() }
+                // Leaving the account closes the vaults open in Finder first: their
+                // domains, keys and decrypted files are the old account's. One left over
+                // from a run that did not get to close it goes the same way.
+                app.beforeLogout = { await VaultDomains.closeAll() }
+                if !app.paired || ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1" {
+                    Task { await VaultDomains.closeAll() }
+                }
                 #if DEBUG
                 if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1" {
                     // A test re-pair: Finder's copy of the old account goes with the old domain.

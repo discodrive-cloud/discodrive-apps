@@ -77,12 +77,25 @@ enum VaultDomains {
         return all.filter { $0.identifier.rawValue.hasPrefix(VaultCoreDomainPrefix) }
     }
 
-    static func closeAll() async {
-        for d in await openVaults() {
-            let id = String(d.identifier.rawValue.dropFirst(VaultCoreDomainPrefix.count))
-            try? await NSFileProviderManager.remove(d)
-            VaultKeyStore.delete(forVault: id)
+    // True when no vault is open afterwards — asked of the system again, not assumed: a
+    // domain that could not be removed still has an extension holding its keys.
+    @discardableResult
+    static func closeAll() async -> Bool {
+        let log = Logger(subsystem: "org.discodrive.app", category: "vault")
+        guard let all = try? await NSFileProviderManager.domains() else {
+            log.error("vault domains could not be listed")
+            return false
         }
+        for d in all where d.identifier.rawValue.hasPrefix(VaultCoreDomainPrefix) {
+            do {
+                try await NSFileProviderManager.remove(d)
+                VaultKeyStore.delete(forVault: String(d.identifier.rawValue.dropFirst(VaultCoreDomainPrefix.count)))
+            } catch {
+                log.error("vault domain not removed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        guard let left = try? await NSFileProviderManager.domains() else { return false }
+        return !left.contains { $0.identifier.rawValue.hasPrefix(VaultCoreDomainPrefix) }
     }
 }
 
