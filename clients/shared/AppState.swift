@@ -39,6 +39,8 @@ final class AppState: ObservableObject {
     @Published private(set) var tree: [FolderItem] = []
     @Published private(set) var vaultIDs: Set<String> = []
 
+    private var session = AccountSession()
+    @Published private(set) var loggingOut = false
     private var refreshing = false
     private var eventsTask: Task<Void, Never>?
     static let log = Logger(subsystem: "org.discodrive.app", category: "state")
@@ -97,6 +99,9 @@ final class AppState: ObservableObject {
     }
 
     func activate(serverURL: URL, token: String) {
+        session.invalidate()
+        session = AccountSession()
+        refreshing = false; importing = false; downloadingIDs = []
         let dir = appSupportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
@@ -151,18 +156,20 @@ final class AppState: ObservableObject {
 
     // UI language is stored on the server (keeps it in sync across devices).
     func loadLanguage() async {
-        if let lang = try? await client?.getLanguage(), L10n.supported.contains(lang) {
-            language = lang
-        }
+        guard let client, session.isActive else { return }
+        let session = self.session
+        if let lang = try? await session.perform({ try await client.getLanguage() }),
+           session.isActive, L10n.supported.contains(lang) { language = lang }
     }
 
     func setLanguage(_ lang: String) async {
+        guard let client, session.isActive else { return }
+        let session = self.session
         language = lang
-        try? await client?.setLanguage(lang)
+        try? await session.perform { try await client.setLanguage(lang) }
     }
 
-    // Sign out: disconnect from the server (clear token/URL), return to the pairing screen.
-    // Local cached files and the on-disk index are left intact.
+    // Stop account work and disconnect Finder before clearing credentials and local state.
     //
     // What must be over before the account's state goes — on macOS, closing the vaults open
     // in Finder: their domains, keys and decrypted files belong to the account being left.
@@ -172,24 +179,37 @@ final class AppState: ObservableObject {
     var beforeLogout: (() async -> Bool)?
 
     func logout() {
-        guard paired else { return }
+        guard paired, !loggingOut else { return }
+        loggingOut = true
+        let leaving = session
+        leaving.invalidate()
+        stopLiveUpdates()
         vaultSession = nil
+        vaultUnlockFolder = nil; vaultUnlocking = false; vaultRecoveryToShow = nil
         Task {
+            await leaving.stop()
             if let beforeLogout, await !beforeLogout() {
-                Self.log.error("logout held back: open vaults could not be closed")
-                statusText = t("logout.vaultsStillOpen"); lastError = statusText
+                Self.log.error("logout held back: File Provider domains could not be closed")
+                session = AccountSession()
+                refreshing = false; importing = false; downloadingIDs = []
+                loggingOut = false
+                statusText = t("logout.domainsStillOpen"); lastError = statusText
+                startLiveUpdates()
                 return
             }
             finishLogout()
+            loggingOut = false
         }
     }
 
     private func finishLogout() {
+        session.invalidate()
         stopLiveUpdates()
         KeychainToken.delete(service: KeychainToken.tokenService)
         KeychainToken.delete(service: KeychainToken.serverService)
         client = nil; index = nil; local = nil; serverURL = nil
         statusText = ""
+        tree = []; vaultIDs = []; fileToPreview = nil; downloadingIDs = []
         paired = false
         syncStatus = .offline
         forgetLocalState()
@@ -240,6 +260,7 @@ final class AppState: ObservableObject {
             .poll(deviceCode: info.deviceCode, interval: .seconds(max(1, info.interval)))
         // A new pairing starts from a clean slate: forget any previously-paired server's
         // index and downloaded files, so old content is never shown or pushed to the new server.
+        await session.stop()
         resetLocalState()
         KeychainToken.save(token, service: KeychainToken.tokenService)
         KeychainToken.save(serverURL.absoluteString, service: KeychainToken.serverService)
@@ -250,6 +271,7 @@ final class AppState: ObservableObject {
     // downloaded-files store (cache DB + content). Called on every pairing. Downloads are
     // on-demand, so the only cost is re-downloading opened/pinned files from the new server.
     private func resetLocalState() {
+        session.invalidate()
         stopLiveUpdates()
         index = nil          // release the SQLite handles before deleting the files
         local = nil
@@ -274,34 +296,38 @@ final class AppState: ObservableObject {
     // another one was already running.
     @discardableResult
     func refresh() async -> Bool {
-        guard let client, let index, !refreshing else {
+        guard let client, let index, session.isActive, !refreshing else {
             Self.log.notice("refresh skipped (client=\(self.client == nil ? 0 : 1) index=\(self.index == nil ? 0 : 1) refreshing=\(self.refreshing))")
             return false
         }
-        refreshing = true; defer { refreshing = false }
+        let session = self.session
+        refreshing = true; defer { if session.isActive { refreshing = false } }
         syncStatus = .syncing
         do {
             // The pull — network plus applying pages to SQLite — runs away from the main
             // actor; the first one after pairing applies the whole tree and used to hold
             // the window for its duration.
-            let cursor = try await Task.detached(priority: .userInitiated) { () throws -> Int64 in
+            let cursor = try await session.perform { () throws -> Int64 in
                 var cursor = try index.cursor()
                 while true {
                     let page = try await client.changes(since: cursor, limit: 500)
+                    try Task.checkCancellation()
                     try index.apply(page.changes)
                     cursor = page.cursor
                     if !page.hasMore { break }
                 }
                 try index.setCursor(cursor)
                 return cursor
-            }.value
+            }
             await rebuildTree()
+            try session.check()
             statusText = t("status.updated")
             syncStatus = .idle
             Self.log.notice("refreshed: \(self.tree.count) root folders, cursor \(cursor)")
             onRemoteChange?()
             return true
         } catch {
+            guard session.isActive, !(error is CancellationError) else { return false }
             // The full error goes to the log; the window gets a plain reason only when
             // there is one worth reading. A hiccup in the shared index or a dropped
             // connection is retried on the next refresh without a word.
@@ -362,8 +388,10 @@ final class AppState: ObservableObject {
     // One pass over the index, off the main thread: every folder's children, and which
     // folders are Cryptomator vaults (they hold masterkey.cryptomator + vault.cryptomator).
     func rebuildTree() async {
+        let session = self.session
+        guard session.isActive else { return }
         guard let index else { tree = []; vaultIDs = []; return }
-        let built = await Task.detached(priority: .userInitiated) { () -> ([FolderItem], Set<String>) in
+        guard let built = try? await session.perform({ () -> ([FolderItem], Set<String>) in
             guard let nodes = try? index.allNodes() else { return ([], []) }
             var kids: [String?: [Node]] = [:]
             var names: [String: Set<String>] = [:]
@@ -379,7 +407,8 @@ final class AppState: ObservableObject {
                 }
             }
             return (build(nil), vaults)
-        }.value
+        }) else { return }
+        guard session.isActive else { return }
         tree = built.0
         vaultIDs = built.1
     }
@@ -398,47 +427,55 @@ final class AppState: ObservableObject {
     // MARK: - Write Operations
 
     func upload(_ urls: [URL], toFolderPath folderPath: String) async {
-        guard let client else { return }
+        guard let client, session.isActive else { return }
+        let session = self.session
         for url in urls {
+            guard session.isActive else { return }
             let rel = folderPath + "/" + url.lastPathComponent
-            // Streamed from disk, and resumable past one chunk: a big file neither has to
-            // fit in memory nor starts over when the connection drops. A read failure
-            // throws here instead of silently skipping the file.
             do {
-                try await client.upload(fileURL: url, relPath: rel,
-                                        modifiedAt: APIClient.contentModificationDate(of: url))
-            } catch { fail("status.uploadError", error) }
+                _ = try await session.perform {
+                    try await client.upload(fileURL: url, relPath: rel,
+                                            modifiedAt: APIClient.contentModificationDate(of: url))
+                }
+            } catch { if session.isActive { fail("status.uploadError", error) } }
         }
-        await refresh()
+        if session.isActive { await refresh() }
     }
 
     // Reports a failed operation the user asked for: the banner names what failed and,
     // when it can be said plainly, why; the log keeps the actual error.
     private func fail(_ key: String, _ error: Error) {
+        guard session.isActive, !(error is CancellationError) else { return }
         Self.log.error("\(key, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         statusText = userMessage(for: error).map { "\(t(key)): \($0)" } ?? t(key)
         lastError = statusText
     }
 
     func createFolder(name: String, inFolderPath folderPath: String) async {
-        guard let client, !name.isEmpty else { return }
-        do { try await client.createDir(relPath: folderPath + "/" + name) } catch { fail("status.opError", error) }
-        await refresh()
+        guard let client, session.isActive, !name.isEmpty else { return }
+        let session = self.session
+        do { try await session.perform { try await client.createDir(relPath: folderPath + "/" + name) } }
+        catch { if session.isActive { fail("status.opError", error) } }
+        if session.isActive { await refresh() }
     }
 
     func deleteNode(_ node: Node) async {
-        guard let client else { return }
+        guard let client, let local, session.isActive else { return }
+        let session = self.session
         do {
-            try await client.delete(nodeID: node.id)
-            try? local?.remove(nodeID: node.id)
-        } catch { fail("status.opError", error) }
-        await refresh()
+            try await session.perform { try await client.delete(nodeID: node.id) }
+            try session.check()
+            try local.remove(nodeID: node.id)
+        } catch { if session.isActive { fail("status.opError", error) } }
+        if session.isActive { await refresh() }
     }
 
     func renameNode(_ node: Node, to newName: String) async {
-        guard let client, !newName.isEmpty, newName != node.name else { return }
-        do { try await client.rename(nodeID: node.id, newName: newName) } catch { fail("status.opError", error) }
-        await refresh()
+        guard let client, session.isActive, !newName.isEmpty, newName != node.name else { return }
+        let session = self.session
+        do { try await session.perform { try await client.rename(nodeID: node.id, newName: newName) } }
+        catch { if session.isActive { fail("status.opError", error) } }
+        if session.isActive { await refresh() }
     }
 
     // MARK: - Vault (Cryptomator E2E-vault)
@@ -462,17 +499,19 @@ final class AppState: ObservableObject {
     func isVault(_ folder: Node) -> Bool { folder.isDir && vaultIDs.contains(folder.id) }
 
     func openVault(_ folder: Node, password: String, remember: Bool = false) async {
-        guard !vaultUnlocking else { return }
-        vaultUnlocking = true; defer { vaultUnlocking = false }
+        guard session.isActive, !vaultUnlocking else { return }
+        let session = self.session
+        vaultUnlocking = true; defer { if session.isActive { vaultUnlocking = false } }
         let opened = await unlock(folder) { io in try await Vault.open(source: io, password: password) }
-        if remember, opened {
+        if session.isActive, remember, opened {
             VaultPasswordStore.save(password: password, forVault: folder.path)
         }
     }
 
     func openVaultWithRecovery(_ folder: Node, phrase: String) async {
-        guard !vaultUnlocking else { return }
-        vaultUnlocking = true; defer { vaultUnlocking = false }
+        guard session.isActive, !vaultUnlocking else { return }
+        let session = self.session
+        vaultUnlocking = true; defer { if session.isActive { vaultUnlocking = false } }
         _ = await unlock(folder) { io in try await Vault.open(source: io, recoveryPhrase: phrase) }
     }
 
@@ -483,15 +522,18 @@ final class AppState: ObservableObject {
 
     // Unlock a vault using Face ID / Touch ID (password retrieved from Keychain).
     func openVaultBiometric(_ folder: Node) async {
-        guard !vaultUnlocking else { return }
-        vaultUnlocking = true; defer { vaultUnlocking = false }
+        guard session.isActive, !vaultUnlocking else { return }
+        let session = self.session
+        vaultUnlocking = true; defer { if session.isActive { vaultUnlocking = false } }
         vaultUnlockError = nil
         do {
             let pw = try await VaultPasswordStore.loadPassword(forVault: folder.path, reason: t("vault.unlockReason"))
+            guard session.isActive else { return }
             _ = await unlock(folder) { io in try await Vault.open(source: io, password: pw) }
         } catch VaultPasswordStore.VaultPWError.cancelled {
             // user cancelled — silently do nothing
         } catch {
+            guard session.isActive else { return }
             vaultUnlockError = error.localizedDescription
         }
     }
@@ -500,14 +542,18 @@ final class AppState: ObservableObject {
     // True once the vault is open, either as a session here or wherever the platform
     // presents it.
     @discardableResult
-    private func unlock(_ folder: Node, _ opener: (ServerVaultIO) async throws -> Vault) async -> Bool {
-        guard let index, let client else { return false }
+    private func unlock(_ folder: Node, _ opener: @escaping @Sendable (ServerVaultIO) async throws -> Vault) async -> Bool {
+        guard let index, let client, session.isActive else { return false }
+        let session = self.session
         vaultUnlockError = nil
         let io = ServerVaultIO(vaultRoot: folder.path, index: index, client: client)
         do {
-            let vault = try await opener(io)
+            let vault = try await session.perform { try await opener(io) }
+            try session.check()
             if let present = presentUnlockedVault {
-                if await present(vault, folder) { vaultUnlockFolder = nil; return true }
+                let opened = await present(vault, folder)
+                guard session.isActive else { return false }
+                if opened { vaultUnlockFolder = nil; return true }
                 vaultUnlockError = t("status.opError")
                 return false
             }
@@ -515,6 +561,7 @@ final class AppState: ObservableObject {
             vaultUnlockFolder = nil
             return true
         } catch {
+            guard session.isActive, !(error is CancellationError) else { return false }
             vaultUnlockError = (error as? Vault.VaultError) == .wrongPassword
                 ? t("vault.wrongPassword") : error.localizedDescription
             return false
@@ -524,25 +571,32 @@ final class AppState: ObservableObject {
     func closeVault() { vaultSession = nil }
 
     func createVault(name: String, inFolderPath: String, password: String) async {
-        guard let index, let client, !name.isEmpty, !password.isEmpty else { return }
+        guard let index, let client, session.isActive, !name.isEmpty, !password.isEmpty else { return }
+        let session = self.session
         let vaultPath = inFolderPath + "/" + name
         // A vault is new keys: written into a folder that already is one, they replace its
         // masterkey and everything in it stops opening. The name must be free — by an
         // index that is current — and the files go up as "create only if absent", so a
         // name taken in the meantime fails the creation instead of being written over.
-        guard await refresh() else { statusText = t("vault.createError"); lastError = statusText; return }
+        let refreshed = await refresh()
+        guard session.isActive else { return }
+        guard refreshed else { statusText = t("vault.createError"); lastError = statusText; return }
         guard ((try? index.node(atPath: vaultPath)) ?? nil) == nil else {
             statusText = "\(t("vault.createError")): \(t("vault.nameTaken"))"
             lastError = statusText
             return
         }
         do {
-            try await client.createDir(relPath: vaultPath)
-            let io = ServerVaultIO(vaultRoot: vaultPath, index: index, client: client, createOnly: true)
-            let vault = try await Vault.create(sink: io, password: password)
+            let vault = try await session.perform {
+                try await client.createDir(relPath: vaultPath)
+                try Task.checkCancellation()
+                let io = ServerVaultIO(vaultRoot: vaultPath, index: index, client: client, createOnly: true)
+                return try await Vault.create(sink: io, password: password)
+            }
+            try session.check()
             vaultRecoveryToShow = vault.recoveryKey()
             await refresh()
-        } catch { fail("vault.createError", error) }
+        } catch { if session.isActive { fail("vault.createError", error) } }
     }
 
     // MARK: - Task 13: download / open / pin
@@ -550,15 +604,18 @@ final class AppState: ObservableObject {
     // Ensures a fresh local copy is available (downloads if missing or stale). Returns the URL.
     @discardableResult
     func ensureDownloaded(_ node: Node, pin: Bool = false) async -> URL? {
-        guard let client, let local else { return nil }
+        guard let client, let local, session.isActive else { return nil }
+        let session = self.session
         let st = (try? local.status(nodeID: node.id, serverVersion: node.version)) ?? .none
         let needsDownload = (st == .none || st == .stale)
         do {
             if needsDownload {
                 downloadingIDs.insert(node.id)
-                defer { downloadingIDs.remove(node.id) }
+                defer { if session.isActive { downloadingIDs.remove(node.id) } }
                 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                try await client.download(nodeID: node.id, to: tmp)
+                defer { try? FileManager.default.removeItem(at: tmp) }
+                try await session.perform { try await client.download(nodeID: node.id, to: tmp) }
+                try session.check()
                 try local.store(nodeID: node.id, version: node.version, from: tmp, pinned: pin, relPath: node.path)
             } else if pin {
                 try local.pin(nodeID: node.id)
@@ -566,13 +623,15 @@ final class AppState: ObservableObject {
             revision += 1
             return local.localURL(nodeID: node.id)
         } catch {
+            guard session.isActive, !(error is CancellationError) else { return nil }
             fail("status.downloadError", error)
             return nil
         }
     }
 
     func openFile(_ node: Node) async {
-        guard !node.isDir, let url = await ensureDownloaded(node) else { return }
+        let session = self.session
+        guard !node.isDir, let url = await ensureDownloaded(node), session.isActive else { return }
         #if os(macOS)
         NSWorkspace.shared.open(url)
         #else
@@ -599,8 +658,9 @@ final class AppState: ObservableObject {
     // server has since deleted or renamed the file, which the index alone would read as
     // "not on the server yet" and send a stale cache back up.
     func importLocalFiles() async {
-        guard let local, let index, let client, !importing else { return }
-        importing = true; defer { importing = false }
+        guard let local, let index, let client, session.isActive, !importing else { return }
+        let session = self.session
+        importing = true; defer { if session.isActive { importing = false } }
         // Nothing unclaimed and no copy still owed its server name is the usual case, and
         // costs no round trip.
         let seen = (try? local.unregisteredFiles()) ?? []
@@ -609,12 +669,13 @@ final class AppState: ObservableObject {
         // Only against an index that is known to be current: a failed or skipped pull
         // leaves this for the next activation. Then look again — a download that finished
         // meanwhile has claimed its file.
-        guard await refresh() else { return }
+        guard await refresh(), session.isActive else { return }
         settleImportedNames()
         let candidates = (try? local.unregisteredFiles()) ?? []
         var unnamed: [(file: LocalStore.UnregisteredFile, stamp: LocalStore.FileStamp)] = []
         var uploadedAny = false
         for f in candidates {
+            guard session.isActive else { return }
             // An upload takes a while, and a download of this very path may have finished
             // during the ones before it: what is a registered copy by now is not imported.
             guard (try? local.isStillUnregistered(f)) == true, let stamp = local.stamp(of: f.url) else { continue }
@@ -622,9 +683,12 @@ final class AppState: ObservableObject {
                 // "Create only if absent": whatever the index says, another client may have
                 // taken the name a moment ago. Base version 0 matches no existing file, so
                 // the server then keeps theirs and files ours beside it as a conflict copy.
-                let outcome = try await client.upload(fileURL: f.url, relPath: f.relPath,
-                                                      modifiedAt: APIClient.contentModificationDate(of: f.url),
-                                                      baseVersion: ContentVersionCodec.unknownBase)
+                let outcome = try await session.perform {
+                    try await client.upload(fileURL: f.url, relPath: f.relPath,
+                                            modifiedAt: APIClient.contentModificationDate(of: f.url),
+                                            baseVersion: ContentVersionCodec.unknownBase)
+                }
+                try session.check()
                 uploadedAny = true
                 // Claimed the moment the server has it, as the node and version the server
                 // said it became — not after the refresh below, which may fail and would
@@ -637,10 +701,11 @@ final class AppState: ObservableObject {
                 if outcome.nodeID.isEmpty { unnamed.append((f, stamp)); continue }
                 try? local.adoptUploaded(f, uploadedAs: stamp, nodeID: outcome.nodeID, version: outcome.version,
                                          awaitingServerName: outcome.conflicted)
-            } catch { fail("status.uploadError", error) }
+            } catch { if session.isActive { fail("status.uploadError", error) } }
         }
+        guard session.isActive else { return }
         guard uploadedAny else { revision += 1; return }
-        if await refresh() {
+        if await refresh(), session.isActive {
             settleImportedNames()
             // The server did not say what the upload became: the index is all there is.
             for (f, stamp) in unnamed {
@@ -648,7 +713,7 @@ final class AppState: ObservableObject {
                 try? local.adoptUploaded(f, uploadedAs: stamp, nodeID: node.id, version: node.version)
             }
         }
-        revision += 1
+        if session.isActive { revision += 1 }
     }
 
     // Conflict copies the import registered under the name they were dropped in as take the

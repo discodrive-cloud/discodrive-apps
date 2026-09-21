@@ -283,6 +283,15 @@ public enum L10n {
             "sr": "Отворени сефови нису затворени. Апликација ће наставити да ради. Затворите сефове у Finder-у и покушајте поново.",
             "de": "Die offenen Tresore konnten nicht geschlossen werden. Die App bleibt geöffnet. Schließen Sie die Tresore im Finder und versuchen Sie es erneut.",
         ],
+        "logout.domainsStillOpen": [
+            "en": "Could not disconnect the Finder locations. You are still signed in. Please try again.",
+            "ru": "Не удалось отключить расположения в Finder. Выход из аккаунта не выполнен. Повторите попытку.",
+            "uk": "Не вдалося відключити розташування у Finder. Вихід з облікового запису не виконано. Повторіть спробу.",
+            "fr": "Impossible de déconnecter les emplacements du Finder. La session reste active. Veuillez réessayer.",
+            "es": "No se pudieron desconectar las ubicaciones de Finder. La sesión sigue activa. Inténtelo de nuevo.",
+            "sr": "Није могуће искључити локације у Finder-у. Одјава није извршена. Покушајте поново.",
+            "de": "Die Finder-Speicherorte konnten nicht getrennt werden. Sie sind weiterhin angemeldet. Bitte versuchen Sie es erneut.",
+        ],
         "logout.vaultsStillOpen": [
             "en": "Could not close the open vaults; still signed in. Close them in Finder and try again.",
             "ru": "Не удалось закрыть открытые сейфы, выход не выполнен. Закройте их в Finder и повторите.",

@@ -58,7 +58,7 @@ struct DiscoDriveApp: App {
                 // Leaving the account closes the vaults open in Finder first: their
                 // domains, keys and decrypted files are the old account's. One left over
                 // from a run that did not get to close it goes the same way.
-                app.beforeLogout = { await VaultDomains.closeAll() }
+                app.beforeLogout = { await FileProviderDomain.closeForLogout() }
                 if !app.paired || ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1" {
                     Task { await VaultDomains.closeAll() }
                 }
@@ -73,7 +73,7 @@ struct DiscoDriveApp: App {
                 appDelegate.urlHandler = { url in handle(url) }
             }
             .onChange(of: app.paired) { _, paired in
-                paired ? FileProviderDomain.register() : FileProviderDomain.unregister()
+                if paired { FileProviderDomain.register() }
             }
             .onChange(of: app.syncStatus) { _, status in appDelegate.setStatus(status) }
             // Launched while the keychain was unavailable (screen locked at login): the

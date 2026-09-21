@@ -39,11 +39,7 @@ final class ProviderCore: @unchecked Sendable {
         self.client = APIClient(baseURL: url, deviceToken: token)
     }
 
-    struct Delta {
-        var updated: [String] = []
-        var deleted: [String] = []
-        var cursor: Int64
-    }
+    typealias Delta = ChangeDelta
 
     // Pull every change after `since` into the index and say which nodes moved. The app
     // may have applied the same pages already (it listens to the server's event stream);
@@ -54,9 +50,7 @@ final class ProviderCore: @unchecked Sendable {
         while true {
             let page = try await mapErrors { try await client.changes(since: cursor, limit: 500) }
             try index.apply(page.changes)
-            for ch in page.changes {
-                if ch.deleted { delta.deleted.append(ch.nodeID) } else { delta.updated.append(ch.nodeID) }
-            }
+            delta.record(page.changes)
             cursor = page.cursor
             if !page.hasMore { break }
         }

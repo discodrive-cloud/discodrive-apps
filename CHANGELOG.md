@@ -32,6 +32,16 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- macOS and iOS apps: outgoing account operations are cancelled and drained before
+  replacing local state. Late downloads and imports cannot alter the next account's
+  files, and stale results cannot repopulate its interface.
+- macOS app: logout waits for the main Finder domain as well as vault domains to be
+  removed, including registrations already in progress. A failed removal keeps the
+  account signed in and explains the failure.
+- macOS Finder extension: change pages are reduced to the last event per node, so a
+  file restored during one delta is not reported as deleted afterwards. Remote-change
+  notifications also reach every open vault domain.
+
 - macOS vaults: long file and folder names claim the same encrypted name before a
   create, rename or move, so a late collision between different entry types keeps both
   originals. Failed conflict-copy removals are retried after restart; their server names
