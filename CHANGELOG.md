@@ -32,6 +32,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- macOS vaults: long file and folder names claim the same encrypted name before a
+  create, rename or move, so a late collision between different entry types keeps both
+  originals. Failed conflict-copy removals are retried after restart; their server names
+  no longer prevent listing the rest of a vault directory.
+- macOS Finder extension: deleted vault-directory mappings remain available to lagging
+  enumerators instead of being discarded when another enumerator advances its anchor.
+- macOS app: quitting is cancelled with an explanation if vault domains cannot be
+  closed. Spanish and German messages use formal address.
+
 - macOS app: "database is locked" between the app and the Finder extension, which share
   the index. Writes now take their lock up front and resolve folder parents for the rows
   they touched rather than for the whole tree.
@@ -67,6 +76,26 @@ All notable changes to this project are documented in this file.
 
 - macOS and iOS apps: a downloaded file removed from the local folder by hand is
   downloaded again when opened, instead of nothing happening.
+
+- macOS and iOS apps: creating a vault under a name that is already taken is refused.
+  It used to write new keys into the existing folder — over another vault's, whose
+  contents then no longer opened. The new vault's files are also sent as "create only if
+  absent", so a name taken a moment before fails the creation instead.
+
+- macOS app: logging out closes the vaults open in Finder before anything else; their
+  locations, keys and decrypted files used to stay, showing the old account's files. If a
+  vault cannot be closed the logout does not happen, and the window says so.
+
+- macOS Finder extension: a new file never replaces one another device put under the same
+  name a moment earlier; the server keeps both. Renaming or moving a vault entry onto a
+  taken name is refused and Finder asks what to do — a folder written over another used to
+  leave everything under the old one out of reach. The refusal holds when the name is
+  taken by another device at that very moment: the destination is written only if absent. A vault folder deleted elsewhere
+  disappears from Finder.
+
+- macOS app and Finder extension, which share the index: a page of changes fetched earlier
+  and applied late no longer puts an older version back or revives a deleted file, and
+  Finder is not handed a position past changes it was never told about.
 
 - macOS and iOS apps: removing a folder named with `_` or `%` on the server no longer
   drops similarly named folders' files from the local list (`a_` took `ab/…` with it).
