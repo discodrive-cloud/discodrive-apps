@@ -40,6 +40,37 @@ All notable changes to this project are documented in this file.
   system sends those after a reimport) answers with the server's item instead of
   uploading an empty file over it.
 
+- macOS Finder extension: the same inside an open vault, where such a request still wrote
+  over the entry — an empty file over an existing one, or a fresh directory id over a
+  folder, which put everything under the old one out of reach.
+
+- macOS Finder extension: saving from Finder is guarded by the version the file was
+  actually edited from, not by whatever the index held at the time. An edit of a version
+  the server has since replaced is filed as a conflict copy next to the newer one instead
+  of landing over it; so is an edit whose base cannot be told. A downloaded file is
+  reported as the version its bytes are, checked by their hash. Because a file's version
+  now travels with its contents, Finder may fetch a file again after a rename or a move.
+
+- macOS Finder extension: files added or changed elsewhere show up inside an open vault;
+  the lookup of which vault folder a change belongs to never matched. Files with long
+  names there show their real size and follow remote edits.
+
+- macOS app: importing from the local folder no longer sends downloaded copies back up.
+  Every copy counted as new, and was uploaded over the server's file with no version
+  check whenever the window came forward, so an old copy could replace another device's
+  changes. Only files that are not downloads are imported now — a copy of a file since
+  deleted or renamed on the server is still a copy — only after the index is up to date,
+  and never over a name taken meanwhile: both files are kept.
+
+- macOS and iOS apps: a pinned file stays pinned when a newer version of it is
+  downloaded by opening it; "Free up space" used to remove it after that.
+
+- macOS and iOS apps: a downloaded file removed from the local folder by hand is
+  downloaded again when opened, instead of nothing happening.
+
+- macOS and iOS apps: removing a folder named with `_` or `%` on the server no longer
+  drops similarly named folders' files from the local list (`a_` took `ab/…` with it).
+
 ## 0.0.6
 
 ### Added
