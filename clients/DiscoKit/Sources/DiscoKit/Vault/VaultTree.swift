@@ -10,6 +10,10 @@ public protocol VaultFileSource: Sendable {
 public protocol VaultFileSink: Sendable {
     func makeDir(_ relPath: String) async throws
     func writeFile(_ relPath: String, _ data: Data) async throws
+    /// Writes a file that must not be there yet, and throws `Vault.VaultError.nameTaken`
+    /// without touching what is when it is. The check and the write are one step on the
+    /// sink's side: a name looked up first and written after can be taken in between.
+    func createFile(_ relPath: String, _ data: Data) async throws
     func remove(_ relPath: String) async throws
 }
 
@@ -49,6 +53,9 @@ extension Vault {
         var out = [VaultEntry]()
         for e in try await source.listDir(storage) {
             if e.name == "dirid.c9r" { continue }
+            // A server conflict name is not an encrypted entry. Keep the rest of the
+            // directory readable while its queued removal is retried, even on another device.
+            if e.name.contains(" (conflict, ") { continue }
             let entryPath = storage + "/" + e.name
 
             if e.name.hasSuffix(".c9s") && e.isDir {
@@ -105,6 +112,12 @@ public struct LocalVaultIO: VaultFileSource, VaultFileSink {
         let url = root.appendingPathComponent(relPath)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url)
+    }
+    public func createFile(_ relPath: String, _ data: Data) async throws {
+        let url = root.appendingPathComponent(relPath)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do { try data.write(to: url, options: .withoutOverwriting) }
+        catch CocoaError.fileWriteFileExists { throw Vault.VaultError.nameTaken(relPath) }
     }
     public func remove(_ relPath: String) async throws {
         try FileManager.default.removeItem(at: root.appendingPathComponent(relPath))

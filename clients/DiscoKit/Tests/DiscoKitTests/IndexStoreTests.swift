@@ -76,4 +76,41 @@ final class IndexStoreTests: XCTestCase {
         XCTAssertEqual(IndexStore.normalize("/a/b/"), "a/b")
         XCTAssertEqual(IndexStore.normalize(""), "")
     }
+    // MARK: - Two processes, one index
+
+    private func change(_ seq: Int64, _ id: String, _ path: String, version: Int64, deleted: Bool = false) -> RemoteChange {
+        RemoteChange(seq: seq, op: deleted ? "del" : "put", nodeID: id, path: path, isDir: false,
+                     version: version, contentHash: "h\(version)", size: 0, deleted: deleted)
+    }
+
+    func testALatePageDoesNotPutAnOlderVersionBack() throws {
+        // The app has applied v2 (seq 101); the extension then applies the page it fetched
+        // earlier, which still says v1.
+        let store = try IndexStore(dbQueue: DatabaseQueue())
+        try store.apply([change(100, "f", "a.txt", version: 1), change(101, "f", "a.txt", version: 2)])
+        try store.apply([change(100, "f", "a.txt", version: 1)])
+        XCTAssertEqual(try store.node(id: "f")?.version, 2)
+        XCTAssertEqual(try store.cursor(), 101)
+    }
+
+    func testALatePageDoesNotBringBackADeletedNodeNorDeleteARestoredOne() throws {
+        let store = try IndexStore(dbQueue: DatabaseQueue())
+        try store.apply([change(10, "f", "a.txt", version: 1), change(11, "f", "a.txt", version: 2, deleted: true)])
+        try store.apply([change(10, "f", "a.txt", version: 1)])
+        XCTAssertNil(try store.node(id: "f"), "deleted stays deleted")
+        try store.apply([change(12, "f", "a.txt", version: 3)])   // restored from the trash
+        try store.apply([change(11, "f", "a.txt", version: 2, deleted: true)])
+        XCTAssertEqual(try store.node(id: "f")?.version, 3, "and restored stays restored")
+    }
+
+    func testTheCursorMovesWithTheRowsItCovers() throws {
+        // In one transaction: between a page's rows and its cursor there is no moment at
+        // which the other process could take the rows for unapplied.
+        let store = try IndexStore(dbQueue: DatabaseQueue())
+        try store.apply([change(5, "f", "a.txt", version: 1)])
+        XCTAssertEqual(try store.cursor(), 5)
+        try store.apply([])
+        try store.setCursor(3)
+        XCTAssertEqual(try store.cursor(), 5, "and never backwards")
+    }
 }

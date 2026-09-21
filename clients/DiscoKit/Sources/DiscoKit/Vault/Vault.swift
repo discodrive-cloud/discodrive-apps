@@ -14,6 +14,8 @@ public final class Vault: Sendable {
 
     public enum VaultError: Error, Equatable {
         case wrongPassword, badMasterkey, badVaultFile, unsupported(String)
+        /// A rename or move onto a name the directory already holds.
+        case nameTaken(String)
     }
 
     /// The unwrapped keys as 64 bytes (encryption key, then MAC key): what the app hands to

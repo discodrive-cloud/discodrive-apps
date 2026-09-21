@@ -8,10 +8,16 @@ struct ServerVaultIO: VaultFileSource, VaultFileSink {
     let vaultRoot: String
     let index: IndexStore
     let client: APIClient
+    // Creating a vault: every file is new, and one that turns out to exist is somebody
+    // else's — the write fails rather than replace it.
+    var createOnly = false
 
     private func full(_ rel: String) -> String { rel.isEmpty ? vaultRoot : vaultRoot + "/" + rel }
 
+    private var conflictCleanup: VaultConflictCleanup { VaultConflictCleanup(index: index) }
+
     func listDir(_ relPath: String) async throws -> [(name: String, isDir: Bool)] {
+        try await conflictCleanup.retry { try await client.delete(nodeID: $0) }
         guard let node = try index.node(atPath: full(relPath)) else { return [] }
         return (try index.children(of: node.id)).map { ($0.name, $0.isDir) }
     }
@@ -33,9 +39,29 @@ struct ServerVaultIO: VaultFileSource, VaultFileSink {
     }
 
     func writeFile(_ relPath: String, _ data: Data) async throws {
+        if createOnly { return try await createFile(relPath, data) }
         let parent = (relPath as NSString).deletingLastPathComponent
         if !parent.isEmpty { try await makeDir(parent) }
         try await client.upload(data: data, relPath: full(relPath))
+    }
+
+    // Base version 0 matches no existing file: the server creates the file, or keeps the one
+    // that is there and files ours beside it as a conflict copy. That copy is removed again
+    // — in a vault's storage it is a name nobody can decrypt — and the write fails.
+    func createFile(_ relPath: String, _ data: Data) async throws {
+        let parent = (relPath as NSString).deletingLastPathComponent
+        if !parent.isEmpty { try await makeDir(parent) }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("ddk-vault-\(UUID().uuidString)")
+        try data.write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let outcome = try await client.upload(fileURL: tmp, relPath: full(relPath), modifiedAt: nil,
+                                              baseVersion: ContentVersionCodec.unknownBase)
+        guard outcome.conflicted else { return }
+        if !outcome.nodeID.isEmpty {
+            try index.queueVaultConflictRemoval(nodeID: outcome.nodeID)
+            try await conflictCleanup.retry { try await client.delete(nodeID: $0) }
+        }
+        throw Vault.VaultError.nameTaken(full(relPath))
     }
 
     func remove(_ relPath: String) async throws {

@@ -74,7 +74,7 @@ final class AppState: ObservableObject {
         // DISCODRIVE_TEST_REPAIR=1 drops the current pairing first, so a test run can move
         // the app to the test account without driving the log-out button.
         if paired, ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1",
-           ProcessInfo.processInfo.environment["DISCODRIVE_TEST_TOKEN"] != nil { logout() }
+           ProcessInfo.processInfo.environment["DISCODRIVE_TEST_TOKEN"] != nil { finishLogout() }   // at once: the pairing below follows
         #endif
         guard !paired else { return }
         #if DEBUG
@@ -163,7 +163,28 @@ final class AppState: ObservableObject {
 
     // Sign out: disconnect from the server (clear token/URL), return to the pairing screen.
     // Local cached files and the on-disk index are left intact.
+    //
+    // What must be over before the account's state goes — on macOS, closing the vaults open
+    // in Finder: their domains, keys and decrypted files belong to the account being left.
+    // False means it is not over; the logout then does not happen, because what it would
+    // leave behind — an extension still holding the keys and a client — is the very
+    // thing logging out is for.
+    var beforeLogout: (() async -> Bool)?
+
     func logout() {
+        guard paired else { return }
+        vaultSession = nil
+        Task {
+            if let beforeLogout, await !beforeLogout() {
+                Self.log.error("logout held back: open vaults could not be closed")
+                statusText = t("logout.vaultsStillOpen"); lastError = statusText
+                return
+            }
+            finishLogout()
+        }
+    }
+
+    private func finishLogout() {
         stopLiveUpdates()
         KeychainToken.delete(service: KeychainToken.tokenService)
         KeychainToken.delete(service: KeychainToken.serverService)
@@ -505,9 +526,19 @@ final class AppState: ObservableObject {
     func createVault(name: String, inFolderPath: String, password: String) async {
         guard let index, let client, !name.isEmpty, !password.isEmpty else { return }
         let vaultPath = inFolderPath + "/" + name
-        try? await client.createDir(relPath: vaultPath)
-        let io = ServerVaultIO(vaultRoot: vaultPath, index: index, client: client)
+        // A vault is new keys: written into a folder that already is one, they replace its
+        // masterkey and everything in it stops opening. The name must be free — by an
+        // index that is current — and the files go up as "create only if absent", so a
+        // name taken in the meantime fails the creation instead of being written over.
+        guard await refresh() else { statusText = t("vault.createError"); lastError = statusText; return }
+        guard ((try? index.node(atPath: vaultPath)) ?? nil) == nil else {
+            statusText = "\(t("vault.createError")): \(t("vault.nameTaken"))"
+            lastError = statusText
+            return
+        }
         do {
+            try await client.createDir(relPath: vaultPath)
+            let io = ServerVaultIO(vaultRoot: vaultPath, index: index, client: client, createOnly: true)
             let vault = try await Vault.create(sink: io, password: password)
             vaultRecoveryToShow = vault.recoveryKey()
             await refresh()

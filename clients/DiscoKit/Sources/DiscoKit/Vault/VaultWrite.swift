@@ -55,18 +55,35 @@ extension Vault {
     }
 
     // Add a file to a vault directory (parentDirID, "" = root).
-    public func addFile(name: String, data: Data, parentDirID: String, sink: VaultFileSink) async throws {
+    //
+    // `createOnly`: the name must be free — a new file, or the destination of a rename or
+    // move. The contents are then written as "create, or fail": looking the name up first
+    // is not enough, another client can take it between the look and the write.
+    public func addFile(name: String, data: Data, parentDirID: String, sink: VaultFileSink, createOnly: Bool = false) async throws {
         let storage = dirIdHash(parentDirID)
         let encName = encryptName(name, parentDirID: parentDirID)
         let content = try encryptContent(data)
+        let path: String
         if encName.count > shorteningThreshold {
             let base = storage + "/" + shortenedName(encName)
+            // Both entry types claim this same file before writing their different payloads.
             try await sink.makeDir(base)
-            try await sink.writeFile(base + "/name.c9s", Data(encName.utf8))
-            try await sink.writeFile(base + "/contents.c9r", content)
+            if createOnly {
+                try await creating(name) { try await sink.createFile(base + "/name.c9s", Data(encName.utf8)) }
+            } else {
+                try await sink.writeFile(base + "/name.c9s", Data(encName.utf8))
+            }
+            path = base + "/contents.c9r"
         } else {
-            try await sink.writeFile(storage + "/" + encName, content)
+            path = storage + "/" + encName
         }
+        guard createOnly else { try await sink.writeFile(path, content); return }
+        try await creating(name) { try await sink.createFile(path, content) }
+    }
+
+    // The sink names the ciphertext path that was taken; callers know the entry by its name.
+    private func creating(_ name: String, _ write: () async throws -> Void) async throws {
+        do { try await write() } catch VaultError.nameTaken { throw VaultError.nameTaken(name) }
     }
 
     // Create a subdirectory and return its dirID.
@@ -79,12 +96,13 @@ extension Vault {
         if encName.count > shorteningThreshold {
             base = storage + "/" + shortenedName(encName)
             try await sink.makeDir(base)
-            try await sink.writeFile(base + "/name.c9s", Data(encName.utf8))
+            try await creating(name) { try await sink.createFile(base + "/name.c9s", Data(encName.utf8)) }
         } else {
             base = storage + "/" + encName
             try await sink.makeDir(base)
         }
-        try await sink.writeFile(base + "/dir.c9r", Data(subDirID.utf8))
+        // A folder that appeared under this name meanwhile keeps its directory id.
+        try await creating(name) { try await sink.createFile(base + "/dir.c9r", Data(subDirID.utf8)) }
         // Storage location for the new directory.
         let subStorage = dirIdHash(subDirID)
         try await sink.makeDir(subStorage)
@@ -118,15 +136,26 @@ extension Vault {
             try await renameEntry(entry, to: name, parentDirID: parentDirID, source: source, sink: sink)
             return
         }
+        try await refuseTakenName(name, in: newParentDirID, source: source)
         if entry.isDir, let subDirID = entry.dirID {
             try await writeDirWrapper(name: name, subDirID: subDirID, parentDirID: newParentDirID, sink: sink)
         } else if let cp = entry.contentPath {
             let data = try await decryptFile(at: cp, source: source)
-            try await addFile(name: name, data: data, parentDirID: newParentDirID, sink: sink)
+            try await addFile(name: name, data: data, parentDirID: newParentDirID, sink: sink, createOnly: true)
         } else {
             return
         }
+        // Only now, with the destination written and known to be ours.
         try await sink.remove(entry.encPath)
+    }
+
+    // An entry is written by name, over whatever bears it: a file's contents would be
+    // replaced, and a folder's dir.c9r pointed at another directory id — everything under
+    // the old one still stored, and out of reach. A taken name is refused instead.
+    private func refuseTakenName(_ name: String, in dirID: String, source: VaultFileSource) async throws {
+        if try await listEntries(dirID: dirID, source: source).contains(where: { $0.name == name }) {
+            throw VaultError.nameTaken(name)
+        }
     }
 
     // The .c9r (or .c9s) wrapper that points a name in `parentDirID` at an existing subdirectory.
@@ -137,37 +166,28 @@ extension Vault {
         if enc.count > shorteningThreshold {
             base = storage + "/" + shortenedName(enc)
             try await sink.makeDir(base)
-            try await sink.writeFile(base + "/name.c9s", Data(enc.utf8))
+            try await creating(name) { try await sink.createFile(base + "/name.c9s", Data(enc.utf8)) }
         } else {
             base = storage + "/" + enc
             try await sink.makeDir(base)
         }
-        try await sink.writeFile(base + "/dir.c9r", Data(subDirID.utf8))
+        // Over an existing dir.c9r this would point the name at the moved directory and
+        // leave everything under the one it named out of reach.
+        try await creating(name) { try await sink.createFile(base + "/dir.c9r", Data(subDirID.utf8)) }
     }
 
     // Rename an entry within the same directory.
     public func renameEntry(_ entry: VaultEntry, to newName: String, parentDirID: String,
                             source: VaultFileSource, sink: VaultFileSink) async throws {
         guard !newName.isEmpty, newName != entry.name else { return }
-        let storage = dirIdHash(parentDirID)
-        let newEnc = encryptName(newName, parentDirID: parentDirID)
+        try await refuseTakenName(newName, in: parentDirID, source: source)
         if entry.isDir, let subDirID = entry.dirID {
-            // New wrapper with the same subDirID; subtree storage is untouched. Remove the old wrapper.
-            let base: String
-            if newEnc.count > shorteningThreshold {
-                base = storage + "/" + shortenedName(newEnc)
-                try await sink.makeDir(base)
-                try await sink.writeFile(base + "/name.c9s", Data(newEnc.utf8))
-            } else {
-                base = storage + "/" + newEnc
-                try await sink.makeDir(base)
-            }
-            try await sink.writeFile(base + "/dir.c9r", Data(subDirID.utf8))
+            try await writeDirWrapper(name: newName, subDirID: subDirID, parentDirID: parentDirID, sink: sink)
             try await sink.remove(entry.encPath)
         } else if let cp = entry.contentPath {
             // File: re-encrypt under the new name, then remove the old entry.
             let data = try await decryptFile(at: cp, source: source)
-            try await addFile(name: newName, data: data, parentDirID: parentDirID, sink: sink)
+            try await addFile(name: newName, data: data, parentDirID: parentDirID, sink: sink, createOnly: true)
             try await sink.remove(entry.encPath)
         }
     }

@@ -35,17 +35,35 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
                 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
                 CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
                 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS vault_conflict_cleanup(
+                  node_id TEXT PRIMARY KEY
+                );
                 CREATE TABLE IF NOT EXISTS vault_dirs(
                   vault_id TEXT NOT NULL, dir_id TEXT NOT NULL, parent_dir_id TEXT NOT NULL,
                   name TEXT NOT NULL, entry_node_id TEXT NOT NULL,
                   PRIMARY KEY(vault_id, dir_id)
                 );
             """)
+            // 0: the directory is there. Otherwise the cursor as of which it was found gone.
+            if try !db.columns(in: "vault_dirs").contains(where: { $0.name == "gone_at" }) {
+                try db.execute(sql: "ALTER TABLE vault_dirs ADD COLUMN gone_at INTEGER NOT NULL DEFAULT 0")
+            }
         }
     }
 
+    // The app and the File Provider extension both apply change pages to this database, each
+    // at its own pace. A page one of them fetched a while ago must not undo what the other
+    // has applied since — put v1 back over v2, or bring back a node deleted meanwhile. The
+    // cursor settles it: it is the sequence number everything up to which is in the index,
+    // and it moves in the same transaction as the rows, so a change at or below it has been
+    // applied already, by someone, and is skipped whatever it says.
     public func apply(_ changes: [RemoteChange]) throws {
         try dbQueue.write { db in
+            let applied = (try String.fetchOne(db, sql: "SELECT value FROM meta WHERE key='cursor'")).flatMap(Int64.init) ?? 0
+            let changes = changes.filter { $0.seq > applied }
+            guard let last = changes.map(\.seq).max() else { return }
+            try db.execute(sql: "INSERT INTO meta(key,value) VALUES('cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                           arguments: [String(last)])
             for ch in changes {
                 let path = Self.normalize(ch.path)
                 if ch.deleted {
@@ -192,22 +210,61 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
             try db.execute(sql: """
                 INSERT INTO vault_dirs(vault_id, dir_id, parent_dir_id, name, entry_node_id) VALUES(?,?,?,?,?)
                 ON CONFLICT(vault_id, dir_id) DO UPDATE SET
-                  parent_dir_id=excluded.parent_dir_id, name=excluded.name, entry_node_id=excluded.entry_node_id
+                  parent_dir_id=excluded.parent_dir_id, name=excluded.name, entry_node_id=excluded.entry_node_id, gone_at=0
             """, arguments: [vault, dirID, parentDirID, name, entryNodeID])
         }
     }
 
     public func vaultDir(vault: String, dirID: String) throws -> VaultDir? {
         try dbQueue.read { db in
-            try Row.fetchOne(db, sql: "SELECT * FROM vault_dirs WHERE vault_id = ? AND dir_id = ?", arguments: [vault, dirID])
+            try Row.fetchOne(db, sql: "SELECT * FROM vault_dirs WHERE vault_id = ? AND dir_id = ? AND gone_at = 0", arguments: [vault, dirID])
                 .map { VaultDir(dirID: $0["dir_id"], parentDirID: $0["parent_dir_id"], name: $0["name"], entryNodeID: $0["entry_node_id"]) }
         }
     }
 
     public func vaultDirs(vault: String) throws -> [VaultDir] {
         try dbQueue.read { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM vault_dirs WHERE vault_id = ?", arguments: [vault])
+            try Row.fetchAll(db, sql: "SELECT * FROM vault_dirs WHERE vault_id = ? AND gone_at = 0", arguments: [vault])
                 .map { VaultDir(dirID: $0["dir_id"], parentDirID: $0["parent_dir_id"], name: $0["name"], entryNodeID: $0["entry_node_id"]) }
+        }
+    }
+
+    // A directory found gone stays in the map, marked: its id is what Finder knows it by,
+    // and nothing else leads from the deleted node back to it. The mark carries the cursor
+    // of the delta that reported it, so the same delta asked for again reports it again.
+    public func markVaultDirGone(vault: String, dirID: String, at cursor: Int64) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE vault_dirs SET gone_at = ? WHERE vault_id = ? AND dir_id = ? AND gone_at = 0",
+                           arguments: [max(cursor, 1), vault, dirID])
+        }
+    }
+
+    // Anchors belong to independent enumerators. Reading a newer anchor must not
+    // discard deletions an older enumerator still needs. Retain them until map reset.
+    public func vaultDirsGone(vault: String, since anchor: Int64 = 0) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT dir_id FROM vault_dirs WHERE vault_id = ? AND gone_at > 0 AND gone_at >= ?",
+                                arguments: [vault, anchor])
+        }
+    }
+
+    // Node ids survive vault renames. The index is scoped to one account, so any open
+    // vault can finish that account's pending cleanup after a restart or a rename.
+    public func queueVaultConflictRemoval(nodeID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "INSERT OR IGNORE INTO vault_conflict_cleanup(node_id) VALUES(?)", arguments: [nodeID])
+        }
+    }
+
+    public func pendingVaultConflictRemovals() throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT node_id FROM vault_conflict_cleanup ORDER BY node_id")
+        }
+    }
+
+    public func finishVaultConflictRemoval(nodeID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM vault_conflict_cleanup WHERE node_id = ?", arguments: [nodeID])
         }
     }
 
