@@ -20,11 +20,29 @@ public struct VaultEntry: Sendable {
     public let dirID: String?       // for a directory — the subdirectory ID
     public let contentPath: String? // for a file — relPath of the encrypted content blob
     public let encPath: String      // relPath of the encrypted entry itself (.c9r/.c9s) in storage
+
+    // The ciphertext node that carries this entry's size and version. For a file it is the
+    // content blob: under a long name that is contents.c9r inside the .c9s wrapper, and the
+    // wrapper folder itself has no size and does not change when the contents do.
+    public var nodePath: String { isDir ? encPath : (contentPath ?? encPath) }
 }
 
 let shorteningThreshold = 220
 
 extension Vault {
+    // Which of the known directories a batch of changed ciphertext paths (relative to the
+    // vault root) touches. A directory's storage folder is dirIdHash(id) — "d/XX/YYY…" —
+    // and an entry changed there is anything beneath it.
+    public func dirIDs(touchedBy relPaths: [String], knownDirIDs: [String]) -> Set<String> {
+        var byStorage: [String: String] = [dirIdHash(""): ""]
+        for id in knownDirIDs { byStorage[dirIdHash(id)] = id }
+        var out = Set<String>()
+        for rel in relPaths {
+            for (storage, dirID) in byStorage where rel.hasPrefix(storage + "/") { out.insert(dirID) }
+        }
+        return out
+    }
+
     // List decrypted entries of a directory. Port of decrypt.go (decryptDir).
     public func listEntries(dirID: String, source: VaultFileSource) async throws -> [VaultEntry] {
         let storage = dirIdHash(dirID)

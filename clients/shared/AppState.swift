@@ -249,10 +249,13 @@ final class AppState: ObservableObject {
         #endif
     }
 
-    func refresh() async {
+    // True when the index now holds what the server said; false when the pull failed or
+    // another one was already running.
+    @discardableResult
+    func refresh() async -> Bool {
         guard let client, let index, !refreshing else {
             Self.log.notice("refresh skipped (client=\(self.client == nil ? 0 : 1) index=\(self.index == nil ? 0 : 1) refreshing=\(self.refreshing))")
-            return
+            return false
         }
         refreshing = true; defer { refreshing = false }
         syncStatus = .syncing
@@ -276,6 +279,7 @@ final class AppState: ObservableObject {
             syncStatus = .idle
             Self.log.notice("refreshed: \(self.tree.count) root folders, cursor \(cursor)")
             onRemoteChange?()
+            return true
         } catch {
             // The full error goes to the log; the window gets a plain reason only when
             // there is one worth reading. A hiccup in the shared index or a dropped
@@ -289,6 +293,7 @@ final class AppState: ObservableObject {
             case .rejected, .unexplained:
                 syncStatus = .idle
             }
+            return false
         }
     }
 
@@ -556,42 +561,72 @@ final class AppState: ObservableObject {
 
     @Published var importing = false
 
-    // Import: files the user placed in the local folder themselves (not yet in the index)
-    // are uploaded to the server. After a refresh they appear in the index and won't be re-uploaded.
+    // Import: files the user placed in the local folder themselves are uploaded to the server.
+    //
+    // What counts as the user's own is decided by the local store, not by the server index:
+    // a file no local copy is registered at. A registered copy is never new — not when the
+    // server has since deleted or renamed the file, which the index alone would read as
+    // "not on the server yet" and send a stale cache back up.
     func importLocalFiles() async {
         guard let local, let index, let client, !importing else { return }
         importing = true; defer { importing = false }
-        let fm = FileManager.default
-        // Resolve symlinks: the enumerator returns /private/var/…, but contentDirectory is /var/… (a symlink).
-        let basePath = local.contentDirectory.resolvingSymlinksInPath().path
-        guard let en = fm.enumerator(at: local.contentDirectory, includingPropertiesForKeys: [.isRegularFileKey],
-                                     options: [.skipsHiddenFiles]) else { return }
-        var newFiles: [(url: URL, rel: String)] = []
-        for url in en.allObjects.compactMap({ $0 as? URL }) {
-            var isDir: ObjCBool = false
-            _ = fm.fileExists(atPath: url.path, isDirectory: &isDir)
-            if isDir.boolValue { continue }
-            let path = url.resolvingSymlinksInPath().path
-            guard path.hasPrefix(basePath) else { continue }
-            var rel = String(path.dropFirst(basePath.count))
-            if !rel.hasPrefix("/") { rel = "/" + rel }
-            if ((try? index.node(atPath: rel)) ?? nil) != nil { continue }   // already on server
-            newFiles.append((url, rel))
-        }
-        guard !newFiles.isEmpty else { return }
-        for f in newFiles {
+        // Nothing unclaimed and no copy still owed its server name is the usual case, and
+        // costs no round trip.
+        let seen = (try? local.unregisteredFiles()) ?? []
+        let owed = (try? local.copiesAwaitingServerName()) ?? []
+        guard !seen.isEmpty || !owed.isEmpty else { return }
+        // Only against an index that is known to be current: a failed or skipped pull
+        // leaves this for the next activation. Then look again — a download that finished
+        // meanwhile has claimed its file.
+        guard await refresh() else { return }
+        settleImportedNames()
+        let candidates = (try? local.unregisteredFiles()) ?? []
+        var unnamed: [(file: LocalStore.UnregisteredFile, stamp: LocalStore.FileStamp)] = []
+        var uploadedAny = false
+        for f in candidates {
+            // An upload takes a while, and a download of this very path may have finished
+            // during the ones before it: what is a registered copy by now is not imported.
+            guard (try? local.isStillUnregistered(f)) == true, let stamp = local.stamp(of: f.url) else { continue }
             do {
-                try await client.uploadFile(relPath: f.rel, fileURL: f.url,
-                                            modifiedAt: APIClient.contentModificationDate(of: f.url))
+                // "Create only if absent": whatever the index says, another client may have
+                // taken the name a moment ago. Base version 0 matches no existing file, so
+                // the server then keeps theirs and files ours beside it as a conflict copy.
+                let outcome = try await client.upload(fileURL: f.url, relPath: f.relPath,
+                                                      modifiedAt: APIClient.contentModificationDate(of: f.url),
+                                                      baseVersion: ContentVersionCodec.unknownBase)
+                uploadedAny = true
+                // Claimed the moment the server has it, as the node and version the server
+                // said it became — not after the refresh below, which may fail and would
+                // leave the file to be uploaded again, and not as whatever version the
+                // index holds by then, which may be someone else's later edit. A conflict
+                // copy has another name on the server; the row remembers it is owed one.
+                //
+                // Only if the file at the path is still the one that was sent: a download
+                // of this path during the upload leaves its own, registered, file there.
+                if outcome.nodeID.isEmpty { unnamed.append((f, stamp)); continue }
+                try? local.adoptUploaded(f, uploadedAs: stamp, nodeID: outcome.nodeID, version: outcome.version,
+                                         awaitingServerName: outcome.conflicted)
             } catch { fail("status.uploadError", error) }
         }
-        await refresh()
-        // Register uploaded files as local copies (show them as cached, skip re-downloading).
-        for f in newFiles {
-            if let node = try? index.node(atPath: f.rel) {
-                try? local.registerExisting(nodeID: node.id, version: node.version, relPath: f.rel)
+        guard uploadedAny else { revision += 1; return }
+        if await refresh() {
+            settleImportedNames()
+            // The server did not say what the upload became: the index is all there is.
+            for (f, stamp) in unnamed {
+                guard let node = try? index.node(atPath: f.relPath) else { continue }
+                try? local.adoptUploaded(f, uploadedAs: stamp, nodeID: node.id, version: node.version)
             }
         }
         revision += 1
+    }
+
+    // Conflict copies the import registered under the name they were dropped in as take the
+    // name the server gave them. Call only right after a successful refresh: a node the
+    // index does not hold then is gone, not merely not heard of yet.
+    private func settleImportedNames() {
+        guard let local, let index else { return }
+        for id in (try? local.copiesAwaitingServerName()) ?? [] {
+            try? local.settleName(nodeID: id, serverPath: (try? index.node(id: id))?.path)
+        }
     }
 }

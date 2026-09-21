@@ -142,4 +142,32 @@ final class VaultInFinderTests: XCTestCase {
         XCTAssertEqual(q[kSecAttrAccount as String] as? String, "node-1")
         XCTAssertEqual(q[kSecAttrAccessGroup as String] as? String, "TEAM.grp")
     }
+    // MARK: - Review fixes
+
+    func testChangedCiphertextPathsNameTheDirectoriesTheyAreIn() {
+        // dirIdHash already starts with "d/": the lookup used to prepend a second one and
+        // matched nothing, so Finder never heard about changes inside an open vault.
+        let v = Vault(encKey: [UInt8](repeating: 0x11, count: 32), macKey: [UInt8](repeating: 0x22, count: 32))
+        XCTAssertTrue(v.dirIdHash("").hasPrefix("d/"))
+        let changed = [v.dirIdHash("") + "/abc.c9r", v.dirIdHash("sub-1") + "/long.c9s/contents.c9r", "masterkey.cryptomator"]
+        XCTAssertEqual(v.dirIDs(touchedBy: changed, knownDirIDs: ["sub-1", "sub-2"]), ["", "sub-1"])
+        XCTAssertEqual(v.dirIDs(touchedBy: [v.dirIdHash("unknown") + "/x.c9r"], knownDirIDs: ["sub-1"]), [])
+    }
+
+    func testALongNamedFileTakesSizeAndVersionFromItsContents() async throws {
+        let v = Vault(encKey: [UInt8](repeating: 0x11, count: 32), macKey: [UInt8](repeating: 0x22, count: 32))
+        let io = MemoryVaultIO()
+        let long = String(repeating: "n", count: 200) + ".txt"
+        try await v.addFile(name: long, data: Data("x".utf8), parentDirID: "", sink: io)
+        try await v.addFile(name: "short.txt", data: Data("y".utf8), parentDirID: "", sink: io)
+        try await v.createFolder(name: "folder", parentDirID: "", sink: io)
+        let entries = try await v.listEntries(dirID: "", source: io)
+        let longEntry = try XCTUnwrap(entries.first { $0.name == long })
+        XCTAssertTrue(longEntry.encPath.hasSuffix(".c9s"))
+        XCTAssertEqual(longEntry.nodePath, longEntry.encPath + "/contents.c9r", "not the wrapper folder: it has no size and never changes")
+        let short = try XCTUnwrap(entries.first { $0.name == "short.txt" })
+        XCTAssertEqual(short.nodePath, short.encPath)
+        let folder = try XCTUnwrap(entries.first { $0.name == "folder" })
+        XCTAssertEqual(folder.nodePath, folder.encPath)
+    }
 }

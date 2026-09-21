@@ -26,15 +26,92 @@ final class FileProviderMappingTests: XCTestCase {
         XCTAssertEqual(info.parentIdentifier, "d")
     }
 
-    func testVersionsFollowContentHashAndMetadata() {
-        // The system re-downloads when contentVersion changes and re-reads metadata when
-        // metadataVersion changes; a rename must bump the latter but not the former.
+    func testVersionsFollowContentAndMetadata() {
+        // The system re-reads metadata when metadataVersion changes and fetches again when
+        // contentVersion does. contentVersion names the server version next to the bytes —
+        // it is the base an edit is guarded with — so a rename, which bumps the version on
+        // the server, changes it too.
         let a = ProviderItemInfo(node: node("f", parent: nil, name: "x", version: 3, hash: "abc"))
+        let same = ProviderItemInfo(node: node("f", parent: nil, name: "x", version: 3, hash: "abc"))
         let renamed = ProviderItemInfo(node: node("f", parent: nil, name: "y", version: 4, hash: "abc"))
         let rewritten = ProviderItemInfo(node: node("f", parent: nil, name: "x", version: 5, hash: "def"))
-        XCTAssertEqual(a.contentVersion, renamed.contentVersion)
+        XCTAssertEqual(a.contentVersion, same.contentVersion)
         XCTAssertNotEqual(a.metadataVersion, renamed.metadataVersion)
+        XCTAssertNotEqual(a.contentVersion, renamed.contentVersion)
         XCTAssertNotEqual(a.contentVersion, rewritten.contentVersion)
+        XCTAssertEqual(ContentVersionCodec.decode(a.contentVersion), .init(version: 3, hash: "abc"))
+    }
+
+    // MARK: - The base version of an edit
+
+    func testContentVersionRoundTripsAndReadsTheOldFormat() {
+        XCTAssertEqual(String(decoding: ContentVersionCodec.encode(version: 7, hash: "abc"), as: UTF8.self), "v1:7:abc")
+        XCTAssertEqual(ContentVersionCodec.decode(Data("v1:7:abc".utf8)), .init(version: 7, hash: "abc"))
+        XCTAssertEqual(ContentVersionCodec.decode(Data("v1:7:".utf8)), .init(version: 7, hash: ""), "a file the server has no hash for")
+        // Before this format the value was the bare hash: readable, version unknown.
+        XCTAssertEqual(ContentVersionCodec.decode(Data("abc".utf8)), .init(version: nil, hash: "abc"))
+        for bad in ["", "v1:", "v1:x:abc", "v1:0:abc", "v1:-2:abc", "v1:7"] {
+            XCTAssertNil(ContentVersionCodec.decode(Data(bad.utf8)), bad)
+        }
+    }
+
+    func testAnEditIsGuardedByTheVersionItWasMadeFrom() {
+        // Finder edited v1 while the index already held v2: the base is 1, not 2, so the
+        // server files the edit as a conflict copy instead of laying it over v2.
+        let current = node("f", parent: nil, name: "x", version: 2, hash: "new")
+        let base = ContentVersionCodec.encode(version: 1, hash: "old")
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: base, current: current), 1)
+        // Nothing changed meanwhile.
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: ContentVersionCodec.encode(version: 2, hash: "new"), current: current), 2)
+    }
+
+    func testAnUnknownBaseIsAConflictNeverTheCurrentVersion() {
+        let current = node("f", parent: nil, name: "x", version: 2, hash: "new")
+        // An old-format base of other bytes, and one that cannot be read at all.
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: Data("old".utf8), current: current), ContentVersionCodec.unknownBase)
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: Data("v1:x:new".utf8), current: current), ContentVersionCodec.unknownBase)
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: Data(), current: current), ContentVersionCodec.unknownBase)
+        XCTAssertEqual(ContentVersionCodec.unknownBase, 0, "server versions start at 1: 0 matches no existing file")
+    }
+
+    func testTheSameBytesMayUseTheCurrentVersion() {
+        // The edited bytes are exactly what the server holds: nothing unseen to overwrite.
+        let current = node("f", parent: nil, name: "y", version: 4, hash: "abc")
+        // …a rename bumped the version under an open file,
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: ContentVersionCodec.encode(version: 3, hash: "abc"), current: current), 4)
+        // …or the item still carries the old format and the file has not changed since.
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: Data("abc".utf8), current: current), 4)
+        // No hash on either side proves nothing.
+        let unhashed = node("f", parent: nil, name: "y", version: 4, hash: "")
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: Data("v1:3:".utf8), current: unhashed), 3)
+    }
+
+    // MARK: - Downloaded bytes and the version they are reported as
+
+    func testDownloadedBytesAreCreditedToTheVersionTheyMatch() throws {
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data("hello".utf8).write(to: f)
+        let hash = try ContentHash.sha256Hex(of: f)
+        XCTAssertEqual(hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+
+        let v1 = node("f", parent: nil, name: "x", version: 1, hash: hash)
+        let v2 = node("f", parent: nil, name: "x", version: 2, hash: "other")
+        // The index moved to v2 while v1's bytes were coming down: they are still v1's.
+        XCTAssertEqual(ContentHash.owner(ofDownloaded: hash, before: v1, after: v2)?.version, 1)
+        // The server had moved on before the download started: the bytes are v2's.
+        XCTAssertEqual(ContentHash.owner(ofDownloaded: hash, before: v2, after: v1)?.version, 1)
+        // Neither: fetch again rather than put a version on bytes that are not its.
+        XCTAssertNil(ContentHash.owner(ofDownloaded: "third", before: v1, after: v2))
+        // No hash to check against: the older version, where a wrong guess is a conflict copy.
+        let unhashed = node("f", parent: nil, name: "x", version: 1, hash: "")
+        XCTAssertEqual(ContentHash.owner(ofDownloaded: hash, before: unhashed, after: v2)?.version, 1)
+    }
+
+    func testBytesThatMatchNoVersionCarryNone() {
+        let n = node("f", parent: nil, name: "x", version: 5, hash: "abc")
+        let info = ProviderItemInfo(node: n, unverifiedBytes: "zzz")
+        XCTAssertEqual(ContentVersionCodec.decode(info.contentVersion), .init(version: nil, hash: "zzz"))
+        XCTAssertEqual(ContentVersionCodec.uploadBase(editedFrom: info.contentVersion, current: n), ContentVersionCodec.unknownBase)
     }
 
     func testDirectoryHasNoContentVersionToSpeakOf() {

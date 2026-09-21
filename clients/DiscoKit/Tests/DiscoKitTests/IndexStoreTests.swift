@@ -44,4 +44,36 @@ final class IndexStoreTests: XCTestCase {
         XCTAssertNil(try store.node(id: "dir"))
         XCTAssertNil(try store.node(id: "f1"))
     }
+    func testDeletingAFolderLeavesLookalikeSiblingsAlone() throws {
+        // "_" and "%" are LIKE wildcards: deleting "a_" used to take "ab/file.txt" with it.
+        let store = try IndexStore(dbQueue: DatabaseQueue())
+        func put(_ seq: Int64, _ id: String, _ path: String, dir: Bool) -> RemoteChange {
+            RemoteChange(seq: seq, op: "put", nodeID: id, path: path, isDir: dir, version: 1, contentHash: "", size: 0, deleted: false)
+        }
+        try store.apply([
+            put(1, "d1", "a_", dir: true), put(2, "f1", "a_/own.txt", dir: false),
+            put(3, "d2", "ab", dir: true), put(4, "f2", "ab/file.txt", dir: false),
+            put(5, "d3", "50%", dir: true), put(6, "f3", "50%/x", dir: false),
+            put(7, "d4", "50 off", dir: true), put(8, "f4", "50 off/y", dir: false),
+        ])
+        try store.apply([
+            RemoteChange(seq: 9, op: "del", nodeID: "d1", path: "a_", isDir: true, version: 2, contentHash: "", size: 0, deleted: true),
+            RemoteChange(seq: 10, op: "del", nodeID: "d3", path: "50%", isDir: true, version: 2, contentHash: "", size: 0, deleted: true),
+        ])
+        XCTAssertNil(try store.node(id: "f1"), "the folder's own file goes with it")
+        XCTAssertNil(try store.node(id: "f3"))
+        XCTAssertNotNil(try store.node(id: "f2"), "ab/file.txt is not under a_")
+        XCTAssertNotNil(try store.node(id: "f4"), "\"50 off/y\" is not under \"50%\"")
+    }
+
+    func testPathsHaveOneSpellingWhateverTheCallerWrites() throws {
+        let store = try IndexStore(dbQueue: DatabaseQueue())
+        try store.apply([RemoteChange(seq: 1, op: "put", nodeID: "f", path: "docs/a.txt", isDir: false,
+                                      version: 1, contentHash: "", size: 0, deleted: false)])
+        XCTAssertEqual(try store.node(atPath: "/docs/a.txt")?.id, "f")
+        XCTAssertEqual(try store.node(atPath: "docs/a.txt")?.id, "f")
+        XCTAssertEqual(try store.node(atPath: "docs//a.txt/")?.id, "f")
+        XCTAssertEqual(IndexStore.normalize("/a/b/"), "a/b")
+        XCTAssertEqual(IndexStore.normalize(""), "")
+    }
 }

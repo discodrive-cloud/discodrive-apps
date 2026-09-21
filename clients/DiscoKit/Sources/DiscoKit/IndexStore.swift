@@ -47,25 +47,32 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
     public func apply(_ changes: [RemoteChange]) throws {
         try dbQueue.write { db in
             for ch in changes {
+                let path = Self.normalize(ch.path)
                 if ch.deleted {
-                    try db.execute(sql: "DELETE FROM nodes WHERE id = ? OR path LIKE ?",
-                                   arguments: [ch.nodeID, ch.path + "/%"])
+                    guard !path.isEmpty else {
+                        try db.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [ch.nodeID])
+                        continue
+                    }
+                    // The folder's own subtree only: "a_" must not take "ab/…" with it.
+                    try db.execute(sql: "DELETE FROM nodes WHERE id = ? OR path LIKE ? ESCAPE '\\'",
+                                   arguments: [ch.nodeID, Self.likePrefix(path) + "/%"])
                     continue
                 }
-                let name = (ch.path as NSString).lastPathComponent
+                let name = (path as NSString).lastPathComponent
                 try db.execute(sql: """
                     INSERT INTO nodes(id,parent_id,name,is_dir,version,content_hash,size,path)
                     VALUES(?,?,?,?,?,?,?,?)
                     ON CONFLICT(id) DO UPDATE SET
                       name=excluded.name, is_dir=excluded.is_dir, version=excluded.version,
                       content_hash=excluded.content_hash, size=excluded.size, path=excluded.path
-                """, arguments: [ch.nodeID, nil, name, ch.isDir, ch.version, ch.contentHash, ch.size, ch.path])
+                """, arguments: [ch.nodeID, nil, name, ch.isDir, ch.version, ch.contentHash, ch.size, path])
             }
             // Parents are resolved for the rows this batch touched, and for the children of
             // any folder it touched — not for the whole table, which held the write lock
             // for seconds per page on a large tree and starved the other process.
             for ch in changes where !ch.deleted {
-                let parentPath = (ch.path as NSString).deletingLastPathComponent
+                let path = Self.normalize(ch.path)
+                let parentPath = (path as NSString).deletingLastPathComponent
                 let pid: String? = (parentPath.isEmpty || parentPath == "/")
                     ? nil : try String.fetchOne(db, sql: "SELECT id FROM nodes WHERE path = ?", arguments: [parentPath])
                 try db.execute(sql: "UPDATE nodes SET parent_id = ? WHERE id = ?", arguments: [pid, ch.nodeID])
@@ -73,10 +80,16 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
                     // Children that arrived before their folder now have a parent to point at.
                     try db.execute(sql: """
                         UPDATE nodes SET parent_id = ? WHERE path LIKE ? ESCAPE '\\' AND path NOT LIKE ? ESCAPE '\\' AND id != ?
-                    """, arguments: [ch.nodeID, Self.likePrefix(ch.path) + "/%", Self.likePrefix(ch.path) + "/%/%", ch.nodeID])
+                    """, arguments: [ch.nodeID, Self.likePrefix(path) + "/%", Self.likePrefix(path) + "/%/%", ch.nodeID])
                 }
             }
         }
+    }
+
+    // The one spelling of a server path the index, the local copies and the import agree
+    // on: segments joined by "/", no leading or trailing slash, no empty segments.
+    public static func normalize(_ path: String) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: true).joined(separator: "/")
     }
 
     // A path as a LIKE prefix, with the pattern characters it may contain escaped.
@@ -93,7 +106,7 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
 
     public func node(atPath path: String) throws -> Node? {
         try dbQueue.read { db in
-            try Row.fetchOne(db, sql: "SELECT * FROM nodes WHERE path = ?", arguments: [path])
+            try Row.fetchOne(db, sql: "SELECT * FROM nodes WHERE path = ?", arguments: [Self.normalize(path)])
                 .map(Self.rowToNode)
         }
     }
