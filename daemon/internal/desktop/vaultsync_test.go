@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -29,8 +30,15 @@ type vaultTestServer struct {
 func (s *vaultTestServer) EnsureDir(_ context.Context, relPath string) (engine.RemoteNode, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.relToNode == nil {
+		s.relToNode = map[string]string{}
+	}
+	if id, ok := s.relToNode[relPath]; ok {
+		return engine.RemoteNode{NodeID: id, Version: 1}, nil
+	}
 	s.seq++
 	nodeID := fmt.Sprintf("dir-%d", s.seq)
+	s.relToNode[relPath] = nodeID
 	s.changes = append(s.changes, engine.Change{
 		Seq: s.seq, Op: "upsert", NodeID: nodeID, RelPath: relPath, IsDir: true, Version: 1,
 	})
@@ -49,12 +57,18 @@ func (s *vaultTestServer) PushFile(_ context.Context, relPath string, _ *int64, 
 	// rather than accumulating a second node for the same relPath.
 	if s.relToNode != nil {
 		if nodeID, ok := s.relToNode[relPath]; ok {
+			version := int64(1)
+			for _, ch := range s.changes {
+				if ch.NodeID == nodeID && ch.Version >= version {
+					version = ch.Version + 1
+				}
+			}
 			s.seq++
 			s.nodes[nodeID] = data
 			s.changes = append(s.changes, engine.Change{
-				Seq: s.seq, Op: "upsert", NodeID: nodeID, RelPath: relPath, IsDir: false, Version: 2, Size: int64(len(data)),
+				Seq: s.seq, Op: "upsert", NodeID: nodeID, RelPath: relPath, IsDir: false, Version: version, Size: int64(len(data)), ContentHash: fmt.Sprintf("%x", sha256.Sum256(data)),
 			})
-			return engine.RemoteNode{NodeID: nodeID, Version: 2}, false, nil
+			return engine.RemoteNode{NodeID: nodeID, Version: version}, false, nil
 		}
 	}
 
@@ -67,7 +81,7 @@ func (s *vaultTestServer) PushFile(_ context.Context, relPath string, _ *int64, 
 	}
 	s.relToNode[relPath] = nodeID
 	s.changes = append(s.changes, engine.Change{
-		Seq: s.seq, Op: "upsert", NodeID: nodeID, RelPath: relPath, IsDir: false, Version: 1, Size: int64(len(data)),
+		Seq: s.seq, Op: "upsert", NodeID: nodeID, RelPath: relPath, IsDir: false, Version: 1, Size: int64(len(data)), ContentHash: fmt.Sprintf("%x", sha256.Sum256(data)),
 	})
 	return engine.RemoteNode{NodeID: nodeID, Version: 1}, false, nil
 }
@@ -105,7 +119,29 @@ func (s *vaultTestServer) Changes(_ context.Context, since int64, limit int) ([]
 func (s *vaultTestServer) CreateFolder(_ context.Context, _, _ string) error { return nil }
 func (s *vaultTestServer) RenameNode(_ context.Context, _, _ string) error   { return nil }
 func (s *vaultTestServer) MoveNode(_ context.Context, _, _ string) error     { return nil }
-func (s *vaultTestServer) DeleteNode(_ context.Context, _ string) error      { return nil }
+func (s *vaultTestServer) DeleteNode(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var root string
+	for p, node := range s.relToNode {
+		if node == id {
+			root = p
+			break
+		}
+	}
+	if root == "" {
+		return nil
+	}
+	for p, node := range s.relToNode {
+		if p == root || strings.HasPrefix(p, root+"/") {
+			s.seq++
+			s.changes = append(s.changes, engine.Change{Seq: s.seq, Op: "delete", Deleted: true, NodeID: node, RelPath: p})
+			delete(s.relToNode, p)
+			delete(s.nodes, node)
+		}
+	}
+	return nil
+}
 func (s *vaultTestServer) UploadFile(_ context.Context, _, _ string, r io.Reader, _ time.Time) error {
 	_, _ = io.Copy(io.Discard, r)
 	return nil

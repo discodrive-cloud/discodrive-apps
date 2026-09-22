@@ -39,9 +39,10 @@ type Entry struct {
 // Controller wires the server, the local index, and the content cache into the
 // on-demand operations the UI calls.
 type Controller struct {
-	srv        ServerAPI
-	idx        *index.Index
-	contentDir string
+	srv           ServerAPI
+	idx           *index.Index
+	contentDir    string
+	vaultCacheDir string // optional profile-owned ciphertext cache, outside contentDir
 
 	mu       sync.Mutex
 	sessions map[string]*vaultSession // keyed by vault server relPath

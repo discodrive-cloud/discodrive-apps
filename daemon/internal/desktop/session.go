@@ -33,7 +33,10 @@ func WipeState(profileDir string) error {
 			return err
 		}
 	}
-	return os.RemoveAll(ContentDir(profileDir))
+	if err := os.RemoveAll(ContentDir(profileDir)); err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(profileDir, "vault-cache"))
 }
 
 // Open loads the profile's config and index and builds a controller backed by an
@@ -83,5 +86,7 @@ func Open(profileDir string) (*Controller, *index.Index, error) {
 		return nil, nil, err
 	}
 	srv := protocol.NewUnscoped(cfg.ServerURL, cfg.DeviceToken)
-	return NewController(srv, idx, ContentDir(profileDir)), idx, nil
+	c := NewController(srv, idx, ContentDir(profileDir))
+	c.vaultCacheDir = filepath.Join(profileDir, "vault-cache")
+	return c, idx, nil
 }

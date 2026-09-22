@@ -18,6 +18,15 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Wails vaults: detach committed plaintext before cleanup, retry cleanup without uploading
+  partial deletions, and ignore Finder's `.DS_Store` when detecting vault edits.
+
+- Wails vaults: close unchanged vaults without uploading; preserve ciphertext and directory
+  IDs, upload only changed entries, apply deletions, and retain local edits on failed saves.
+
+- Wails: reuse verified ciphertext when reopening vaults, including files uploaded on close;
+  the persistent 2 GiB cache follows server hashes and is cleared on unpair.
+
 - Vault opening: native apps read independent metadata in parallel; Wails downloads
   ciphertext with up to six requests at a time, draining workers before cleanup on failure.
 

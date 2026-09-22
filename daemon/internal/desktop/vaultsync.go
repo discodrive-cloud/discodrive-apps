@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/safepath"
 	"discodrive.org/daemon/internal/vault"
 	"discodrive.org/daemon/internal/vaultmgr"
@@ -17,11 +18,15 @@ import (
 // vaultSession records the open state of a decrypted vault so CloseVault can
 // re-encrypt the plaintext and upload it back to the server.
 type vaultSession struct {
-	vm       *vaultmgr.Manager
-	vi       vaultmgr.VaultInfo
-	tmpDir   string // local ciphertext dir (downloaded from server; re-encrypted into on Close)
-	relPath  string // server-relative vault folder
-	plainDir string // decrypted plaintext dir (for idempotent re-open)
+	vm        *vaultmgr.Manager
+	vi        vaultmgr.VaultInfo
+	tmpDir    string // local ciphertext dir (downloaded from server; re-encrypted into on Close)
+	relPath   string // server-relative vault folder
+	plainDir  string // decrypted plaintext dir (for idempotent re-open)
+	remote    map[string]index.Node
+	pending   *vaultmgr.PreparedClose
+	finishing *vaultmgr.PreparedClose
+	closing   bool
 }
 
 // VaultRef identifies a vault discovered on the server.
@@ -83,6 +88,7 @@ func (c *Controller) CloseAllVaults(ctx context.Context) error {
 // uploadTree walks localRoot and recreates it on the server under serverBase using
 // EnsureDir (directories) and PushFile (files, baseVersion nil).
 func (c *Controller) uploadTree(ctx context.Context, localRoot, serverBase string) error {
+	defer c.trimVaultCache()
 	return filepath.Walk(localRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -107,6 +113,9 @@ func (c *Controller) uploadTree(ctx context.Context, localRoot, serverBase strin
 		}
 		defer f.Close()
 		_, _, err = c.srv.PushFile(ctx, serverBase+"/"+rel, nil, f, info.ModTime())
+		if err == nil {
+			c.cacheVaultCiphertext(p)
+		}
 		return err
 	})
 }
@@ -162,12 +171,16 @@ func (c *Controller) openVaultCore(ctx context.Context, vaultRelPath string, unl
 	c.mu.Lock()
 	if s := c.sessions[vaultRelPath]; s != nil {
 		pd := s.plainDir
+		if s.closing || (s.finishing != nil && s.finishing.CleanupStarted()) {
+			c.mu.Unlock()
+			return "", fmt.Errorf("vault is being saved")
+		}
 		c.mu.Unlock()
 		return pd, nil
 	}
 	c.mu.Unlock()
 
-	vm, vi, tmp, err := c.downloadVaultCiphertext(ctx, vaultRelPath)
+	vm, vi, tmp, remote, err := c.downloadVaultSnapshot(ctx, vaultRelPath)
 	if err != nil {
 		return "", err
 	}
@@ -178,9 +191,13 @@ func (c *Controller) openVaultCore(ctx context.Context, vaultRelPath string, unl
 		return "", err
 	}
 
+	if err := vm.TrackChanges(vi); err != nil {
+		os.RemoveAll(tmp)
+		return "", err
+	}
 	// Store the open session so CloseVault can re-encrypt and upload.
 	c.mu.Lock()
-	c.sessions[vaultRelPath] = &vaultSession{vm: vm, vi: vi, tmpDir: tmp, relPath: vaultRelPath, plainDir: plainDir}
+	c.sessions[vaultRelPath] = &vaultSession{vm: vm, vi: vi, tmpDir: tmp, relPath: vaultRelPath, plainDir: plainDir, remote: remote}
 	c.mu.Unlock()
 
 	return plainDir, nil
@@ -190,26 +207,35 @@ func (c *Controller) openVaultCore(ctx context.Context, vaultRelPath string, unl
 // subtree into a fresh temp dir, returning a vaultmgr for it. The temp dir is removed
 // on error; otherwise the caller owns it (stored in the session).
 func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath string) (*vaultmgr.Manager, vaultmgr.VaultInfo, string, error) {
+	vm, vi, dir, _, err := c.downloadVaultSnapshot(ctx, vaultRelPath)
+	return vm, vi, dir, err
+}
+
+// Capture the same index snapshot used for downloads. Reading the index again
+// after decryption could adopt a newer version for older local bytes.
+func (c *Controller) downloadVaultSnapshot(ctx context.Context, vaultRelPath string) (*vaultmgr.Manager, vaultmgr.VaultInfo, string, map[string]index.Node, error) {
+	defer c.trimVaultCache()
 	// Sync the index first so we download the CURRENT vault contents (e.g. files added
 	// from the web client or just-created), not a stale snapshot.
 	if _, err := c.Refresh(ctx); err != nil {
-		return nil, vaultmgr.VaultInfo{}, "", err
+		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
 
 	tmp, err := os.MkdirTemp("", "ddvopen-")
 	if err != nil {
-		return nil, vaultmgr.VaultInfo{}, "", err
+		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
 
 	nodes, err := c.idx.All()
 	if err != nil {
 		os.RemoveAll(tmp)
-		return nil, vaultmgr.VaultInfo{}, "", err
+		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
 
-	type download struct{ nodeID, localPath string }
+	type download struct{ nodeID, localPath, hash string }
 	var downloads []download
 	prefix := vaultRelPath + "/"
+	remote := map[string]index.Node{}
 	for _, n := range nodes {
 		if n.RelPath != vaultRelPath && !strings.HasPrefix(n.RelPath, prefix) {
 			continue
@@ -220,6 +246,7 @@ func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath s
 			rel = "."
 		} else {
 			rel = n.RelPath[len(prefix):]
+			remote[rel] = n
 		}
 
 		// rel derives from the server's RelPath; contain it to the per-open temp dir
@@ -228,19 +255,19 @@ func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath s
 		localPath, err := safepath.Join(tmp, rel)
 		if err != nil {
 			os.RemoveAll(tmp)
-			return nil, vaultmgr.VaultInfo{}, "", err
+			return nil, vaultmgr.VaultInfo{}, "", nil, err
 		}
 		if n.IsDir {
 			if err := os.MkdirAll(localPath, 0o755); err != nil {
 				os.RemoveAll(tmp)
-				return nil, vaultmgr.VaultInfo{}, "", err
+				return nil, vaultmgr.VaultInfo{}, "", nil, err
 			}
 		} else {
 			if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 				os.RemoveAll(tmp)
-				return nil, vaultmgr.VaultInfo{}, "", err
+				return nil, vaultmgr.VaultInfo{}, "", nil, err
 			}
-			downloads = append(downloads, download{n.NodeID, localPath})
+			downloads = append(downloads, download{n.NodeID, localPath, n.ContentHash})
 		}
 	}
 
@@ -261,6 +288,9 @@ func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath s
 					continue
 				}
 				err := func() error {
+					if c.restoreVaultCiphertext(job.hash, job.localPath) {
+						return nil
+					}
 					f, err := os.Create(job.localPath)
 					if err != nil {
 						return err
@@ -270,7 +300,20 @@ func (c *Controller) downloadVaultCiphertext(ctx context.Context, vaultRelPath s
 					if err != nil {
 						return err
 					}
-					return closeErr
+					if closeErr != nil {
+						return closeErr
+					}
+					if validVaultHash(job.hash) {
+						actual, err := fileSHA256(job.localPath)
+						if err != nil {
+							return err
+						}
+						if !strings.EqualFold(actual, job.hash) {
+							return fmt.Errorf("vault: ciphertext changed during download; reopen the vault")
+						}
+					}
+					c.cacheVaultCiphertext(job.localPath)
+					return nil
 				}()
 				if err != nil {
 					failed.Do(func() { downloadErr = err; cancel() })
@@ -293,16 +336,16 @@ dispatch:
 	}
 	if downloadErr != nil {
 		os.RemoveAll(tmp)
-		return nil, vaultmgr.VaultInfo{}, "", downloadErr
+		return nil, vaultmgr.VaultInfo{}, "", nil, downloadErr
 	}
 
 	vm, err := vaultmgr.New(tmp)
 	if err != nil {
 		os.RemoveAll(tmp)
-		return nil, vaultmgr.VaultInfo{}, "", err
+		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
 	vi := vaultmgr.VaultInfo{Name: path.Base(vaultRelPath), Dir: tmp}
-	return vm, vi, tmp, nil
+	return vm, vi, tmp, remote, nil
 }
 
 // IsVaultOpen reports whether vaultRelPath has an open (decrypted) session.
@@ -313,49 +356,58 @@ func (c *Controller) IsVaultOpen(vaultRelPath string) bool {
 	return ok
 }
 
-// CloseVault re-encrypts the open vault's plaintext back into ciphertext and uploads it
-// to the server, then ends the session. Returns an error if the vault is not open or the
-// upload fails. On upload failure the session and ciphertext tmpDir are kept so no data
-// is lost; note that a second CloseVault call after a failed upload will return ErrLocked
-// from vaultmgr because the vault keys are cleared on the first successful re-encrypt.
-//
-// NOTE: sub-directories in d/ get fresh random UUID names on each EncryptTree call, so
-// repeated close+open cycles may leave orphan ciphertext directories on the server
-// (cosmetic bloat). Orphan cleanup is out of scope for this version.
+// CloseVault commits only changed ciphertext, retaining plaintext and keys on
+// failure. A pending staged tree is reused on retry, including uncertain uploads.
 func (c *Controller) CloseVault(ctx context.Context, vaultRelPath string) error {
-	// Atomically CLAIM the session: remove it from the map under the lock so a concurrent
-	// CloseVault can't grab the same *vaultmgr.Manager and race vm.Close on it. On any
-	// failure we re-insert the session so it can be retried / closed again.
 	c.mu.Lock()
 	s := c.sessions[vaultRelPath]
-	if s != nil {
-		delete(c.sessions, vaultRelPath)
-	}
-	c.mu.Unlock()
-
 	if s == nil {
+		c.mu.Unlock()
 		return fmt.Errorf("vault %q is not open", vaultRelPath)
 	}
-
-	// Re-encrypt plaintext → ciphertext in s.tmpDir, wipe plaintext.
-	if err := s.vm.Close(s.vi); err != nil {
-		c.mu.Lock()
-		c.sessions[vaultRelPath] = s
+	if s.closing {
 		c.mu.Unlock()
+		return fmt.Errorf("vault is already being saved")
+	}
+	s.closing = true
+	c.mu.Unlock()
+	defer func() { c.mu.Lock(); s.closing = false; c.mu.Unlock() }()
+	if s.finishing != nil {
+		return c.finishVaultClose(vaultRelPath, s)
+	}
+	if s.pending == nil {
+		p, err := s.vm.PrepareClose(s.vi)
+		if err != nil {
+			return err
+		}
+		s.pending = p
+	}
+	if err := c.commitVaultDelta(ctx, s); err != nil {
 		return err
 	}
+	old := s.tmpDir
+	p := s.pending
+	s.tmpDir = p.Dir
+	s.vi.Dir = p.Dir
+	s.vm.AcceptClose(s.vi, p)
+	s.pending = nil
+	if old != p.Dir {
+		_ = os.RemoveAll(old)
+	}
+	s.finishing = p
+	return c.finishVaultClose(vaultRelPath, s)
+}
 
-	// Upload the updated ciphertext tree (masterkey/vault.cryptomator stay identical;
-	// d/ gets fresh content from EncryptTree). On error keep the session+tmpDir so the
-	// ciphertext is not lost.
-	if err := c.uploadTree(ctx, s.tmpDir, s.relPath); err != nil {
-		c.mu.Lock()
-		c.sessions[vaultRelPath] = s
-		c.mu.Unlock()
+func (c *Controller) finishVaultClose(vaultRelPath string, s *vaultSession) error {
+	if err := s.vm.FinishClose(s.vi, s.finishing); err != nil {
+		if !s.finishing.CleanupStarted() {
+			s.finishing = nil
+		}
 		return err
 	}
-
-	// Success: the session was already removed from the map; drop the ciphertext tmpDir.
+	c.mu.Lock()
+	delete(c.sessions, vaultRelPath)
+	c.mu.Unlock()
 	_ = os.RemoveAll(s.tmpDir)
 	return nil
 }

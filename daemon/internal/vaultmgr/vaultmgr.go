@@ -26,8 +26,10 @@ type Manager struct {
 	SyncDir   string
 	CacheRoot string // e.g. <UserCacheDir>/discodrive/open — MUST be outside SyncDir
 
-	mu       sync.Mutex
-	unlocked map[string]*vault.Vault // vault name → keys (while open)
+	mu              sync.Mutex
+	snapshots       map[string]*vault.TreeSnapshot
+	removePlaintext func(string) error      // nil uses os.RemoveAll; injectable for cleanup fault tests
+	unlocked        map[string]*vault.Vault // vault name → keys (while open)
 }
 
 // New creates a Manager with CacheRoot in the system cache directory (outside SyncDir).
@@ -157,6 +159,7 @@ func (m *Manager) Close(vi VaultInfo) error {
 
 	m.mu.Lock()
 	delete(m.unlocked, vi.Name)
+	delete(m.snapshots, vi.Name)
 	m.mu.Unlock()
 
 	return nil

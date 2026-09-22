@@ -131,10 +131,12 @@ func TestWipeState(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(ContentDir(profile), "sub"), 0o700)
 	_ = os.WriteFile(filepath.Join(ContentDir(profile), "sub", "f.txt"), []byte("x"), 0o600)
 
+	_ = os.MkdirAll(filepath.Join(profile, "vault-cache"), 0700)
+	_ = os.WriteFile(filepath.Join(profile, "vault-cache", "test.cipher"), []byte("ciphertext"), 0600)
 	if err := WipeState(profile); err != nil {
 		t.Fatalf("WipeState: %v", err)
 	}
-	for _, f := range []string{"index.db", "index.db-wal", "index.db-shm"} {
+	for _, f := range []string{"index.db", "index.db-wal", "index.db-shm", "vault-cache"} {
 		if _, err := os.Stat(filepath.Join(profile, f)); !os.IsNotExist(err) {
 			t.Fatalf("%s must be removed, stat err=%v", f, err)
 		}
