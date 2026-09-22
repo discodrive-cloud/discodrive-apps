@@ -5,6 +5,9 @@ import os
 @main
 struct DiscoDriveApp: App {
     @StateObject private var app = AppState()
+    @StateObject private var fullSync = FullSyncController()
+    @State private var reauthenticate = false
+    @State private var checkingAuthentication = false
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -22,7 +25,10 @@ struct DiscoDriveApp: App {
     // discodrive://vault/open?id=<node>  → the unlock sheet for that folder
     // discodrive://vault/close?id=<node> → the vault's Finder location goes away
     private func handle(_ url: URL) {
-        guard url.scheme == "discodrive", url.host == "vault",
+        let scheme = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveURLScheme") as? String ?? "discodrive"
+        guard url.scheme == scheme else { return }
+        if url.host == "authenticate" { authenticateFromFinder(url); return }
+        guard url.host == "vault",
               let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "id" })?.value else { return }
         Logger(subsystem: "org.discodrive.app", category: "vault").notice("url \(url.path, privacy: .public) id \(id, privacy: .public)")
@@ -35,6 +41,35 @@ struct DiscoDriveApp: App {
             let name = app.node(id: id)?.name ?? ""
             Task { await VaultDomains.close(vaultID: id, name: name) }
         default: break
+        }
+    }
+
+    private func authenticateFromFinder(_ url: URL) {
+        appDelegate.showWindow()
+        app.bootstrap()
+        guard let client = app.client, !checkingAuthentication else { return }
+        checkingAuthentication = true
+        let domain = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "domain" })?.value
+        Task {
+            defer { checkingAuthentication = false }
+            do {
+                await client.resetAuth()
+                _ = try await client.authToken()
+                guard app.client === client, app.paired else { return }
+                await app.refresh()
+                guard app.client === client, app.paired else { return }
+                if let domain, domain.hasPrefix(VaultCoreDomainPrefix) {
+                    let id = String(domain.dropFirst(VaultCoreDomainPrefix.count))
+                    if VaultKeyStore.load(forVault: id) == nil, let node = app.node(id: id) {
+                        app.vaultUnlockFolder = node
+                    }
+                }
+            } catch {
+                guard app.client === client, app.paired else { return }
+                app.lastError = app.userMessage(for: error) ?? app.t("status.offline")
+                if case .sessionExpired = AppState.kind(of: error) { reauthenticate = true }
+            }
         }
     }
 
@@ -58,7 +93,12 @@ struct DiscoDriveApp: App {
                 // Leaving the account closes the vaults open in Finder first: their
                 // domains, keys and decrypted files are the old account's. One left over
                 // from a run that did not get to close it goes the same way.
-                app.beforeLogout = { await FileProviderDomain.closeForLogout() }
+                app.beforeLogout = {
+                    await fullSync.logout()
+                    return await FileProviderDomain.closeForLogout()
+                }
+                appDelegate.beforeQuit = { await fullSync.quit() }
+                fullSync.attach(app)
                 if !app.paired || ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1" {
                     Task { await VaultDomains.closeAll() }
                 }
@@ -72,8 +112,14 @@ struct DiscoDriveApp: App {
                 #endif
                 appDelegate.urlHandler = { url in handle(url) }
             }
+            .alert(app.t("dialog.logoutTitle"), isPresented: $reauthenticate) {
+                Button(app.t("toolbar.logout"), role: .destructive) { app.logout() }
+                Button(app.t("dialog.cancel"), role: .cancel) {}
+            } message: {
+                Text(app.t("status.sessionExpired") + "\n\n" + app.t("dialog.logoutMessage"))
+            }
             .onChange(of: app.paired) { _, paired in
-                if paired { FileProviderDomain.register() }
+                if paired { FileProviderDomain.register(); fullSync.attach(app) }
             }
             .onChange(of: app.syncStatus) { _, status in appDelegate.setStatus(status) }
             // Launched while the keychain was unavailable (screen locked at login): the
@@ -91,7 +137,7 @@ struct DiscoDriveApp: App {
             }
         }
         Settings {
-            SettingsView().environmentObject(app)
+            SettingsView().environmentObject(app).environmentObject(fullSync)
         }
     }
 }

@@ -20,7 +20,7 @@ final class AppState: ObservableObject {
     // dismissed. Set wherever an operation fails, cleared by the user.
     @Published var lastError: String?
     @Published var revision: Int = 0   // bump → redraw statuses/previews (instead of manual objectWillChange)
-    @Published var language: String = "en" {   // UI language (source of truth is the server)
+    @Published var language: String = UserDefaults.standard.string(forKey: "ui_language") ?? "en" {   // UI language (source of truth is the server)
         didSet { UserDefaults.standard.set(language, forKey: "ui_language") }
     }
 
@@ -108,15 +108,9 @@ final class AppState: ObservableObject {
         self.serverURL = serverURL
         self.client = APIClient(baseURL: serverURL, deviceToken: token)
         self.index = try? IndexStore(path: indexDir.appendingPathComponent("index.sqlite").path)
-        #if os(iOS)
-        // Content goes directly into Documents (that is the "DiscoDrive" folder visible in Files.app
-        // where the user drops files); the internal DB lives in Application Support.
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        self.local = try? LocalStore(dbDirectory: dir.appendingPathComponent("local"),
-                                     contentDirectory: docs)
-        #else
+        // Provider downloads are private copies. Documents is reserved for the
+        // independent iOS mirror, so browsing cannot overwrite its working files.
         self.local = try? LocalStore(directory: dir.appendingPathComponent("local"))
-        #endif
         self.paired = (index != nil && local != nil)
         Task { await rebuildTree() }
         Self.log.notice("activated against \(serverURL.absoluteString, privacy: .public), index at \(self.indexDir.path, privacy: .public) (\(self.index == nil ? "FAILED" : "ok", privacy: .public)), paired=\(self.paired)")
@@ -155,6 +149,12 @@ final class AppState: ObservableObject {
     func stopLiveUpdates() { eventsTask?.cancel(); eventsTask = nil }
 
     // UI language is stored on the server (keeps it in sync across devices).
+    // Track sharing requests with the account so logout cancels and drains them.
+    func performAccountOperation<T: Sendable>(_ operation: @escaping @Sendable (APIClient) async throws -> T) async throws -> T {
+        guard let client, paired, !loggingOut else { throw CancellationError() }
+        return try await session.perform { try await operation(client) }
+    }
+
     func loadLanguage() async {
         guard let client, session.isActive else { return }
         let session = self.session
@@ -209,7 +209,7 @@ final class AppState: ObservableObject {
         KeychainToken.delete(service: KeychainToken.serverService)
         client = nil; index = nil; local = nil; serverURL = nil
         statusText = ""
-        tree = []; vaultIDs = []; fileToPreview = nil; downloadingIDs = []
+        tree = []; vaultIDs = []; fileToPreview = nil; previewNode = nil; downloadingIDs = []
         paired = false
         syncStatus = .offline
         forgetLocalState()
@@ -235,6 +235,7 @@ final class AppState: ObservableObject {
 
     // iOS: URL to present in QuickLook (macOS opens files via NSWorkspace).
     @Published var fileToPreview: URL?
+    var previewNode: Node?
 
     // Open the local folder of downloaded files in Finder (macOS only).
     func openLocalFolderInFinder() {
@@ -281,11 +282,7 @@ final class AppState: ObservableObject {
         }
         try? fm.removeItem(at: appSupportDir.appendingPathComponent("local"))   // macOS: cache DB + content
         #if os(iOS)
-        // iOS content lives in the app's Documents (the user-visible "DiscoDrive" folder) — clear it too.
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        for item in (try? fm.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? [] {
-            try? fm.removeItem(at: item)
-        }
+        // Documents contains user-owned mirrors and backups; pairing must preserve them.
         // Auto-upload's destination is a node id on the previous server; forget it with
         // the rest, or the first pass after pairing would aim at a folder that is not there.
         AutoUploadSettings.shared.reset()
@@ -481,6 +478,7 @@ final class AppState: ObservableObject {
     // MARK: - Vault (Cryptomator E2E-vault)
 
     struct VaultSession {
+        let id = UUID()
         let vault: Vault
         let io: ServerVaultIO
         let name: String
@@ -549,6 +547,8 @@ final class AppState: ObservableObject {
         let io = ServerVaultIO(vaultRoot: folder.path, index: index, client: client)
         do {
             let vault = try await session.perform { try await opener(io) }
+            await vaultWork.stop()
+            vaultWork = AccountSession()
             try session.check()
             if let present = presentUnlockedVault {
                 let opened = await present(vault, folder)
@@ -568,7 +568,26 @@ final class AppState: ObservableObject {
         }
     }
 
-    func closeVault() { vaultSession = nil }
+    private var vaultWork = AccountSession()
+    func performVaultOperation<T: Sendable>(_ id: UUID, _ operation: @escaping @MainActor @Sendable () async throws -> T) async throws -> T {
+        guard vaultSession?.id == id, session.isActive else { throw CancellationError() }
+        guard vaultWork.isActive else { throw CancellationError() }
+        let work = vaultWork
+        return try await session.perform { try await work.perform { try await operation() } }
+    }
+
+    var closePresentedVault: (() async -> Bool)?
+    func closeVault() {
+        let id = vaultSession?.id
+        let work = vaultWork
+        work.invalidate()
+        Task {
+            await work.stop()
+            if let closePresentedVault, await !closePresentedVault() { vaultWork = AccountSession(); return }
+            guard vaultSession?.id == id else { return }
+            vaultSession = nil
+        }
+    }
 
     func createVault(name: String, inFolderPath: String, password: String) async {
         guard let index, let client, session.isActive, !name.isEmpty, !password.isEmpty else { return }
@@ -635,6 +654,7 @@ final class AppState: ObservableObject {
         #if os(macOS)
         NSWorkspace.shared.open(url)
         #else
+        previewNode = node
         fileToPreview = url
         #endif
     }
@@ -658,6 +678,10 @@ final class AppState: ObservableObject {
     // server has since deleted or renamed the file, which the index alone would read as
     // "not on the server yet" and send a stale cache back up.
     func importLocalFiles() async {
+        #if os(iOS)
+        // Files edits go through the provider. Documents belongs to the separate mirror.
+        return
+        #else
         guard let local, let index, let client, session.isActive, !importing else { return }
         let session = self.session
         importing = true; defer { if session.isActive { importing = false } }
@@ -714,6 +738,7 @@ final class AppState: ObservableObject {
             }
         }
         if session.isActive { revision += 1 }
+        #endif
     }
 
     // Conflict copies the import registered under the name they were dropped in as take the

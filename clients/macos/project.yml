@@ -12,6 +12,14 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEAD_CODE_STRIPPING: YES
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DISCODRIVE_GROUP_SUFFIX: org.discodrive
+    DISCODRIVE_URL_SCHEME: discodrive
+    DISCODRIVE_DISPLAY_NAME: DiscoDrive
+  configs:
+    Debug:
+      DISCODRIVE_GROUP_SUFFIX: org.discodrive.debug
+      DISCODRIVE_URL_SCHEME: discodrive-debug
+      DISCODRIVE_DISPLAY_NAME: DiscoDrive Debug
 packages:
   DiscoKit:
     path: ../DiscoKit
@@ -20,13 +28,23 @@ targets:
     type: application
     platform: macOS
     sources: [Sources, ../shared, Resources/Assets.xcassets, Resources/AppIcon.icns, Resources/DiscoDrive.icon]
+    preBuildScripts:
+      - name: Build sync engine
+        script: bash "${SRCROOT}/SyncBridge/build.sh"
+        basedOnDependencyAnalysis: false
     dependencies:
       - package: DiscoKit
       - target: FileProviderExt
         embed: true
+      - target: FileProviderUIExt
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_OBJC_BRIDGING_HEADER: SyncBridge/SyncBridge.h
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(DERIVED_FILE_DIR)"
+        OTHER_LDFLAGS: "$(inherited) -lDiscoSync -lresolv"
         INFOPLIST_FILE: Resources/Info.plist
         # App icon: the Icon Composer document (DiscoDrive.icon) for macOS 26's layered look,
         # and a prebuilt AppIcon.icns (CFBundleIconFile) for everything older.
@@ -35,6 +53,9 @@ targets:
         # File Provider extension, for notarization and for the App Store.
         CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
         ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.debug
   # The DiscoDrive folder in Finder. Shares the index (App Group) and the token (keychain
   # group) with the app; see FileProviderExt/Info.plist for the two NSExtension keys
   # without which macOS refuses to launch it.
@@ -51,3 +72,58 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: FileProviderExt/FileProviderExt.entitlements
         ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.debug.fileprovider
+  FileProviderUIExt:
+    type: app-extension
+    platform: macOS
+    sources: [FileProviderUI]
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.fileproviderui
+        INFOPLIST_FILE: FileProviderUI/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: FileProviderUI/FileProviderUI.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.debug.fileproviderui
+  FileProviderTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: FileProviderTests
+      - path: ../DiscoKit/Tests/DiscoKitTests/MockURLProtocol.swift
+      - path: FileProviderExt
+        excludes: [Info.plist, FileProviderExt.entitlements, Assets.xcassets]
+      - path: ../shared/ServerVaultIO.swift
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.tests.fileprovider
+        GENERATE_INFOPLIST_FILE: YES
+  SyncTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [SyncTests, Sources/FullSyncStorage.swift, ../ios/Sources/FullSyncPairing.swift]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.tests.sync
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  SyncTests:
+    build:
+      targets:
+        SyncTests: all
+    test:
+      targets: [SyncTests]
+  ProviderTests:
+    build:
+      targets:
+        FileProviderTests: all
+    test:
+      targets: [FileProviderTests]

@@ -2,6 +2,7 @@ import AppKit
 import FileProvider
 import DiscoKit
 import os
+import Security
 
 // The Finder side of the app: one domain, "DiscoDrive", registered while paired.
 @MainActor
@@ -67,6 +68,18 @@ enum FileProviderDomain {
                     notify: { id in
                         let d = NSFileProviderDomain(identifier: .init(id), displayName: "")
                         guard let manager = NSFileProviderManager(for: d) else { return }
+                        // Only a successful server refresh reaches this callback. Release
+                        // Finder's authentication/local-error throttle, then request a retry.
+                        // A closed vault still needs its password; do not mark it unlocked.
+                        let isLockedVault = id.hasPrefix(VaultCoreDomainPrefix) &&
+                            (try? VaultKeyStore.loadShared(forVault: String(id.dropFirst(VaultCoreDomainPrefix.count)))) == nil
+                        if !isLockedVault {
+                            for code: NSFileProviderError.Code in [.notAuthenticated, .cannotSynchronize, .serverUnreachable] {
+                                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                                    manager.signalErrorResolved(NSFileProviderError(code)) { _ in done.resume() }
+                                }
+                            }
+                        }
                         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                             manager.signalEnumerator(for: .workingSet) { _ in done.resume() }
                         }
@@ -95,7 +108,11 @@ enum VaultDomains {
     @MainActor
     static func open(vaultID: String, name: String, keys: Data) async -> Bool {
         guard !closing else { return false }
-        VaultKeyStore.save(keys, forVault: vaultID)
+        let status = VaultKeyStore.save(keys, forVault: vaultID)
+        guard status == errSecSuccess else {
+            Logger(subsystem: "org.discodrive.app", category: "vault").error("vault keys not saved: OSStatus \(status)")
+            return false
+        }
         let d = domain(vaultID: vaultID, name: name)
         let operationID = UUID()
         let operation = Task { try await NSFileProviderManager.add(d) }
@@ -109,6 +126,7 @@ enum VaultDomains {
             return false
         }
         guard !closing else { return false }
+        FileProviderDomain.signalChanges()
         Logger(subsystem: "org.discodrive.app", category: "vault").notice("vault domain added: \(name, privacy: .public)")
         // Reveal, not open: a sandboxed app may not "open" a folder outside its container,
         // Finder shows the location by itself when asked to select it.

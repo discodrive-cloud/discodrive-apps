@@ -2,6 +2,23 @@ import XCTest
 @testable import DiscoKit
 
 final class APIClientTests: XCTestCase {
+    func testTokenExchangeDistinguishesServerFailureFromInvalidCredentials() async throws {
+        for status in [401, 403, 429, 500, 503] {
+            MockURLProtocol.handler = { _ in (status, [:], Data()) }
+            let client = APIClient(baseURL: URL(string: "https://x.test")!,
+                                   deviceToken: "D", session: MockURLProtocol.session())
+            do {
+                _ = try await client.authToken()
+                XCTFail("Expected HTTP failure")
+            } catch APIError.notAuthenticated {
+                XCTAssertTrue([401, 403].contains(status), "HTTP \(status) is not an authentication failure")
+            } catch APIError.http(let code) {
+                XCTAssertEqual(code, status)
+                XCTAssertFalse([401, 403].contains(status))
+            }
+        }
+    }
+
     func testAllChangesPaginates() async throws {
         MockURLProtocol.handler = { req in
             if req.url!.path == "/auth/device/token" {

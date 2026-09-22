@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "discodrive-wails",
+  "name": "DiscoDrive",
   "outputfilename": "DiscoDrive",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
@@ -10,7 +10,10 @@
     "companyName": "kosmosoid",
     "productName": "DiscoDrive",
     "productVersion": "0.0.6",
-    "copyright": "© 2026 kosmosoid",
+    "copyright": "\u00a9 2026 kosmosoid",
     "comments": "DiscoDrive desktop client"
+  },
+  "postBuildHooks": {
+    "darwin/*": "bash ../../../../../scripts/wails-macos-icons.sh ${bin}"
   }
 }

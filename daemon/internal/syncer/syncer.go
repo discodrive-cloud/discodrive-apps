@@ -3,11 +3,13 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,10 +24,27 @@ type Syncer struct {
 	eng        *engine.Engine
 	root       string
 	statusPath string
+	observer   func(Status)
+	beforePass func() error
+	confirm    chan struct{}
 }
 
 func New(client *protocol.Client, eng *engine.Engine, root string, statusPath string) *Syncer {
-	return &Syncer{client: client, eng: eng, root: root, statusPath: statusPath}
+	return &Syncer{client: client, eng: eng, root: root, statusPath: statusPath, confirm: make(chan struct{}, 1)}
+}
+
+// ObserveStatus installs a host callback before Run starts.
+func (s *Syncer) ObserveStatus(f func(Status)) { s.observer = f }
+
+// BeforePass installs a host guard before Run starts (for example, folder identity).
+func (s *Syncer) BeforePass(f func() error) { s.beforePass = f }
+
+// RequestBulkDelete is the UI-safe counterpart: the run loop owns the engine.
+func (s *Syncer) RequestBulkDelete() {
+	select {
+	case s.confirm <- struct{}{}:
+	default:
+	}
 }
 
 // ConfirmBulkDelete lets the next pass carry deletions the mass-deletion guard would stop.
@@ -38,6 +57,11 @@ func (s *Syncer) ConfirmBulkDelete() { s.eng.ConfirmBulkDelete() }
 // pull + sweep orphans) and skip push this pass — local files were mapped to the old scope and
 // must not leak into the new one. Otherwise it's the normal PUSH→PULL (order matters, 3.2c).
 func (s *Syncer) SyncOnce(ctx context.Context) error {
+	if s.beforePass != nil {
+		if err := s.beforePass(); err != nil {
+			return err
+		}
+	}
 	epoch, err := s.client.SyncMeta(ctx)
 	if err != nil {
 		return err
@@ -57,6 +81,11 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 
 // Run drives sync on triggers (fsnotify+SSE+ticker) with debounce and backoff. Blocks until ctx is cancelled.
 func (s *Syncer) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	spawn := func(f func()) { workers.Add(1); go func() { defer workers.Done(); f() }() }
+
 	trigger := make(chan struct{}, 1)
 	notify := func() {
 		select {
@@ -65,17 +94,19 @@ func (s *Syncer) Run(ctx context.Context) error {
 		}
 	}
 
-	go s.watch(ctx, notify)
-	go func() {
+	spawn(func() { s.watch(ctx, notify) })
+	spawn(func() {
 		for ctx.Err() == nil {
 			if err := s.client.ListenEvents(ctx, notify); err != nil && ctx.Err() == nil {
-				time.Sleep(2 * time.Second)
+				if !waitFor(ctx, 2*time.Second) {
+					return
+				}
 			}
 		}
-	}()
+	})
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
-	go func() {
+	spawn(func() {
 		for {
 			select {
 			case <-ctx.Done():
@@ -84,19 +115,23 @@ func (s *Syncer) Run(ctx context.Context) error {
 				notify()
 			}
 		}
-	}()
+	})
 
 	notify()
 	backoff := time.Second
 	failing := false   // whether any sync errors occurred since the last success
 	announced := false // the set-aside folder, if any, is reported once
 	debounce := time.NewTimer(time.Hour)
+	defer debounce.Stop()
 	debounce.Stop()
 	pending := false
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-s.confirm:
+			s.eng.ConfirmBulkDelete()
+			notify()
 		case <-trigger:
 			if !pending {
 				pending = true
@@ -107,9 +142,16 @@ func (s *Syncer) Run(ctx context.Context) error {
 			s.writeStatus(Status{State: StateSyncing})
 			if err := s.SyncOnce(ctx); err != nil {
 				log.Printf("discodrive: sync failed: %v (retrying in %s)", err, backoff)
-				s.writeStatus(Status{State: StateOffline, LastError: err.Error()})
+				kind := ""
+				var bulk *engine.BulkDeleteError
+				if errors.As(err, &bulk) {
+					kind = "bulk_delete"
+				}
+				s.writeStatus(Status{State: StateOffline, LastError: err.Error(), ErrorKind: kind})
 				failing = true
-				time.Sleep(backoff)
+				if !waitFor(ctx, backoff) {
+					return ctx.Err()
+				}
 				if backoff < 30*time.Second {
 					backoff *= 2
 				}
@@ -171,4 +213,15 @@ func addRecursive(w *fsnotify.Watcher, dir string) {
 		}
 		return nil
 	})
+}
+
+func waitFor(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

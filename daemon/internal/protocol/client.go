@@ -93,6 +93,17 @@ func New(baseURL, deviceToken string) *Client {
 	return &Client{baseURL: baseURL, deviceToken: deviceToken, hc: defaultHTTPClient(), sendScope: true}
 }
 
+// NewStrict is the embedded application's client. Environment variables must not
+// weaken TLS validation in a signed application.
+func NewStrict(baseURL, deviceToken string) *Client {
+	c := New(strings.TrimRight(baseURL, "/"), deviceToken)
+	transport := c.hc.Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	transport.TLSClientConfig.InsecureSkipVerify = false
+	c.hc.Transport = transport
+	return c
+}
+
 // NewUnscoped is like New but never sends X-Discodrive-Scope, so the server returns the whole
 // vault (used by the file browser, which navigates everything rather than one synced folder).
 func NewUnscoped(baseURL, deviceToken string) *Client {

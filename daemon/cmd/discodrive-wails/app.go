@@ -19,6 +19,7 @@ import (
 
 	"discodrive.org/daemon/internal/config"
 	"discodrive.org/daemon/internal/desktop"
+	"discodrive.org/daemon/internal/fullsync"
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/protocol"
 )
@@ -26,10 +27,11 @@ import (
 // App is the Wails-bound backend. It reuses the tested on-demand desktop Controller,
 // so the Wails UI is just a new view layer over the same Go core.
 type App struct {
-	ctx   context.Context
-	ctrl  *desktop.Controller
-	idx   *index.Index
-	ready bool
+	mirror *fullsync.Manager
+	ctx    context.Context
+	ctrl   *desktop.Controller
+	idx    *index.Index
+	ready  bool
 
 	up        *protocol.Client // chunked-upload + EnsureDir client (separate JWT cache)
 	uploadSem chan struct{}    // caps concurrent uploads at 3
@@ -58,6 +60,7 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	if profile, err := desktop.ProfileDir(); err == nil {
+		a.mirror = fullsync.New(profile)
 		// Ignore the error: not paired yet → ready stays false and the UI shows pairing.
 		_ = a.openProfile(profile)
 	}
@@ -81,8 +84,11 @@ func (a *App) openProfile(profile string) error {
 	// A dedicated upload client for the chunked /upload/* path.
 	if cfg, cerr := config.Load(desktop.DesktopConfigPath(profile)); cerr == nil {
 		a.up = protocol.NewUnscoped(cfg.ServerURL, cfg.DeviceToken)
+		if a.mirror != nil {
+			_ = a.mirror.Attach(a.ctx, cfg)
+		}
 	}
-	go func() { _, _ = a.ctrl.Refresh(a.ctx) }()
+	go func() { _, _ = ctrl.Refresh(a.ctx) }()
 	return nil
 }
 
@@ -554,6 +560,7 @@ func (a *App) ShowWindow() {
 // the process dies) and a dead menu. So we remove the status item ourselves and
 // force-exit the process to guarantee a clean quit.
 func (a *App) QuitApp() {
+	a.shutdown(a.ctx)
 	// Close any open vaults first so plaintext is wiped and pending changes are saved
 	// before the process exits (os.Exit skips deferred cleanup).
 	if a.ready {

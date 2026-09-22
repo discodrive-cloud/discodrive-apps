@@ -7,6 +7,7 @@ import DiscoKit
 // • quit via tray menu / app menu / ⌘Q.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
+    var beforeQuit: (() async -> Void)?
     private var statusItem: NSStatusItem!
     private weak var window: NSWindow?
 
@@ -43,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 NSApp.activate(ignoringOtherApps: true)
                 alert.runModal()
             }
+            if closed { await beforeQuit?() }
             NSApp.reply(toApplicationShouldTerminate: closed)
         }
         return .terminateLater

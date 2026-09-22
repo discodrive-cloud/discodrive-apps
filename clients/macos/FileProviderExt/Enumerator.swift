@@ -44,14 +44,14 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
         nonisolated(unsafe) let observer = observer
         Task {
             do {
-                let since = SyncAnchorCodec.decode(anchor.rawValue) ?? 0
+                let since = try ProviderSyncAnchor.decode(anchor.rawValue)
                 let delta = try await core.pull(since: since)
                 let updated = delta.updated.compactMap { try? core.index.node(id: $0) }.map(core.item(for:))
                 if !updated.isEmpty { observer.didUpdate(updated) }
                 if !delta.deleted.isEmpty {
                     observer.didDeleteItems(withIdentifiers: delta.deleted.map { NSFileProviderItemIdentifier($0) })
                 }
-                observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(SyncAnchorCodec.encode(delta.cursor)),
+                observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(ProviderSyncAnchor.encode(delta.cursor)),
                                                   moreComing: false)
             } catch {
                 observer.finishEnumeratingWithError(error)
@@ -61,6 +61,6 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
 
     func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
         let cursor = (try? core.index.cursor()) ?? 0
-        completionHandler(NSFileProviderSyncAnchor(SyncAnchorCodec.encode(cursor)))
+        completionHandler(NSFileProviderSyncAnchor(ProviderSyncAnchor.encode(cursor)))
     }
 }

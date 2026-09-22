@@ -1,5 +1,14 @@
 .DS_Store
 
+# Local working notes and design-review artifacts.
+/notes/
+.impeccable/
+/clients/ios/DESIGN.md
+
+# Xcode test results and activity logs outside build directories.
+*.xcresult/
+*.xcactivitylog
+
 /.gstack/
 
 /daemon/discodrive

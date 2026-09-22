@@ -173,3 +173,65 @@ func TestResetKeepingFilesRebuildsTheIndexInPlace(t *testing.T) {
 		t.Fatal("a wiped index with a full folder was not set aside")
 	}
 }
+
+func TestInitialScopePreservesPreviousContents(t *testing.T) {
+	src, _ := serverWithOneFile()
+	e, root := newEngine(t, src)
+	mustWrite(t, root, "previous.md", "keep me")
+	if err := e.ResetForScope(context.Background(), 7); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(e.SetAside(), "previous.md"))
+	if err != nil || string(b) != "keep me" {
+		t.Fatalf("previous contents not preserved: %q, %v", b, err)
+	}
+	if epoch, err := e.ScopeEpoch(); epoch != 7 || err != nil {
+		t.Fatalf("epoch: %d, %v", epoch, err)
+	}
+}
+
+func TestPreparedMirrorNeverReplacesRootDuringFirstPull(t *testing.T) {
+	src, _ := serverWithOneFile()
+	base, root := newEngine(t, src)
+	e := NewPrepared(src, base.idx, root)
+	before, _ := os.Stat(root)
+	mustWrite(t, root, "local.md", "keep me")
+	// Repeated preparation before MirrorReady simulates a failed first download.
+	for n := 0; n < 2; n++ {
+		if err := e.establishMirror(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.ResetForScope(context.Background(), 7); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.Stat(root)
+	if !os.SameFile(before, after) {
+		t.Fatal("security-scoped root replaced")
+	}
+	if b, err := os.ReadFile(filepath.Join(root, "local.md")); err != nil || string(b) != "keep me" {
+		t.Fatal("local file swept during first scope", err)
+	}
+}
+
+func TestInterruptedScopeChangeStillSweepsOnRetry(t *testing.T) {
+	src, _ := serverWithOneFile()
+	e, root := newEngine(t, src)
+	if err := e.idx.SetMirrorReady(true); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, root, "old-scope.md", "must not enter new scope")
+	// Missing content forces the first rebuild to stop after resetting the index.
+	bodies := src.bodies
+	src.bodies = map[string][][]byte{}
+	if err := e.ResetForScope(context.Background(), 7); err == nil {
+		t.Fatal("expected failed download")
+	}
+	src.bodies = bodies
+	if err := e.ResetForScope(context.Background(), 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "old-scope.md")); !os.IsNotExist(err) {
+		t.Fatal("old-scope file survived retry", err)
+	}
+}

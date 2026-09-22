@@ -21,22 +21,44 @@ enum ProviderConfig {
 }
 
 // The extension's view of the server: the shared index plus an API client built from the
-// stored pairing. Nil when the app has not paired yet — every request then fails with
-// notAuthenticated, which Finder shows as "sign in required".
+// stored pairing. Only missing credentials are a sign-in error; local failures stay distinct.
 final class ProviderCore: @unchecked Sendable {
     static let log = Logger(subsystem: "org.discodrive.ext", category: "provider")   // IndexStore and APIClient are thread-safe
     let index: IndexStore
     let client: APIClient
 
-    init?() {
+    init() throws {
         KeychainConfig.accessGroup = ProviderConfig.keychainGroup
-        guard let path = ProviderConfig.indexPath,
-              let token = KeychainToken.load(service: KeychainToken.tokenService),
-              let urlStr = KeychainToken.load(service: KeychainToken.serverService),
-              let url = URL(string: urlStr),
-              let index = try? IndexStore(path: path) else { return nil }
+        guard let path = ProviderConfig.indexPath else {
+            Self.log.error("Shared container unavailable")
+            throw NSFileProviderError(.cannotSynchronize)
+        }
+        let token: String?, urlStr: String?
+        do {
+            token = try KeychainToken.loadShared(service: KeychainToken.tokenService)
+            urlStr = try KeychainToken.loadShared(service: KeychainToken.serverService)
+        } catch {
+            Self.log.error("Shared credentials unavailable: OSStatus \((error as NSError).code)")
+            throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error])
+        }
+        guard let token, let urlStr else { throw NSFileProviderError(.notAuthenticated) }
+        guard let url = URL(string: urlStr), ["https", "http"].contains(url.scheme), url.host != nil else {
+            Self.log.error("Invalid stored server URL")
+            throw NSFileProviderError(.cannotSynchronize)
+        }
+        let index: IndexStore
+        do { index = try IndexStore(path: path) }
+        catch {
+            Self.log.error("Shared index unavailable: \(String(describing: error), privacy: .public)")
+            throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error])
+        }
         self.index = index
         self.client = APIClient(baseURL: url, deviceToken: token)
+    }
+
+    init(index: IndexStore, client: APIClient) {
+        self.index = index
+        self.client = client
     }
 
     typealias Delta = ChangeDelta
@@ -142,6 +164,8 @@ final class ProviderCore: @unchecked Sendable {
             throw NSFileProviderError(.notAuthenticated)
         } catch APIError.http(let code) where code == 401 || code == 403 {
             throw NSFileProviderError(.notAuthenticated)
+        } catch APIError.http(let code) where code == 429 || code >= 500 {
+            throw NSFileProviderError(.serverUnreachable)
         } catch APIError.http(let code) where code == 404 {
             throw NSFileProviderError(.noSuchItem)
         } catch {

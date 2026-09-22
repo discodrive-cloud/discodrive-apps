@@ -100,10 +100,10 @@ DESKTOP_DIR := $(DAEMON_DIR)/cmd/discodrive-wails
 desktop app-desktop-macos:
 	cd $(DESKTOP_DIR) && export PATH="$$(go env GOPATH)/bin:$$PATH" && \
 	  wails build -platform darwin/universal -clean
-	@echo "built → $(DESKTOP_DIR)/build/bin/discodrive-wails.app"
+	@echo "built → $(DESKTOP_DIR)/build/bin/DiscoDrive.app"
 
 sign-desktop-macos:
-	scripts/macos-sign.sh $(DESKTOP_DIR)/build/bin/discodrive-wails.app
+	scripts/macos-sign.sh $(DESKTOP_DIR)/build/bin/DiscoDrive.app
 
 # Signs the .app, builds the .dmg, signs and notarizes it (see scripts/macos-*.sh).
 dmg-desktop-macos: app-desktop-macos
@@ -129,7 +129,7 @@ desktop-windows:
 	  for a in $(WIN_ARCHES); do \
 	    wails build -platform windows/$$a -webview2 download -nsis; \
 	    cp build/bin/DiscoDrive.exe "$(CURDIR)/$(DIST)/windows/DiscoDrive-$$a.exe"; \
-	    cp build/bin/discodrive-wails-$$a-installer.exe "$(CURDIR)/$(DIST)/windows/"; \
+	    cp build/bin/DiscoDrive-$$a-installer.exe "$(CURDIR)/$(DIST)/windows/"; \
 	  done
 	@echo "built → $(DIST)/windows/ (Windows .exe + NSIS installers, cross-built from macOS)"
 

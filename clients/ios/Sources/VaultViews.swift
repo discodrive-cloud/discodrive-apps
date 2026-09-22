@@ -138,6 +138,10 @@ struct VaultBrowserView: View {
     @State private var renameName = ""
     @State private var importing = false
     @State private var previewURL: URL?
+    @State private var previewEntry: String?
+    @State private var previewFiles: [VaultEntry] = []
+    @State private var previewDirectories: Set<URL> = []
+    @State private var previewURLs: [String: URL] = [:]
 
     private var currentDirID: String { stack.last!.dirID }
     private var title: String { session.name + stack.dropFirst().map { " / " + $0.name }.joined() }
@@ -191,51 +195,100 @@ struct VaultBrowserView: View {
                 let accessed = urls.filter { $0.startAccessingSecurityScopedResource() }
                 Task { await upload(accessed); accessed.forEach { $0.stopAccessingSecurityScopedResource() } }
             }
-            .quickLookPreview(Binding(get: { previewURL }, set: { previewURL = $0 }))
+            .sheet(isPresented: Binding(get: { previewURL != nil }, set: { if !$0 { clearPreview() } })) {
+                if let url = previewURL, let selected = previewEntry {
+                    FilePreviewView(files: previewFiles.map { PreviewFile(id: $0.name, name: $0.name) }, selectedID: selected, url: url) { id in
+                        guard let entry = previewFiles.first(where: { $0.name == id }) else { throw CocoaError(.fileNoSuchFile) }
+                        return try await downloadPreview(entry)
+                    }
+                }
+            }
             .overlay(alignment: .bottom) { if let error { Text(error).foregroundStyle(.red).font(.caption).padding(6) } }
         }
         .task { await load() }
+        .onDisappear { clearPreview() }
     }
 
     private func load() async {
         loading = true; error = nil
         do {
-            let list = try await session.vault.listEntries(dirID: currentDirID, source: session.io)
+            let dir = currentDirID
+            let list = try await app.performVaultOperation(session.id) { try await session.vault.listEntries(dirID: dir, source: session.io) }
+            guard currentDirID == dir else { return }
             entries = list.sorted { ($0.isDir ? 0 : 1, $0.name) < ($1.isDir ? 0 : 1, $1.name) }
         } catch { self.error = error.localizedDescription }
         loading = false
     }
-    private func openFile(_ e: VaultEntry) async {
-        guard let cp = e.contentPath else { return }
+    private func clearPreview() {
+        for directory in previewDirectories { try? FileManager.default.removeItem(at: directory) }
+        previewDirectories = []; previewURLs = [:]; previewURL = nil; previewEntry = nil; previewFiles = []
+    }
+    private func downloadPreview(_ e: VaultEntry) async throws -> URL {
+        if let url = previewURLs[e.name] { return url }
+        guard let cp = e.contentPath else { throw CocoaError(.fileNoSuchFile) }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultPreviews/" + UUID().uuidString, isDirectory: true)
         do {
-            let data = try await session.vault.decryptFile(at: cp, source: session.io)
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-            let url = tmp.appendingPathComponent(e.name)
-            try data.write(to: url)
+            let url = try await app.performVaultOperation(session.id) {
+                try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+                let url = tmp.appendingPathComponent(e.name)
+                try await session.io.decryptFile(cp, vault: session.vault, to: url)
+                return url
+            }
+            try Task.checkCancellation()
+            previewDirectories.insert(tmp)
+            previewURLs[e.name] = url
+            return url
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            throw error
+        }
+    }
+    private func openFile(_ e: VaultEntry) async {
+        clearPreview()
+        do {
+            let url = try await downloadPreview(e)
+            previewFiles = entries.filter { !$0.isDir }
+            previewEntry = e.name
             previewURL = url
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if !(error is CancellationError) { self.error = error.localizedDescription }
+        }
     }
     private func upload(_ urls: [URL]) async {
-        for url in urls {
-            if let data = try? Data(contentsOf: url) {
-                try? await session.vault.addFile(name: url.lastPathComponent, data: data, parentDirID: currentDirID, sink: session.io)
+        do {
+            try await app.performVaultOperation(session.id) {
+                for url in urls {
+                    try Task.checkCancellation()
+                    try await session.io.addFile(name: url.lastPathComponent, fileURL: url, parentDirID: currentDirID, vault: session.vault)
+                }
             }
-        }
-        await app.refresh(); await load()
+            await app.refresh(); await load()
+        } catch { self.error = error.localizedDescription }
     }
     private func makeFolder(_ name: String) async {
         guard !name.isEmpty else { return }
-        _ = try? await session.vault.createFolder(name: name, parentDirID: currentDirID, sink: session.io)
-        await app.refresh(); await load()
+        do {
+            try await app.performVaultOperation(session.id) {
+                _ = try await session.vault.createFolder(name: name, parentDirID: currentDirID, sink: session.io)
+            }
+            await app.refresh(); await load()
+        } catch { self.error = error.localizedDescription }
     }
     private func deleteEntry(_ e: VaultEntry) async {
-        try? await session.vault.deleteEntry(e, source: session.io, sink: session.io)
-        await app.refresh(); await load()
+        do {
+            try await app.performVaultOperation(session.id) {
+                try await session.vault.deleteEntry(e, source: session.io, sink: session.io)
+            }
+            await app.refresh(); await load()
+        } catch { self.error = error.localizedDescription }
     }
     private func renameEntry(_ e: VaultEntry, _ newName: String) async {
         guard !newName.isEmpty, newName != e.name else { return }
-        try? await session.vault.renameEntry(e, to: newName, parentDirID: currentDirID, source: session.io, sink: session.io)
-        await app.refresh(); await load()
+        do {
+            try await app.performVaultOperation(session.id) {
+                try await session.vault.renameEntry(e, to: newName, parentDirID: currentDirID, source: session.io, sink: session.io)
+            }
+            await app.refresh(); await load()
+        } catch { self.error = error.localizedDescription }
     }
 }

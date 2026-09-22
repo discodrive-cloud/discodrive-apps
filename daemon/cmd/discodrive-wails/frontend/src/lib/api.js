@@ -24,6 +24,11 @@ export const api = {
   // unsubscribe function.
   onEvent: (event, cb) => window.runtime.EventsOn(event, cb),
   copyText: (t) => window.runtime.ClipboardSetText(t),
+  getFullSync: () => app().GetFullSync(),
+  chooseSyncFolder: (title) => app().ChooseSyncFolder(title),
+  setFullSync: (enabled) => app().SetFullSync(enabled),
+  confirmSyncDeletions: () => app().ConfirmSyncDeletions(),
+  revealSyncBackup: () => app().RevealSyncBackup(),
   // settings
   getSettings: () => app().GetSettings(),
   saveSettings: (s) => app().SaveSettings(s),

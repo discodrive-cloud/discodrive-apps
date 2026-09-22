@@ -118,12 +118,19 @@ public enum VaultKeyStore {
     }
 
     public static func load(forVault vaultID: String) -> Data? {
+        try? loadShared(forVault: vaultID)
+    }
+
+    public static func loadShared(forVault vaultID: String) throws -> Data? {
         var q = query(vaultID: vaultID)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
-        return out as? Data
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        guard let data = out as? Data else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(errSecDecode)) }
+        return data
     }
 
     public static func delete(forVault vaultID: String) {

@@ -3,6 +3,18 @@ import Security
 @testable import DiscoKit
 
 final class KeychainConfigTests: XCTestCase {
+    func testSharedReadDistinguishesMissingCredentialsFromKeychainFailure() throws {
+        XCTAssertNil(try KeychainToken.sharedValue(status: errSecItemNotFound, data: nil))
+        XCTAssertEqual(try KeychainToken.sharedValue(status: errSecSuccess, data: Data("token".utf8)), "token")
+        for status in [errSecInteractionNotAllowed, errSecMissingEntitlement, errSecNotAvailable] {
+            XCTAssertThrowsError(try KeychainToken.sharedValue(status: status, data: nil)) {
+                XCTAssertEqual(($0 as NSError).domain, NSOSStatusErrorDomain)
+                XCTAssertEqual(($0 as NSError).code, Int(status))
+            }
+        }
+        XCTAssertThrowsError(try KeychainToken.sharedValue(status: errSecSuccess, data: nil))
+    }
+
     func testQueryWithoutGroupIsPlainPerAppItem() {
         let q = KeychainConfig.query(service: "svc", group: nil)
         XCTAssertEqual(q[kSecAttrService as String] as? String, "svc")

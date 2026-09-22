@@ -16,7 +16,13 @@ final class ProviderItem: NSObject, NSFileProviderItem {
     }
 
     // Read by the action rules in Info.plist: "Open vault" shows on a vault's folder.
-    var userInfo: [AnyHashable: Any]? { vaultRoot ? ["vault": 1] : nil }
+    var userInfo: [AnyHashable: Any]? {
+        #if os(iOS)
+        return info.isDirectory ? nil : ["evict": 1]
+        #else
+        return vaultRoot ? ["vault": 1] : info.isDirectory ? nil : ["evict": 1]
+        #endif
+    }
 
     var itemIdentifier: NSFileProviderItemIdentifier { .init(info.identifier) }
     var parentItemIdentifier: NSFileProviderItemIdentifier {
@@ -29,7 +35,7 @@ final class ProviderItem: NSObject, NSFileProviderItem {
         return ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
     }
     var capabilities: NSFileProviderItemCapabilities {
-        var caps: NSFileProviderItemCapabilities = info.isDirectory ? [.allowsReading, .allowsContentEnumerating] : [.allowsReading]
+        var caps: NSFileProviderItemCapabilities = info.isDirectory ? [.allowsReading, .allowsContentEnumerating] : [.allowsReading, .allowsEvicting]
         if writable {
             caps.formUnion([.allowsRenaming, .allowsReparenting, .allowsDeleting])
             caps.formUnion(info.isDirectory ? [.allowsAddingSubItems] : [.allowsWriting])
@@ -37,12 +43,14 @@ final class ProviderItem: NSObject, NSFileProviderItem {
         return caps
     }
     // Files are placeholders until opened; the system downloads on demand and may evict.
+    #if os(macOS)
     var contentPolicy: NSFileProviderContentPolicy { info.isDirectory ? .inherited : .downloadLazily }
+    #endif
     var documentSize: NSNumber? { info.isDirectory ? nil : NSNumber(value: info.size) }
     // Whether a folder is a vault root is metadata too: Finder re-reads the item, and so
     // the context-menu actions, when the flag flips.
     var itemVersion: NSFileProviderItemVersion {
-        .init(contentVersion: info.contentVersion, metadataVersion: info.metadataVersion + Data((vaultRoot ? ":vault" : "").utf8))
+        .init(contentVersion: info.contentVersion, metadataVersion: info.metadataVersion + Data((":actions2" + (vaultRoot ? ":vault" : "")).utf8))
     }
 }
 

@@ -6,6 +6,21 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- iOS: public links and read-only email sharing with expiration and revocation;
+  Files action to remove local copies; opt-in rotating sync logs
+  in Documents/Logs with export from Settings.
+
+- iOS: Files integration for ordinary files; embedded two-way sync
+  in Documents/Sync, persistent settings, first-run backups and background task support.
+
+- Wails: built-in two-way folder sync, persistent local folder settings, first-run backups
+  and mass-deletion confirmation; the shared engine runs inside the app on all desktop platforms.
+
+- macOS: full two-way folder synchronization using the embedded daemon engine, with a
+  persistent folder selection, first-run backups and mass-deletion confirmation in Settings.
+
+- macOS settings: launch at login, with the current system status and a link to approve it when required.
+
 - macOS app: a Cryptomator vault opens as its own place in Finder. "Open vault" in the
   context menu of a vault folder asks for the password once, and the vault appears in the
   sidebar as "🔓 <name>" with its files in the clear; creating, editing, renaming, moving
@@ -18,6 +33,16 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- iOS: keep vaults inside the app; remove the Files unlock action and retire old vault locations.
+
+- iOS: keep an explicit Close button above file previews and navigate between files
+  in the current folder, including vaults, with on-demand downloads.
+
+- iOS: use the native layered app icon and keep browsing caches outside Documents.
+- Native vaults: stream file reads and uploads; guard File Provider edits by base version.
+- iOS: preserve local documents across account changes, migrate pairing to shared Keychain,
+  drain photo uploads on logout and show vault operation errors.
+
 - Wails vaults: detach committed plaintext before cleanup, retry cleanup without uploading
   partial deletions, and ignore Finder's `.DS_Store` when detecting vault edits.
 
@@ -26,6 +51,12 @@ All notable changes to this project are documented in this file.
 
 - Wails: reuse verified ciphertext when reopening vaults, including files uploaded on close;
   the persistent 2 GiB cache follows server hashes and is cleared on unpair.
+
+- Wails macOS: display the DiscoDrive name and share the native app's layered Dock icon
+  and 18-point menu-bar glyph; build and packaging scripts use `DiscoDrive.app`.
+
+- Sync: preserve previous local files when connecting to an already configured server scope;
+  stopping synchronization now cancels retries and waits for watchers and network work.
 
 - Vault opening: native apps read independent metadata in parallel; Wails downloads
   ciphertext with up to six requests at a time, draining workers before cleanup on failure.
@@ -43,6 +74,14 @@ All notable changes to this project are documented in this file.
   the pairing screen after a login with the screen still locked.
 
 ### Fixed
+
+- Mobile sync: a new pairing invalidates retained mirror state before any uploads;
+  iOS preserves the entire old Sync folder and creates a fresh server mirror.
+
+- macOS Finder: Sign In opens the app to restore access; successful sync clears stale
+  authentication errors. Temporary Keychain and index failures are retried without
+  pretending the account signed out. Debug builds have separate identities and storage.
+- Device token exchange: server failures and rate limits no longer appear as invalid credentials.
 
 - macOS and iOS apps: outgoing account operations are cancelled and drained before
   replacing local state. Late downloads and imports cannot alter the next account's

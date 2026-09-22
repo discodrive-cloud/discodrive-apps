@@ -21,7 +21,9 @@ public actor APIClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["device_token": deviceToken])
         let (data, resp) = try await session.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw APIError.notAuthenticated }
+        guard let code = (resp as? HTTPURLResponse)?.statusCode else { throw APIError.badResponse }
+        if code == 401 || code == 403 { throw APIError.notAuthenticated }
+        guard code == 200 else { throw APIError.http(code) }
         let out = try JSONDecoder().decode([String: String].self, from: data)
         guard let t = out["token"] else { throw APIError.badResponse }
         jwt = t
@@ -119,6 +121,38 @@ public actor APIClient {
         }
         throw APIError.notAuthenticated
     }
+
+    public struct Share: Decodable, Identifiable, Sendable {
+        public let share_id: String
+        public let kind: String
+        public let email: String?
+        public let access: String
+        public let expires_at: String?
+        public var id: String { share_id }
+    }
+
+    public struct ShareResult: Decodable, Sendable {
+        public let share_id: String
+        public let token: String?
+    }
+
+    public func shares(nodeID: String) async throws -> [Share] {
+        try JSONDecoder().decode([Share].self, from: await get(path: "files/\(nodeID)/shares"))
+    }
+
+    public func share(nodeID: String, email: String?, expiresInSeconds: Int?) async throws -> ShareResult {
+        var payload: [String: Any] = ["access": "read"]
+        if let email { payload["email"] = email } else { payload["link"] = true }
+        if let expiresInSeconds { payload["expires_in_seconds"] = expiresInSeconds }
+        let data = try await send("POST", path: "files/\(nodeID)/share", body: JSONSerialization.data(withJSONObject: payload), contentType: "application/json", ok: [201])
+        return try JSONDecoder().decode(ShareResult.self, from: data)
+    }
+
+    public func revokeShare(id: String) async throws {
+        try await send("DELETE", path: "shares/\(id)", ok: [204])
+    }
+
+    public func shareURL(token: String) -> URL { baseURL.appendingPathComponent("s").appendingPathComponent(token) }
 
     // MARK: - Writes
 

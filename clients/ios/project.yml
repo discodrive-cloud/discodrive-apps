@@ -12,6 +12,10 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1,2"
     DEAD_CODE_STRIPPING: YES
+    DISCODRIVE_APP_GROUP: group.org.discodrive.ios
+    DISCODRIVE_KEYCHAIN_GROUP: org.discodrive.ios.shared
+    DISCODRIVE_DISPLAY_NAME: DiscoDrive
+    DISCODRIVE_URL_SCHEME: discodrive-ios
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 packages:
   DiscoKit:
@@ -27,15 +31,101 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.uitests
         TEST_TARGET_NAME: DiscoDrive
+        GENERATE_INFOPLIST_FILE: YES
   DiscoDrive:
     type: application
     platform: iOS
-    sources: [Sources, ../shared, Resources/Assets.xcassets]
+    sources: [Sources, ../shared, Resources/Assets.xcassets, ../macos/Resources/DiscoDrive.icon, ../macos/Sources/FullSyncStorage.swift]
+    preBuildScripts:
+      - name: Build sync engine
+        script: bash "${SRCROOT}/SyncBridge/build.sh"
+        basedOnDependencyAnalysis: false
     dependencies:
       - package: DiscoKit
+      - target: FileProviderExt
+        embed: true
+      - target: FileProviderUIExt
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_OBJC_BRIDGING_HEADER: ../macos/SyncBridge/SyncBridge.h
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(DERIVED_FILE_DIR)"
+        OTHER_LDFLAGS: "$(inherited) -lDiscoSync -lresolv"
+        ASSETCATALOG_COMPILER_APPICON_NAME: DiscoDrive
+        CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
+
+  FileProviderExt:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../macos/FileProviderExt
+        excludes: [Info.plist, FileProviderExt.entitlements]
+      - path: ../shared/ServerVaultIO.swift
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.fileprovider
+        INFOPLIST_FILE: FileProvider/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  FileProviderUIExt:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: FileProviderUI
+        excludes: [Info.plist]
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.fileproviderui
+        INFOPLIST_FILE: FileProviderUI/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  DiscoDriveTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests, ../macos/FileProviderExt/ProviderSyncAnchor.swift]
+    dependencies:
+      - target: DiscoDrive
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/DiscoDrive.app/DiscoDrive"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  DiscoDrive:
+    build:
+      targets:
+        DiscoDrive: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+    test:
+      targets: [DiscoDriveTests, DiscoDriveUITests]
+  iOSTests:
+    build:
+      targets:
+        DiscoDrive: all
+        DiscoDriveTests: [test]
+    test:
+      targets: [DiscoDriveTests]
+  iOSUITests:
+    build:
+      targets:
+        DiscoDrive: all
+        DiscoDriveUITests: [test]
+    test:
+      targets: [DiscoDriveUITests]

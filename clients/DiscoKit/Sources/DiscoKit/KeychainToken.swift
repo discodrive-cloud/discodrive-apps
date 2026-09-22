@@ -3,7 +3,7 @@ import Security
 
 // Where Keychain items go. With `accessGroup` set (the macOS app sets it from Info.plist at
 // launch) items live in the data-protection keychain under that group, which is the only
-// kind of item a File Provider extension of the same team can read. Left nil — iOS, tests —
+// kind of item a File Provider extension of the same team can read. Left nil — tests —
 // items are plain per-app entries as before.
 public enum KeychainConfig {
     // Set once at launch, before any Keychain use; nothing writes it afterwards.
@@ -29,13 +29,17 @@ public enum KeychainConfig {
 public enum KeychainToken {
     // The device token and serverURL are stored as two generic-password Keychain items,
     // accessible only after first unlock and never synced/migrated off this device.
-    public static func save(_ value: String, service: String) {
+    @discardableResult
+    public static func save(_ value: String, service: String) -> Bool {
         let base = KeychainConfig.query(service: service)
-        SecItemDelete(base as CFDictionary)
+        let attributes: [String: Any] = [kSecValueData as String: Data(value.utf8),
+                                        kSecAttrAccessible as String: Self.accessibility]
+        let updated = SecItemUpdate(base as CFDictionary, attributes as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else { return false }
         var add = base
-        add[kSecValueData as String] = Data(value.utf8)
-        add[kSecAttrAccessible as String] = Self.accessibility
-        SecItemAdd(add as CFDictionary, nil)
+        add.merge(attributes) { _, new in new }
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     // The app sits in the menu bar and the File Provider extension serves Finder while
@@ -44,7 +48,7 @@ public enum KeychainToken {
     static var accessibility: String { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String }
 
     public static func load(service: String) -> String? {
-        if let (v, accessible) = read(KeychainConfig.query(service: service)) {
+        if let (v, accessible, _) = read(KeychainConfig.query(service: service)) {
             // An item saved by an earlier build under the stricter class is re-saved once.
             if accessible != Self.accessibility { save(v, service: service) }
             return v
@@ -52,14 +56,40 @@ public enum KeychainToken {
         // An item saved before the app used an access group sits in the old per-app store.
         // Carry it over once, so a pairing made by the previous build survives the upgrade.
         guard KeychainConfig.accessGroup != nil,
-              let (legacy, _) = read(KeychainConfig.query(service: service, group: nil)) else { return nil }
-        save(legacy, service: service)
-        SecItemDelete(KeychainConfig.query(service: service, group: nil) as CFDictionary)
+              let (legacy, _, legacyGroup) = read(KeychainConfig.query(service: service, group: nil)) else { return nil }
+        guard save(legacy, service: service) else { return legacy }
+        // On iOS an unspecified group searches every accessible group, including the
+        // shared item just written. Delete only the legacy item's actual group.
+        if let legacyGroup, legacyGroup != KeychainConfig.accessGroup {
+            SecItemDelete(KeychainConfig.query(service: service, group: legacyGroup) as CFDictionary)
+        }
+        #if os(macOS)
+        if legacyGroup == nil { SecItemDelete(KeychainConfig.query(service: service, group: nil) as CFDictionary) }
+        #endif
         return legacy
     }
 
+    // Extensions must not migrate/delete credentials or hide access failures as a logout.
+    public static func loadShared(service: String) throws -> String? {
+        var query = KeychainConfig.query(service: service)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        return try sharedValue(status: status, data: result as? Data)
+    }
+
+    static func sharedValue(status: OSStatus, data: Data?) throws -> String? {
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        guard let data, let value = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errSecDecode))
+        }
+        return value
+    }
+
     // The value and the accessibility class it was saved with.
-    private static func read(_ base: [String: Any]) -> (String, String)? {
+    private static func read(_ base: [String: Any]) -> (String, String, String?)? {
         var query = base
         query[kSecReturnData as String] = true
         query[kSecReturnAttributes as String] = true
@@ -68,7 +98,7 @@ public enum KeychainToken {
         guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
               let item = out as? [String: Any], let data = item[kSecValueData as String] as? Data,
               let value = String(data: data, encoding: .utf8) else { return nil }
-        return (value, item[kSecAttrAccessible as String] as? String ?? "")
+        return (value, item[kSecAttrAccessible as String] as? String ?? "", item[kSecAttrAccessGroup as String] as? String)
     }
 
     public static func delete(service: String) {

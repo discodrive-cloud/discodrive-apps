@@ -123,6 +123,12 @@ func (i *Index) ScopeEpoch() (int64, error) {
 	return strconv.ParseInt(v, 10, 64)
 }
 
+// HasScopeEpoch distinguishes a new mirror from an interrupted scope rebuild.
+func (i *Index) HasScopeEpoch() (bool, error) {
+	v, err := i.meta("scope_epoch")
+	return v != "", err
+}
+
 func (i *Index) SetScopeEpoch(epoch int64) error {
 	_, err := i.db.Exec(
 		"INSERT INTO meta(key, value) VALUES('scope_epoch', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -204,6 +210,39 @@ func (i *Index) setMeta(key, value string) error {
 	_, err := i.db.Exec(
 		"INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value)
 	return err
+}
+
+// BindMirrorPairing makes a retained database safe for a newly paired device. A missing
+// fingerprint is also untrusted: the old schema cannot prove whose mirror it describes.
+// Reset the index and the identity atomically, before any pass may push local files.
+func (i *Index) BindMirrorPairing(fingerprint string) error {
+	if fingerprint == "" {
+		return errors.New("empty mirror pairing")
+	}
+	tx, err := i.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var previous string
+	err = tx.QueryRow("SELECT value FROM meta WHERE key = 'mirror_pairing'").Scan(&previous)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if previous == fingerprint {
+		return tx.Commit()
+	}
+	for _, statement := range []string{"DELETE FROM nodes", "DELETE FROM local", "DELETE FROM meta"} {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	for _, kv := range [][2]string{{"mirror_pairing", fingerprint}, {"mirror_ready", "0"}, {"cursor", "0"}} {
+		if _, err := tx.Exec("INSERT INTO meta(key, value) VALUES(?, ?)", kv[0], kv[1]); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // Clear drops all known nodes, resets the cursor to 0 and marks the mirror as not yet

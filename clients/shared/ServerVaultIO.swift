@@ -69,3 +69,43 @@ struct ServerVaultIO: VaultFileSource, VaultFileSink {
         try await client.delete(nodeID: node.id)
     }
 }
+
+extension ServerVaultIO {
+    func decryptFile(_ path: String, vault: Vault, to destination: URL) async throws {
+        guard let node = try index.node(atPath: full(path)) else { throw CocoaError(.fileNoSuchFile) }
+        let encrypted = FileManager.default.temporaryDirectory.appendingPathComponent("cipher-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: encrypted) }
+        try await client.download(nodeID: node.id, to: encrypted)
+        try vault.decryptContent(from: encrypted, to: destination)
+    }
+}
+
+// File uploads keep both plaintext and ciphertext out of a whole-file Data allocation.
+extension ServerVaultIO {
+    func addFile(name: String, fileURL: URL, parentDirID: String, vault: Vault, createOnly: Bool = true) async throws {
+        let entry = vault.entryPath(name: name, parentDirID: parentDirID)
+        var path = entry
+        if entry.hasSuffix(".c9s") {
+            let metadata = Data(vault.encryptName(name, parentDirID: parentDirID).utf8)
+            if createOnly { try await createFile(entry + "/name.c9s", metadata) }
+            else { try await writeFile(entry + "/name.c9s", metadata) }
+            path += "/contents.c9r"
+        }
+        try await uploadFile(fileURL, to: path, vault: vault, baseVersion: createOnly ? 0 : nil)
+    }
+
+    func uploadFile(_ file: URL, to path: String, vault: Vault, baseVersion: Int64?) async throws {
+        let encrypted = FileManager.default.temporaryDirectory.appendingPathComponent("cipher-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: encrypted) }
+        try vault.encryptContent(from: file, to: encrypted)
+        let parent = (path as NSString).deletingLastPathComponent
+        if !parent.isEmpty { try await makeDir(parent) }
+        let outcome = try await client.upload(fileURL: encrypted, relPath: full(path), modifiedAt: nil, baseVersion: baseVersion)
+        guard outcome.conflicted else { return }
+        if !outcome.nodeID.isEmpty {
+            try index.queueVaultConflictRemoval(nodeID: outcome.nodeID)
+            try await conflictCleanup.retry { try await client.delete(nodeID: $0) }
+        }
+        throw Vault.VaultError.nameTaken(path)
+    }
+}

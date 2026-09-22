@@ -1,21 +1,25 @@
+#if os(macOS)
 import AppKit
+#endif
 import FileProvider
 import DiscoKit
 
 // The DiscoDrive folder in Finder. Reads come from the shared index and the server; writes
 // go to the server through the same calls the app uses, then the index is pulled so the
 // returned item carries the server's id and version.
-final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderCustomAction, @unchecked Sendable {   // immutable after init
+final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderCustomAction, @unchecked Sendable {   // mutable core is protected by coreLock
     let domain: NSFileProviderDomain
-    private let core: ProviderCore?
-    // Set when this domain is an unlocked vault rather than the storage itself.
-    private let vaultCore: VaultCore?
+    private let coreLock = NSLock()
+    private var cachedCore: ProviderCore?
+    private let makeCore: @Sendable () throws -> ProviderCore
 
-    required init(domain: NSFileProviderDomain) {
+    required convenience init(domain: NSFileProviderDomain) {
+        self.init(domain: domain, makeCore: { try ProviderCore() })
+    }
+
+    init(domain: NSFileProviderDomain, makeCore: @escaping @Sendable () throws -> ProviderCore) {
         self.domain = domain
-        let core = ProviderCore()
-        self.core = core
-        self.vaultCore = core.flatMap { VaultCore(core: $0, domain: domain) }
+        self.makeCore = makeCore
         super.init()
     }
 
@@ -29,15 +33,22 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     func performAction(identifier actionIdentifier: NSFileProviderExtensionActionIdentifier,
                        onItemsWithIdentifiers itemIdentifiers: [NSFileProviderItemIdentifier],
                        completionHandler: @escaping (Error?) -> Void) -> Progress {
+        let scheme = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveURLScheme") as? String ?? "discodrive"
         var url: URL?
-        switch actionIdentifier {
-        case Self.openVaultAction:
-            if let id = itemIdentifiers.first?.rawValue { url = URL(string: "discodrive://vault/open?id=\(id)") }
-        case Self.closeVaultAction:
-            if let vc = vaultCore { url = URL(string: "discodrive://vault/close?id=\(vc.vaultID)") }
-        default: break
-        }
+        do {
+            switch actionIdentifier {
+            case Self.openVaultAction:
+                if let id = itemIdentifiers.first?.rawValue { url = URL(string: "\(scheme)://vault/open?id=\(id)") }
+            case Self.closeVaultAction:
+                if let vc = try requireVaultCore() { url = URL(string: "\(scheme)://vault/close?id=\(vc.vaultID)") }
+            default: break
+            }
+        } catch { completionHandler(error); return Progress() }
+        #if os(macOS)
         if let url { NSWorkspace.shared.open(url) }
+        #else
+        if url != nil { completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)); return Progress() }
+        #endif
         completionHandler(nil)
         return Progress()
     }
@@ -45,32 +56,38 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     func invalidate() {}
 
     private func requireCore() throws -> ProviderCore {
-        guard let core else { throw NSFileProviderError(.notAuthenticated) }
+        coreLock.lock(); defer { coreLock.unlock() }
+        if let cachedCore { return cachedCore }
+        // A locked keychain or unavailable container at launch must not poison this
+        // extension instance forever. Failed initialization is retried on the next call.
+        let core = try makeCore()
+        cachedCore = core
+        return core
+    }
+
+    private func requireVaultCore() throws -> VaultCore? {
+        guard domain.identifier.rawValue.hasPrefix(VaultCore.domainPrefix) else { return nil }
+        guard let core = try VaultCore(core: try requireCore(), domain: domain) else {
+            throw NSFileProviderError(.notAuthenticated)
+        }
         return core
     }
 
     func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest,
               completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
-        if let vc = vaultCore {
-            nonisolated(unsafe) let completionHandler = completionHandler
-            Task {
-                do {
+        nonisolated(unsafe) let completionHandler = completionHandler
+        Task {
+            do {
+                if let vc = try requireVaultCore() {
                     guard let id = VaultItemID.decode(identifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
                     completionHandler(try await vc.item(for: id), nil)
-                } catch { completionHandler(nil, error) }
-            }
-            return Progress()
-        }
-        do {
-            if identifier == .rootContainer { completionHandler(RootItem(), nil); return Progress() }
-            let core = try requireCore()
-            if let node = try core.index.node(id: identifier.rawValue) {
+                    return
+                }
+                if identifier == .rootContainer { completionHandler(RootItem(), nil); return }
+                let core = try requireCore()
+                guard let node = try core.index.node(id: identifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
                 completionHandler(core.item(for: node), nil)
-            } else {
-                completionHandler(nil, NSFileProviderError(.noSuchItem))
-            }
-        } catch {
-            completionHandler(nil, error)
+            } catch { completionHandler(nil, error) }
         }
         return Progress()
     }
@@ -83,7 +100,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         nonisolated(unsafe) let completionHandler = completionHandler
         let task = Task<Void, Never> {
             do {
-                if let vc = vaultCore {
+                if let vc = try requireVaultCore() {
                     guard let id = VaultItemID.decode(itemIdentifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
                     let url = try await vc.decrypt(id)
                     completionHandler(url, try await vc.item(for: id), nil)
@@ -109,11 +126,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
 
     func enumerator(for containerItemIdentifier: NSFileProviderItemIdentifier,
                     request: NSFileProviderRequest) throws -> NSFileProviderEnumerator {
-        if let vc = vaultCore { return VaultEnumerator(vc: vc, container: containerItemIdentifier) }
-        if domain.identifier.rawValue.hasPrefix(VaultCore.domainPrefix) {
-            // A vault domain whose keys are gone (closed, or the app quit): nothing to show.
-            throw NSFileProviderError(.notAuthenticated)
-        }
+        if let vc = try requireVaultCore() { return VaultEnumerator(vc: vc, container: containerItemIdentifier) }
         return Enumerator(core: try requireCore(), container: containerItemIdentifier)
     }
 
@@ -130,7 +143,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 // Finder's own housekeeping files stay on this Mac; the system keeps them
                 // without asking again.
                 if LocalOnlyNames.isLocalOnly(template.filename) { throw NSFileProviderError(.excludedFromSync) }
-                if let vc = vaultCore {
+                if let vc = try requireVaultCore() {
                     let parent = try vc.dirID(of: template.parentItemIdentifier)
                     // As below for the storage itself: a name the vault already holds is
                     // answered with that entry, never written over.
@@ -199,8 +212,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let task = Task<Void, Never> {
             do {
                 if LocalOnlyNames.isLocalOnly(item.filename) { throw NSFileProviderError(.excludedFromSync) }
-                if let vc = vaultCore {
+                if let vc = try requireVaultCore() {
                     guard let id = VaultItemID.decode(item.itemIdentifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
+                    if changedFields.contains(.contents),
+                       changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier) {
+                        let existing = try await vc.item(for: id)
+                        let old = ContentVersionCodec.decode(editedFrom)
+                        let now = ContentVersionCodec.decode(existing.itemVersion.contentVersion)
+                        guard old?.hash == now?.hash, old?.hash.isEmpty == false else { throw NSFileProviderError(.cannotSynchronize) }
+                    }
                     var current: VaultItem? = nil
                     if changedFields.contains(.parentItemIdentifier) {
                         current = try await vc.move(id, to: item.parentItemIdentifier, as: item.filename)
@@ -208,7 +228,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                         current = try await vc.rename(id, to: item.filename)
                     }
                     if changedFields.contains(.contents), let newContents {
-                        current = try await vc.replaceContents(of: (current?.id ?? id), with: newContents)
+                        current = try await vc.replaceContents(of: (current?.id ?? id), with: newContents, editedFrom: current?.itemVersion.contentVersion ?? editedFrom)
                     }
                     if current == nil { current = try await vc.item(for: id) }
                     completionHandler(current, [], false, nil)
@@ -257,7 +277,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let progress = Progress(totalUnitCount: 1)
         let task = Task<Void, Never> {
             do {
-                if let vc = vaultCore {
+                if let vc = try requireVaultCore() {
                     guard let id = VaultItemID.decode(identifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
                     do { try await vc.delete(id) } catch let e as NSFileProviderError where e.code == .noSuchItem {}   // already gone
                     completionHandler(nil)

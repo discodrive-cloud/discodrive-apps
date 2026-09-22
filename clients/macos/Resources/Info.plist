@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDisplayName</key><string>DiscoDrive</string>
+  <key>DiscoDriveURLScheme</key><string>$(DISCODRIVE_URL_SCHEME)</string>
+  <key>CFBundleDisplayName</key><string>$(DISCODRIVE_DISPLAY_NAME)</string>
   <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>DiscoDrive</string>
@@ -18,13 +19,13 @@
   <array>
     <dict>
       <key>CFBundleURLName</key><string>org.discodrive.app</string>
-      <key>CFBundleURLSchemes</key><array><string>discodrive</string></array>
+      <key>CFBundleURLSchemes</key><array><string>$(DISCODRIVE_URL_SCHEME)</string></array>
     </dict>
   </array>
   <key>NSHumanReadableCopyright</key><string>© 2026 kosmosoid</string>
   <!-- Read at launch (DiscoDriveApp.init): the App Group and keychain access group shared
        with the File Provider extension. Must match DiscoDrive.entitlements. -->
-  <key>DiscoDriveAppGroup</key><string>$(DEVELOPMENT_TEAM).org.discodrive</string>
-  <key>DiscoDriveKeychainGroup</key><string>$(DEVELOPMENT_TEAM).org.discodrive</string>
+  <key>DiscoDriveAppGroup</key><string>$(DEVELOPMENT_TEAM).$(DISCODRIVE_GROUP_SUFFIX)</string>
+  <key>DiscoDriveKeychainGroup</key><string>$(DEVELOPMENT_TEAM).$(DISCODRIVE_GROUP_SUFFIX)</string>
 </dict>
 </plist>

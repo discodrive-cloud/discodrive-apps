@@ -29,6 +29,7 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// The pass in flight, so it can be stopped. Cancelling is checked between photos: the
     /// one being sent finishes, the rest are dropped.
     private var passTask: Task<RunResult, Never>?
+    private var settingsGeneration = 0
 
     /// Hands the service what it needs from the app: how to reach the server. Called once
     /// the app is paired, and again after re-pairing.
@@ -54,11 +55,14 @@ final class AutoUploadService: NSObject, ObservableObject {
     // MARK: - Enabling
 
     func setEnabled(_ on: Bool) async {
+        settingsGeneration += 1
+        let generation = settingsGeneration
         if on {
             // Ask first, store second. Writing the flag up front left the feature marked
             // "on" whenever the permission prompt was refused — or simply left unanswered,
             // since the request does not return until the user decides.
             let status = await PhotoLibrarySource.requestAccess()
+            guard settingsGeneration == generation, apiProvider?() != nil else { return }
             guard status == .authorized || status == .limited else {
                 settings.enabled = false
                 return
@@ -75,6 +79,17 @@ final class AutoUploadService: NSObject, ObservableObject {
             stopObserving()
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
         }
+    }
+
+    func logout() async {
+        settingsGeneration += 1
+        settings.enabled = false
+        stopObserving()
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
+        stopPass()
+        _ = await passTask?.value
+        settings.seeded = false
+        settings.destID = nil
     }
 
     // MARK: - Passes
@@ -103,12 +118,19 @@ final class AutoUploadService: NSObject, ObservableObject {
         do {
             let journal = try openJournal()
             let runner = AutoUploadRunner(api: api, journal: journal, settings: settings)
-            _ = try await runner.seedIfNeeded()
             // The pass runs inside a task we keep a handle on, and reports cancellation
             // through it — that is what makes "stop" arrive between photos rather than at
             // the end of a several-thousand-photo queue.
             let task = Task { [weak self] in
-                await runner.runOnce(progress: { done, total, name in
+                do {
+                    try Task.checkCancellation()
+                    _ = try await runner.seedIfNeeded()
+                    try Task.checkCancellation()
+                } catch {
+                    var result = RunResult(); result.error = String(describing: error)
+                    return result
+                }
+                return await runner.runOnce(progress: { done, total, name in
                     Task { @MainActor in self?.progressText = "\(done + 1)/\(total) · \(name)" }
                 }, isCancelled: { Task.isCancelled })
             }
@@ -129,7 +151,6 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// dropped after it.
     func stopPass() {
         passTask?.cancel()
-        passTask = nil
     }
 
     /// Turns the photos that were marked "already there" back into work, then runs a pass.
@@ -185,9 +206,9 @@ final class AutoUploadService: NSObject, ObservableObject {
                 // Always leave a successor behind: BGProcessingTask is one-shot.
                 self.scheduleBackgroundPass()
                 let work = Task { await self.runPass() }
-                task.expirationHandler = { work.cancel() }
-                _ = await work.value
-                task.setTaskCompleted(success: true)
+                task.expirationHandler = { work.cancel(); Task { @MainActor in self.stopPass() } }
+                let result = await work.value
+                task.setTaskCompleted(success: !work.isCancelled && result.error == nil && result.blocked == .none)
             }
         }
     }

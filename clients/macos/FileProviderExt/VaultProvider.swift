@@ -15,12 +15,18 @@ final class VaultCore: @unchecked Sendable {
 
     static let domainPrefix = "vault-"
 
-    init?(core: ProviderCore, domain: NSFileProviderDomain) {
+    init?(core: ProviderCore, domain: NSFileProviderDomain) throws {
         let raw = domain.identifier.rawValue
         guard raw.hasPrefix(Self.domainPrefix) else { return nil }
         let id = String(raw.dropFirst(Self.domainPrefix.count))
-        guard let keys = VaultKeyStore.load(forVault: id), let vault = try? Vault(rawKeys: keys),
-              let node = try? core.index.node(id: id) else { return nil }
+        let keys: Data?
+        do { keys = try VaultKeyStore.loadShared(forVault: id) }
+        catch { throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error]) }
+        guard let keys else { return nil }
+        let vault: Vault
+        do { vault = try Vault(rawKeys: keys) }
+        catch { throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error]) }
+        guard let node = try core.index.node(id: id) else { throw NSFileProviderError(.noSuchItem) }
         self.core = core
         self.vaultID = id
         self.vaultName = node.name
@@ -86,9 +92,8 @@ final class VaultCore: @unchecked Sendable {
     func decrypt(_ id: VaultItemID) async throws -> URL {
         let (e, _) = try await entry(for: id)
         guard let cp = e.contentPath else { throw NSFileProviderError(.noSuchItem) }
-        let data = try await core.mapErrors { try await vault.decryptFile(at: cp, source: io) }
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try data.write(to: tmp)
+        try await core.mapErrors { try await io.decryptFile(cp, vault: vault, to: tmp) }
         return tmp
     }
 
@@ -128,9 +133,8 @@ final class VaultCore: @unchecked Sendable {
     }
 
     func createFile(name: String, contents: URL, in parentDirID: String) async throws -> VaultItem {
-        let data = try Data(contentsOf: contents)
         try await refusingTakenNames(in: parentDirID) {
-            try await core.mapErrors { try await vault.addFile(name: name, data: data, parentDirID: parentDirID, sink: io, createOnly: true) }
+            try await core.mapErrors { try await io.addFile(name: name, fileURL: contents, parentDirID: parentDirID, vault: vault) }
         }
         return try await entryItem(name: name, parentDirID: parentDirID)
     }
@@ -158,11 +162,14 @@ final class VaultCore: @unchecked Sendable {
 
     // New contents for an existing file: written over the same name, the ciphertext node
     // gets a new version and keeps its id.
-    func replaceContents(of id: VaultItemID, with contents: URL) async throws -> VaultItem {
+    func replaceContents(of id: VaultItemID, with contents: URL, editedFrom: Data) async throws -> VaultItem {
+        _ = try await core.pull(since: try core.index.cursor())
         let (e, _) = try await entry(for: id)
-        guard case .file(let parentDirID, _) = id else { throw NSFileProviderError(.noSuchItem) }
-        let data = try Data(contentsOf: contents)
-        try await core.mapErrors { try await vault.addFile(name: e.name, data: data, parentDirID: parentDirID, sink: io) }
+        guard case .file(let parentDirID, _) = id, let path = e.contentPath,
+              let node = try core.index.node(atPath: io.vaultRoot + "/" + path) else { throw NSFileProviderError(.noSuchItem) }
+        let base = ContentVersionCodec.uploadBase(editedFrom: editedFrom, current: node)
+        do { try await core.mapErrors { try await io.uploadFile(contents, to: path, vault: vault, baseVersion: base) } }
+        catch Vault.VaultError.nameTaken { throw NSFileProviderError(.cannotSynchronize) }
         return try await entryItem(name: e.name, parentDirID: parentDirID)
     }
 
@@ -319,15 +326,17 @@ final class VaultItem: NSObject, NSFileProviderItem {
         if id == .root { return [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems] }
         return isDir
             ? [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming, .allowsReparenting, .allowsDeleting]
-            : [.allowsReading, .allowsWriting, .allowsRenaming, .allowsReparenting, .allowsDeleting]
+            : [.allowsReading, .allowsWriting, .allowsRenaming, .allowsReparenting, .allowsDeleting, .allowsEvicting]
     }
+    #if os(macOS)
     var contentPolicy: NSFileProviderContentPolicy { isDir ? .inherited : .downloadLazily }
+    #endif
     var documentSize: NSNumber? { isDir ? nil : NSNumber(value: size) }
     var itemVersion: NSFileProviderItemVersion {
-        .init(contentVersion: Data(contentHash.utf8), metadataVersion: Data("\(version):\(name)".utf8))
+        .init(contentVersion: ContentVersionCodec.encode(version: version, hash: contentHash), metadataVersion: Data("\(version):\(name):actions2".utf8))
     }
     // Lets the "Close vault" action show on anything inside an open vault.
-    var userInfo: [AnyHashable: Any]? { ["vaultOpen": 1] }
+    var userInfo: [AnyHashable: Any]? { isDir ? ["vaultOpen": 1] : ["vaultOpen": 1, "evict": 1] }
 }
 
 final class VaultEnumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable {
@@ -380,7 +389,7 @@ final class VaultEnumerator: NSObject, NSFileProviderEnumerator, @unchecked Send
         nonisolated(unsafe) let observer = observer
         Task {
             do {
-                let since = SyncAnchorCodec.decode(anchor.rawValue) ?? 0
+                let since = try ProviderSyncAnchor.decode(anchor.rawValue)
                 let delta = try await vc.core.pull(since: since)
                 // Paths of what changed: still-present nodes from the index, gone ones we
                 // cannot resolve any more, so a deletion re-lists every directory known.
@@ -402,7 +411,7 @@ final class VaultEnumerator: NSObject, NSFileProviderEnumerator, @unchecked Send
                         + goneDirs
                     observer.didDeleteItems(withIdentifiers: gone.map(NSFileProviderItemIdentifier.init(_:)))
                 }
-                observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(SyncAnchorCodec.encode(delta.cursor)), moreComing: false)
+                observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(ProviderSyncAnchor.encode(delta.cursor)), moreComing: false)
             } catch {
                 observer.finishEnumeratingWithError(error)
             }
@@ -410,6 +419,6 @@ final class VaultEnumerator: NSObject, NSFileProviderEnumerator, @unchecked Send
     }
 
     func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        completionHandler(NSFileProviderSyncAnchor(SyncAnchorCodec.encode((try? vc.core.index.cursor()) ?? 0)))
+        completionHandler(NSFileProviderSyncAnchor(ProviderSyncAnchor.encode((try? vc.core.index.cursor()) ?? 0)))
     }
 }

@@ -63,6 +63,7 @@ func main() {
 		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
 		StartHidden:      hidden, // auto-launch with --hidden opens to tray, not the window
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		// Close → hide to the tray and drop the dock icon (Accessory), instead of quitting.
 		OnBeforeClose: func(ctx context.Context) bool {
 			setDockVisible(false)

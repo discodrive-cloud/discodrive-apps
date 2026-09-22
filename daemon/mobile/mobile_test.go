@@ -1,12 +1,15 @@
 package mobile
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -159,5 +162,95 @@ func TestSyncOnceOffline(t *testing.T) {
 	}
 	if st := c.Status(); st.State != "offline" || st.LastError == "" {
 		t.Fatalf("status after failure: %+v", st)
+	}
+}
+
+// A killed unpair or a failed unlink can leave the previous pairing's database behind.
+// The server URL is unchanged, but its newer bytes must win even over offline local edits.
+func TestRePairWithRetainedIndexDoesNotUploadOldFiles(t *testing.T) {
+	var version atomic.Int64
+	version.Store(1)
+	var uploads atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth/device/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"token": "jwt"})
+	})
+	mux.HandleFunc("GET /sync/meta", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]int{"scope_epoch": 0})
+	})
+	body := func() string {
+		if version.Load() == 1 {
+			return "old server bytes"
+		}
+		return "new server bytes"
+	}
+	mux.HandleFunc("GET /sync/changes", func(w http.ResponseWriter, r *http.Request) {
+		hash := sha256.Sum256([]byte(body()))
+		json.NewEncoder(w).Encode(map[string]any{"changes": []any{map[string]any{
+			"seq": version.Load(), "op": "upsert", "node_id": "n", "path": "note.md", "version": version.Load(),
+			"content_hash": fmt.Sprintf("%x", hash), "size": len(body())}}, "cursor": version.Load(), "has_more": false})
+	})
+	mux.HandleFunc("GET /files/n/content", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body())) })
+	mux.HandleFunc("PUT /sync/file", func(w http.ResponseWriter, r *http.Request) {
+		uploads.Add(1)
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"node": map[string]any{"id": "n", "version": 3}, "conflicted": false})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	root, db := filepath.Join(t.TempDir(), "Sync"), filepath.Join(t.TempDir(), "state.db")
+	old, err := New(srv.URL, "old-pairing", root, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.SyncOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// An ordinary restart with the same pairing must retain the established mirror.
+	restarted, err := New(srv.URL, "old-pairing", root, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.SyncOnce(); err != nil {
+		restarted.Close()
+		t.Fatal(err)
+	}
+	if restarted.Status().SetAside != "" {
+		restarted.Close()
+		t.Fatal("ordinary restart backed up the mirror")
+	}
+	if err := restarted.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("stale offline edit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	version.Store(2)
+	current, err := New(srv.URL, "new-pairing", root, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	if err := current.SyncOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if uploads.Load() != 0 {
+		t.Fatalf("re-pair uploaded old files %d times", uploads.Load())
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "note.md")); err != nil || string(got) != "new server bytes" {
+		t.Fatalf("mirror = %q, %v", got, err)
+	}
+	aside := current.Status().SetAside
+	if got, err := os.ReadFile(filepath.Join(aside, "note.md")); err != nil || string(got) != "stale offline edit" {
+		t.Fatalf("backup = %q, %v", got, err)
+	}
+	if err := current.SyncOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if uploads.Load() != 0 {
+		t.Fatal("backup was uploaded in a later pass")
 	}
 }

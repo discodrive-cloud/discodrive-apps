@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { Sun, Moon, FolderOpen, Globe, ChevronDown } from 'lucide-vue-next'
 import { api } from '../lib/api.js'
 import { t, setLocale, languages } from '../lib/i18n.js'
@@ -12,11 +12,51 @@ const settings = ref({ theme: 'dark', lang: 'en', openAtLogin: false, startMinim
 const server = ref('')
 const cache = ref('')
 const confirmUnpair = ref(false)
+const sync = ref({ folder: '', enabled: false, state: 'stopped' })
+const syncBusy = ref(false)
+const syncError = ref('')
+const confirmSyncDelete = ref(false)
+const syncStateKey = computed(() => {
+  if (sync.value.errorKind === 'bulk_delete') return 'fullSync.bulkDelete'
+  return 'fullSync.' + ({ idle: 'ready', offline: 'error' }[sync.value.state] || sync.value.state)
+})
+let syncTimer
+let mounted = true
+let readingSync = false
+async function readSync() {
+  if (readingSync) return
+  readingSync = true
+  try { const state = await api.getFullSync(); if (mounted) sync.value = state }
+  catch { if (mounted) syncError.value = 'fullSync.error' }
+  finally { readingSync = false }
+}
+onUnmounted(() => { mounted = false; clearInterval(syncTimer) })
+async function chooseSyncFolder() {
+  syncBusy.value = true; syncError.value = ''
+  try { sync.value = await api.chooseSyncFolder(t('fullSync.chooseHint')) }
+  catch { syncError.value = 'fullSync.folderError' }
+  finally { syncBusy.value = false; await readSync() }
+}
+async function toggleSync(enabled) {
+  syncBusy.value = true; syncError.value = ''
+  try { sync.value = await api.setFullSync(enabled) }
+  catch { syncError.value = 'fullSync.error' }
+  finally { syncBusy.value = false; await readSync() }
+}
+async function confirmDeletions() {
+  confirmSyncDelete.value = false
+  syncBusy.value = true; syncError.value = ''
+  try { await api.confirmSyncDeletions() }
+  catch { syncError.value = 'fullSync.error' }
+  finally { syncBusy.value = false; await readSync() }
+}
 
 onMounted(async () => {
   settings.value = (await api.getSettings()) || settings.value
   server.value = await api.serverURL()
   cache.value = await api.cachePath()
+  await readSync()
+  if (mounted) syncTimer = setInterval(readSync, 2000)
 })
 
 async function persist() {
@@ -115,6 +155,30 @@ async function doChangeServer() {
           </div>
         </div>
 
+        <section class="rounded-lg border border-line bg-panel2 p-4 space-y-3" aria-labelledby="folder-sync-title">
+          <h2 id="folder-sync-title" class="text-sm font-semibold text-ink">{{ t('fullSync.title') }}</h2>
+          <p class="text-xs leading-relaxed text-muted">{{ t('fullSync.description') }}</p>
+          <div class="flex items-center gap-2">
+            <span class="min-w-0 flex-1 break-all text-xs text-ink">{{ sync.folder || t('fullSync.noFolder') }}</span>
+            <button class="btn-ghost shrink-0 disabled:opacity-50" :disabled="syncBusy || sync.enabled" @click="chooseSyncFolder">
+              <FolderOpen :size="14" /> {{ t('fullSync.choose') }}
+            </button>
+          </div>
+          <label class="flex items-center gap-2 text-sm text-ink">
+            <input type="checkbox" class="accent-accent" :checked="sync.enabled"
+              :disabled="syncBusy || (!sync.enabled && (!sync.folder || !server))"
+              @change="toggleSync($event.target.checked)" />
+            {{ t('fullSync.enable') }}
+          </label>
+          <p role="status" class="text-xs text-muted">{{ t(syncStateKey) }}</p>
+          <p v-if="syncError" role="alert" class="text-xs text-danger">{{ t(syncError) }}</p>
+          <button v-if="sync.errorKind === 'bulk_delete'" class="btn-ghost !text-danger" :disabled="syncBusy" @click="confirmSyncDelete = true">
+            {{ t('fullSync.confirmDelete') }}
+          </button>
+          <button v-if="sync.backup" class="btn-ghost" @click="api.revealSyncBackup()">{{ t('fullSync.backup') }}</button>
+          <p class="text-xs leading-relaxed text-muted">{{ t('fullSync.backupHint') }}</p>
+        </section>
+
         <!-- Open at login -->
         <label class="flex cursor-pointer items-center gap-2">
           <input type="checkbox" :checked="settings.openAtLogin" class="accent-accent" @change="toggleOpenAtLogin" />
@@ -137,6 +201,14 @@ async function doChangeServer() {
         </label>
       </div>
     </div>
+
+    <Dialog :open="confirmSyncDelete" :title="t('fullSync.confirmDelete')" @close="confirmSyncDelete = false">
+      <p class="text-sm text-muted">{{ t('fullSync.deleteWarning') }}</p>
+      <template #footer>
+        <button class="btn-ghost" @click="confirmSyncDelete = false">{{ t('common.cancel') }}</button>
+        <button class="btn-accent !bg-danger/15 !text-danger" @click="confirmDeletions">{{ t('fullSync.confirmDelete') }}</button>
+      </template>
+    </Dialog>
 
     <Dialog :open="confirmUnpair" :title="t('settings.changeServerTitle')" @close="confirmUnpair = false">
       <p class="text-sm text-muted">{{ t('settings.changeServerConfirm') }}</p>

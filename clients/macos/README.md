@@ -15,6 +15,7 @@ entitlements.
 
 ## Requirements
 
+- Go 1.25+ for the embedded sync engine (the build script finds standard Go installations).
 - Xcode 26+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 - A paid Apple Developer team: `DEVELOPMENT_TEAM` in `project.yml`. The app is sandboxed
   and uses an App Group and a keychain access group, which a free team cannot sign.
@@ -28,6 +29,24 @@ xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -derivedDataPath bui
 open build/Build/Products/Debug/DiscoDrive.app
 ```
 Or open `DiscoDrive.xcodeproj` in Xcode (scheme **DiscoDrive**) and click Run.
+
+Debug uses `org.discodrive.app.debug`, its own App Group/keychain group and the
+`discodrive-debug://` URL scheme. Pair it separately; it cannot replace the Release
+provider or use the Release account's stored credentials. Regenerate the project with
+XcodeGen after changing `project.yml`.
+
+For a signed build to use with your existing Finder location:
+
+```bash
+xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -configuration Release -derivedDataPath build build
+codesign --verify --deep --strict build/Build/Products/Release/DiscoDrive.app
+```
+
+The bundle includes the file provider and its authentication UI extension. The Sign In
+button opens this containing app; a successful refresh resumes Finder operations without
+removing or reimporting the domain. macOS provider regression tests run with
+`xcodebuild -project DiscoDrive.xcodeproj -scheme ProviderTests -destination 'platform=macOS' -derivedDataPath build test`.
+
 
 ## Pairing
 
@@ -51,3 +70,30 @@ notarization. iOS will reuse the `clients/DiscoKit` core.
 
 Releases are signed with Developer ID and notarized (`scripts/macos-sign.sh`,
 `scripts/macos-notarize.sh`); the App Store is the eventual channel.
+
+## Full folder synchronization
+
+Settings contains a separate **Folder synchronization** section. Choose a dedicated local
+folder, then enable synchronization. The selection is a security-scoped bookmark; both it
+and the switch survive app/system restarts. Enable **Launch at login** to resume after login.
+Closing the main window keeps syncing in the menu bar; quitting stops all work before
+releasing folder access. Logout disables synchronization for the old account.
+
+The app links the existing Go engine as a static C archive: no installed or child daemon,
+no additional credentials file, and no connection to Finder's disposable download cache.
+Filesystem events, server events and a periodic scan trigger push/pull. The server's sync
+scope is honored: disabling the server's single-folder restriction mirrors the whole storage.
+The app does not change that server setting. Use one sync owner per local folder; stop an
+existing standalone daemon before assigning its directory to the app.
+
+On the first run for an account and local directory, previous files (including hidden files)
+are moved into `Application Support/FullSync/Backups` in the app's sandbox, accessible through
+**Show previous files**. The selected directory itself keeps its identity and access grant.
+A failed preparation cannot start network synchronization. Account and directory identity
+select an independent index; replacing the local directory cannot reuse old deletion history.
+A mass-deletion guard pauses uploads until the user explicitly confirms in Settings.
+
+The Xcode prebuild phase compiles `daemon/native` for the target architectures. Native
+preparation tests: `xcodebuild -project DiscoDrive.xcodeproj -scheme SyncTests -destination
+'platform=macOS' -derivedDataPath build test`. Engine/integration tests from `daemon`:
+`go test -race ./native ./internal/engine ./internal/index ./internal/protocol ./internal/syncer`.

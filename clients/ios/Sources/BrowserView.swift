@@ -4,7 +4,72 @@ import DiscoKit
 
 // Root: NavigationStack + global actions and sheets.
 // URL wrapper with a fresh id on each presentation — so .sheet re-triggers even for the same file.
-struct PreviewItem: Identifiable { let id = UUID(); let url: URL }
+struct PreviewItem: Identifiable { let id = UUID(); let url: URL; let node: Node?; let siblings: [Node] }
+
+struct PreviewFile: Identifiable { let id: String; let name: String }
+
+// Controls live outside Quick Look so image gestures cannot hide them.
+struct FilePreviewView: View {
+    @EnvironmentObject var app: AppState
+    @Environment(\.dismiss) private var dismiss
+    let files: [PreviewFile]
+    let load: @MainActor (String) async throws -> URL
+    @State private var position: Int
+    @State private var url: URL?
+    @State private var loading = false
+    @State private var error: String?
+    @State private var retry = 0
+
+    init(files: [PreviewFile], selectedID: String, url: URL,
+         load: @escaping @MainActor (String) async throws -> URL) {
+        self.files = files; self.load = load
+        _position = State(initialValue: files.firstIndex { $0.id == selectedID } ?? 0)
+        _url = State(initialValue: url)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button { navigate(-1) } label: { Image(systemName: "chevron.left").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityLabel(app.t("preview.previous")).accessibilityIdentifier("preview.previous")
+                    .disabled(position == 0)
+                Button { navigate(1) } label: { Image(systemName: "chevron.right").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityLabel(app.t("preview.next")).accessibilityIdentifier("preview.next")
+                    .disabled(position + 1 >= files.count)
+                Spacer()
+                Text("\(position + 1) / \(files.count)").monospacedDigit().foregroundStyle(.secondary)
+                Button(app.t("preview.close")) { dismiss() }
+                    .frame(minHeight: 44).accessibilityIdentifier("preview.close")
+            }.padding(.horizontal)
+            if files.indices.contains(position) {
+                Text(files[position].name).font(.subheadline).lineLimit(1).truncationMode(.middle).padding(.horizontal)
+            }
+            if loading { Spacer(); ProgressView(); Spacer() }
+            else if let error {
+                Spacer()
+                Text(error).foregroundStyle(.red).padding()
+                Button(app.t("toolbar.refresh")) { retry += 1 }
+                Spacer()
+            } else if let url { QuickLookView(url: url).id(url) }
+        }
+        .background(Color(uiColor: .systemBackground))
+        .task(id: "\(position):\(retry)") {
+            guard url == nil, files.indices.contains(position) else { return }
+            loading = true; error = nil
+            do {
+                let result = try await load(files[position].id)
+                try Task.checkCancellation()
+                url = result; loading = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.error = error.localizedDescription; loading = false
+            }
+        }
+    }
+    private func navigate(_ offset: Int) {
+        url = nil; error = nil; loading = true; position += offset
+    }
+}
 
 // QuickLook via a UIKit controller: reliably opens any local file, including repeated opens.
 struct QuickLookView: UIViewControllerRepresentable {
@@ -36,7 +101,6 @@ struct BrowserView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
                             Button { Task { await app.refresh() } } label: { Label(app.t("toolbar.refresh"), systemImage: "arrow.clockwise") }
-                            Button { Task { await app.importLocalFiles() } } label: { Label(app.t("toolbar.import"), systemImage: "square.and.arrow.down.on.square") }
                             Button { settingsPresented = true } label: { Label(app.t("settings.title"), systemImage: "gear") }
                             Button { try? app.local?.evictCached() } label: { Label(app.t("toolbar.free"), systemImage: "trash") }
                             Divider()
@@ -45,7 +109,10 @@ struct BrowserView: View {
                     }
                 }
         }
-        .task { await app.refresh(); await app.importLocalFiles() }
+        .alert(app.t("status.opError"), isPresented: Binding(get: { app.lastError != nil }, set: { if !$0 { app.lastError = nil } })) {
+            Button(app.t("dialog.done")) { app.lastError = nil }
+        } message: { Text(app.lastError ?? "") }
+        .task { await app.refresh() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.importLocalFiles() } }
         }
@@ -61,9 +128,20 @@ struct BrowserView: View {
             if let p = app.vaultRecoveryToShow { RecoveryKeyView(phrase: p).environmentObject(app) }
         }
         .onChange(of: app.fileToPreview) { _, url in
-            if let url { preview = PreviewItem(url: url); app.fileToPreview = nil }
+            if let url {
+                let node = app.previewNode
+                preview = PreviewItem(url: url, node: node, siblings: node.map { app.children(of: $0.parentID).filter { !$0.isDir } } ?? [])
+                app.fileToPreview = nil
+            }
         }
-        .sheet(item: $preview) { item in QuickLookView(url: item.url).ignoresSafeArea() }
+        .sheet(item: $preview) { item in
+            let nodes = item.siblings.isEmpty ? item.node.map { [$0] } ?? [] : item.siblings
+            let files = nodes.isEmpty ? [PreviewFile(id: "local", name: item.url.lastPathComponent)] : nodes.map { PreviewFile(id: $0.id, name: $0.name) }
+            FilePreviewView(files: files, selectedID: item.node?.id ?? "local", url: item.url) { id in
+                guard let node = nodes.first(where: { $0.id == id }), let url = await app.ensureDownloaded(node) else { throw CocoaError(.fileReadUnknown) }
+                return url
+            }
+        }
     }
 }
 
@@ -77,6 +155,7 @@ struct FolderView: View {
     @State private var importing = false
     @State private var renameTarget: Node?
     @State private var renameName = ""
+    @State private var shareTarget: Node?
 
     private var folderID: String? { folder?.id }
     private var folderPath: String { folder?.path ?? "" }
@@ -110,6 +189,7 @@ struct FolderView: View {
         .sheet(isPresented: $createVaultPresented) {
             CreateVaultView(parentPath: folderPath, isPresented: $createVaultPresented).environmentObject(app)
         }
+        .sheet(item: $shareTarget) { SharingView(node: $0).environmentObject(app) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             let accessed = urls.filter { $0.startAccessingSecurityScopedResource() }
@@ -129,6 +209,7 @@ struct FolderView: View {
                 }
             } else {
                 NavigationLink(value: node) { Label(node.name, systemImage: "folder") }
+                    .contextMenu { Button(app.t("share.title")) { shareTarget = node } }
             }
         } else {
             Button { Task { await app.openFile(node) } } label: {
@@ -150,6 +231,7 @@ struct FolderView: View {
                 Button { renameName = node.name; renameTarget = node } label: { Label(app.t("menu.rename"), systemImage: "pencil") }.tint(.blue)
             }
             .contextMenu {
+                Button(app.t("share.title")) { shareTarget = node }
                 Button(app.t("menu.keepLocal")) { Task { await app.pin(node) } }
                 Button(app.t("menu.removeLocal")) { app.removeLocal(node) }
             }

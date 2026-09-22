@@ -3,9 +3,31 @@ import DiscoKit
 
 @main
 struct DiscoDriveApp: App {
-    @StateObject private var app = AppState()
+    @StateObject private var app: AppState
+    @StateObject private var files: FilesIntegration
+    @StateObject private var fullSync: FullSyncController
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        KeychainConfig.accessGroup = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveKeychainGroup") as? String
+        AppState.appGroupID = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveAppGroup") as? String
+        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("VaultPreviews"))
+        let state = AppState()
+        let integration = FilesIntegration()
+        let sync = FullSyncController()
+        integration.attach(state)
+        sync.attach(state)
+        state.beforeLogout = {
+            await sync.logout()
+            await AutoUploadService.shared.logout()
+            return await integration.disconnect()
+        }
+        _app = StateObject(wrappedValue: state)
+        _files = StateObject(wrappedValue: integration)
+        AutoUploadService.shared.configure { [weak state] in state?.client }
+        state.bootstrap()
+        sync.registerBackgroundTask()
+        _fullSync = StateObject(wrappedValue: sync)
         // Must be registered before the app finishes launching, or iOS refuses the handler.
         AutoUploadService.shared.registerBackgroundTask()
         #if DEBUG
@@ -21,16 +43,35 @@ struct DiscoDriveApp: App {
                 #if DEBUG
                 // Automated runs cannot tap: this opens a screen directly so a screenshot
                 // can show it, and is ignored unless the variable is set. Debug only.
-                if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_SCREEN"] == "autoupload", app.paired {
+                if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_SCREEN"] == "settings" {
+                    SettingsView()
+                } else if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_SCREEN"] == "autoupload", app.paired {
                     NavigationStack { AutoUploadView() }
                 } else if app.paired { BrowserView() } else { PairingView() }
                 #else
                 if app.paired { BrowserView() } else { PairingView() }
                 #endif
             }
+            .onOpenURL { url in
+                if url.scheme == "discodrive-ios", url.host == "authenticate" { Task { await files.authenticate(url) } }
+            }
             .environmentObject(app)
+            .environmentObject(files)
+            .environmentObject(fullSync)
+            .onChange(of: app.paired) { _, paired in
+                Task { if paired { await files.connect(); await fullSync.resume() } else { _ = await files.disconnect() } }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                Task {
+                    if phase == .active { await fullSync.resume(); if await app.refresh() { await files.signal() } }
+                    else if phase == .background { await fullSync.suspend() }
+                }
+            }
             .onAppear {
-                app.bootstrap()
+                Task {
+                    if app.paired { await files.connect(); if scenePhase == .active { await fullSync.resume() } }
+                    else { _ = await files.disconnect() }
+                }
                 // The service holds no reference to AppState: it asks for a client when it
                 // needs one, so re-pairing cannot leave it talking to the old server.
                 AutoUploadService.shared.configure { app.client }

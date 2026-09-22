@@ -5,8 +5,11 @@ package mobile
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -100,14 +103,17 @@ func New(serverURL, deviceToken, syncDir, stateDBPath string, insecureTLS bool) 
 	if err != nil {
 		return nil, err
 	}
-	// An index built against another server describes files this one never had. Applying it
-	// would push their absence as deletions, so start over instead — the desktop client has
-	// guarded this since the unpair rework; the mobile one had not.
-	if stored, serr := idx.ServerURL(); serr == nil && stored != "" && stored != serverURL {
-		if err := idx.Clear(); err != nil {
-			idx.Close()
-			return nil, err
-		}
+	// A new token is a new pairing even on the same server. Do not rely on the
+	// UI's best-effort database deletion: an interrupted unpair may leave it intact.
+	root, err := filepath.Abs(syncDir)
+	if err != nil {
+		idx.Close()
+		return nil, err
+	}
+	identity := sha256.Sum256([]byte(serverURL + "\n" + deviceToken + "\n" + root))
+	if err := idx.BindMirrorPairing(hex.EncodeToString(identity[:])); err != nil {
+		idx.Close()
+		return nil, err
 	}
 	if err := idx.SetServerURL(serverURL); err != nil {
 		idx.Close()

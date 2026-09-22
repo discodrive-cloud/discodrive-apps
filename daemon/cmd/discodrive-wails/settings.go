@@ -113,6 +113,11 @@ func (a *App) RevealCache() {
 // different server merged the stale index into the new tree and re-uploaded
 // leftover data (e.g. vaults) to the wrong server.
 func (a *App) Unpair() error {
+	if a.mirror != nil {
+		if err := a.mirror.Detach(); err != nil {
+			return err
+		}
+	}
 	if a.ready {
 		// While the config still points at the old server: re-encrypt and push any
 		// open vaults back where they belong.

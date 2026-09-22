@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/daemon/cmd/discodrive-wails/build/bin/discodrive-wails.app"
+APP="$ROOT/daemon/cmd/discodrive-wails/build/bin/DiscoDrive.app"
 VERSION="${1:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")}"
 DIST="$ROOT/dist"
 DMG="$DIST/DiscoDrive-$VERSION-macos.dmg"

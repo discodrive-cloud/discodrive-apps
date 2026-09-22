@@ -109,7 +109,7 @@ jobs:
           cp dist/*.dmg out/
           for a in amd64 arm64; do
             cp "dist/windows/DiscoDrive-$a.exe"                 "out/DiscoDrive-$VER-windows-$a-unsigned.exe"
-            cp "dist/windows/discodrive-wails-$a-installer.exe" "out/DiscoDrive-$VER-windows-$a-installer-unsigned.exe"
+            cp "dist/windows/DiscoDrive-$a-installer.exe" "out/DiscoDrive-$VER-windows-$a-installer-unsigned.exe"
           done
           cp dist/discodrive-daemon-*.tar.gz out/
           ls -la out

@@ -19,6 +19,7 @@ const (
 type Status struct {
 	State     State     `json:"state"`
 	LastSync  time.Time `json:"last_sync,omitempty"`
+	ErrorKind string    `json:"error_kind,omitempty"`
 	LastError string    `json:"last_error,omitempty"`
 	Pid       int       `json:"pid"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -39,6 +40,12 @@ func ReadStatus(path string) (Status, error) {
 func (s *Syncer) writeStatus(st Status) {
 	st.Pid = os.Getpid()
 	st.UpdatedAt = time.Now()
+	if s.observer != nil {
+		s.observer(st)
+	}
+	if s.statusPath == "" {
+		return
+	}
 
 	b, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {

@@ -27,9 +27,11 @@ var errSourceUnavailable = errors.New("source unavailable")
 
 // Engine applies server changes to the local root directory.
 type Engine struct {
-	src  Source
-	idx  *index.Index
-	root string
+	observeChange func(Change, string, time.Duration, error)
+	src           Source
+	idx           *index.Index
+	root          string
+	prepared      bool
 
 	// bulkDeleteConfirmed lets one push carry deletions past the safety threshold; see
 	// [Engine.ConfirmBulkDelete].
@@ -40,8 +42,19 @@ type Engine struct {
 	setAside string
 }
 
+// ObserveChanges installs a diagnostic callback before the engine starts.
+func (e *Engine) ObserveChanges(fn func(Change, string, time.Duration, error)) { e.observeChange = fn }
+
 func New(src Source, idx *index.Index, root string) *Engine {
 	return &Engine{src: src, idx: idx, root: root}
+}
+
+// NewPrepared uses a directory whose previous contents the host has already
+// preserved. It must not rename the root, including after an interrupted first pull.
+func NewPrepared(src Source, idx *index.Index, root string) *Engine {
+	e := New(src, idx, root)
+	e.prepared = true
+	return e
 }
 
 // PullOnce fetches all changes after the cursor and applies them in order.
@@ -69,7 +82,15 @@ func (e *Engine) PullOnce(ctx context.Context) error {
 			return err
 		}
 		for _, c := range changes {
-			if aerr := e.apply(ctx, c); aerr != nil {
+			started := time.Now()
+			if e.observeChange != nil {
+				e.observeChange(c, "begin", 0, nil)
+			}
+			aerr := e.apply(ctx, c)
+			if e.observeChange != nil {
+				e.observeChange(c, "end", time.Since(started), aerr)
+			}
+			if aerr != nil {
 				wrapped := fmt.Errorf("seq %d (%s): %w", c.Seq, c.RelPath, aerr)
 				// Reaching the server failed: everything after it would fail the same
 				// way, so stop rather than spend a phone's data on 500 doomed
@@ -125,6 +146,9 @@ func (e *Engine) ResetIndexKeepingFiles() error {
 // root (root.old-<stamp>) untouched, leaving a clean folder for the server's tree. Nothing
 // in it is ever uploaded. An empty folder (OS junk aside) needs no moving.
 func (e *Engine) establishMirror() error {
+	if e.prepared {
+		return nil
+	}
 	ready, err := e.idx.MirrorReady()
 	if err != nil || ready {
 		return err
@@ -194,6 +218,35 @@ func (e *Engine) ScopeEpoch() (int64, error) { return e.idx.ScopeEpoch() }
 // mapped to the OLD scope and must not be pushed into the new one. The resulting local data
 // loss of the old mirror is expected and is gated behind the web danger-confirm modal.
 func (e *Engine) ResetForScope(ctx context.Context, epoch int64) error {
+	ready, err := e.idx.MirrorReady()
+	if err != nil {
+		return err
+	}
+	knownScope, err := e.idx.HasScopeEpoch()
+	if err != nil {
+		return err
+	}
+	if !ready && !knownScope {
+		// A first scope is not a rebuild. Record it before pulling so an interrupted
+		// initial download resumes normally, without sweeping unrelated local files.
+		if err := e.idx.SetMirrorReady(false); err != nil {
+			return err
+		}
+		if err := e.idx.SetScopeEpoch(epoch); err != nil {
+			return err
+		}
+		return e.PullOnce(ctx)
+	}
+	// Older indexes may not have recorded epoch zero. Persist it before clearing
+	// readiness so a failed rebuild cannot be mistaken for a first connection.
+	last, err := e.idx.ScopeEpoch()
+	if err != nil {
+		return err
+	}
+	if err := e.idx.SetScopeEpoch(last); err != nil {
+		return err
+	}
+
 	// A scope change is not a pairing: the folder stays where it is and is reconciled,
 	// which keeps the in-scope files instead of downloading them all again.
 	if err := e.ResetIndexKeepingFiles(); err != nil {
