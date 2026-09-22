@@ -113,6 +113,8 @@ func (a *App) RevealCache() {
 // different server merged the stale index into the new tree and re-uploaded
 // leftover data (e.g. vaults) to the wrong server.
 func (a *App) Unpair() error {
+	a.accountMu.Lock()
+	defer a.accountMu.Unlock()
 	if a.mirror != nil {
 		if err := a.mirror.Detach(); err != nil {
 			return err

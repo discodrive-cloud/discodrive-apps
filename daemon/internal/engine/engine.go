@@ -27,6 +27,7 @@ var errSourceUnavailable = errors.New("source unavailable")
 
 // Engine applies server changes to the local root directory.
 type Engine struct {
+	activity      activityTracker
 	observeChange func(Change, string, time.Duration, error)
 	src           Source
 	idx           *index.Index
@@ -67,7 +68,9 @@ func NewPrepared(src Source, idx *index.Index, root string) *Engine {
 // The cursor advances only across the unbroken run of changes applied from the start, so a
 // change that failed is retried on the next pull rather than skipped. Changes after it are
 // applied now and re-applied then, which is harmless: applying is idempotent.
-func (e *Engine) PullOnce(ctx context.Context) error {
+func (e *Engine) PullOnce(ctx context.Context) (result error) {
+	e.activityBegin("pull", "")
+	defer func() { e.activityEnd(result) }()
 	if err := e.establishMirror(); err != nil {
 		return err
 	}
@@ -77,16 +80,19 @@ func (e *Engine) PullOnce(ctx context.Context) error {
 	}
 	var failures []error
 	for {
+		e.activityBegin("pull", "")
 		changes, cursor, hasMore, err := e.src.Changes(ctx, since, pageLimit)
 		if err != nil {
 			return err
 		}
 		for _, c := range changes {
+			e.activityBegin("pull", c.RelPath)
 			started := time.Now()
 			if e.observeChange != nil {
 				e.observeChange(c, "begin", 0, nil)
 			}
 			aerr := e.apply(ctx, c)
+			e.activityEnd(aerr)
 			if e.observeChange != nil {
 				e.observeChange(c, "end", time.Since(started), aerr)
 			}

@@ -10,7 +10,7 @@
 
 This is the client repository for the [DiscoDrive server](https://github.com/kosmosoid/discodrive) — your own private cloud for files, calendars, contacts, tasks, music and books.
 
-Cross-platform: macOS, Windows, Linux and Android. A single `Makefile` builds the right variant for the right OS.
+Cross-platform: macOS, Windows, Linux, Android and iOS. A single `Makefile` builds the right variant for the right OS.
 
 ---
 
@@ -36,10 +36,15 @@ A cross-platform GUI app (macOS, Windows, Linux) with an **on-demand** model.
 - **System tray** and auto-start.
 - **7 interface languages** — English, German, Ukrainian, French, Spanish, Russian and Serbian.
 
+The native macOS and Wails clients include folder synchronization without a separate
+background daemon. Both offer server Trash, version restoration, read-only sharing with
+expiry/revocation, and a sync activity/error view. Native macOS also integrates with Finder.
+
 ### 📱 Mobile apps
 
+- **iOS recovery and sharing** — server Trash, version history/restoration, read-only links and email sharing, and sync activity in Settings. Ordinary files are available in Files; vaults stay inside the app.
 - **Full clients** — `android-discodrive` (Android) and `ios` (iOS): on-demand access to the whole storage.
-- **Folder-sync** — on Android it is built into the full client (Settings → Folder sync); `ios-fastsync` is the minimal iOS app for full sync of a chosen folder.
+- **Folder sync** — built into the Android and iOS clients. iOS keeps its mirror in Documents/Sync and preserves existing contents separately after each new pairing. Background work follows iOS scheduling limits; `ios-fastsync` remains the minimal dedicated variant.
 
 ---
 

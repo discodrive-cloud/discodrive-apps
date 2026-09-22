@@ -19,6 +19,9 @@ struct BrowserView: View {
     @EnvironmentObject var app: AppState
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedFolder: String? = kRootTag   // kRootTag = root
+    @State private var trashPresented = false
+    @State private var historyTarget: Node?
+    @State private var shareTarget: Node?
     @State private var selectedFile: Node?
     @State private var newFolderPresented = false
     @State private var newFolderName = ""
@@ -159,6 +162,8 @@ struct BrowserView: View {
             }
         }
         .toolbar {
+            Button { trashPresented = true } label: { Image(systemName: "trash.circle") }
+                .help(app.t("recovery.trash"))
             Button { Task { await app.refresh() } } label: { Image(systemName: "arrow.clockwise") }
                 .help(app.t("toolbar.refresh"))
             Button { Task { await app.importLocalFiles() } } label: { Image(systemName: "square.and.arrow.down.on.square") }
@@ -176,6 +181,9 @@ struct BrowserView: View {
             Button { logoutConfirmPresented = true } label: { Image(systemName: "rectangle.portrait.and.arrow.right") }
                 .help(app.t("toolbar.logout"))
         }
+        .sheet(isPresented: $trashPresented) { RecoveryView() }
+        .sheet(item: $historyTarget) { RecoveryView(node: $0) }
+        .sheet(item: $shareTarget) { SharingView(node: $0) }
         .task { await app.refresh(); await app.importLocalFiles() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.importLocalFiles() } }
@@ -226,7 +234,9 @@ struct BrowserView: View {
             Button(app.t("vault.open")) { app.vaultUnlockFolder = node }
             Divider()
         }
+        if !app.isVault(node) { Button(app.t("share.title")) { shareTarget = node } }
         if !node.isDir {
+            Button(app.t("recovery.versions")) { historyTarget = node }
             Button(app.t("menu.download")) { Task { await app.ensureDownloaded(node) } }
             Button(app.t("menu.keepLocal")) { Task { await app.pin(node) } }
             Button(app.t("menu.removeLocal")) { app.removeLocal(node) }

@@ -129,7 +129,9 @@ func (e *Engine) guardBulkDelete(changes []LocalChange) error {
 	return &BulkDeleteError{Deletions: deletions, Known: len(known)}
 }
 
-func (e *Engine) PushLocal(ctx context.Context, sink Sink) error {
+func (e *Engine) PushLocal(ctx context.Context, sink Sink) (result error) {
+	e.activityBegin("scan", "")
+	defer func() { e.activityEnd(result) }()
 	// Nothing goes up before the first pull has come down: until then the folder holds
 	// the device's previous contents, not the user's new work, and the server is the truth.
 	if ready, err := e.idx.MirrorReady(); err != nil || !ready {
@@ -182,6 +184,8 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) error {
 	}
 
 	for _, c := range changes {
+		e.activityEnd(nil)
+		e.activityBegin("push", c.RelPath)
 		abs, err := e.abs(c.RelPath)
 		if err != nil {
 			return err

@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Native macOS, iOS and Wails: server Trash with restoration and confirmed permanent
+  deletion; file version history and restoration with a cross-device warning.
+- Native macOS and Wails: read-only link/email sharing, expiration and access revocation.
+- Native macOS, iOS and Wails: in-memory sync activity with the current path, completed
+  operation count and bounded recent errors, independent of diagnostic logging.
+
 - iOS: public links and read-only email sharing with expiration and revocation;
   Files action to remove local copies; opt-in rotating sync logs
   in Documents/Logs with export from Settings.

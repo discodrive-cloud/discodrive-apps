@@ -2,6 +2,15 @@
 const app = () => window.go.main.App
 
 export const api = {
+  trash: () => app().Trash(),
+  undelete: (id) => app().Undelete(id),
+  purge: (id) => app().Purge(id),
+  emptyTrash: () => app().EmptyTrash(),
+  versions: (id) => app().Versions(id),
+  restoreVersion: (id, version) => app().RestoreVersion(id, version),
+  shares: (id) => app().Shares(id),
+  createShare: (id, email, days) => app().CreateShare(id, email, days),
+  revokeShare: (id) => app().RevokeShare(id),
   ready: () => app().Ready(),
   pairInit: (serverUrl) => app().PairInit(serverUrl),
   pairPoll: (serverUrl, deviceCode, interval) => app().PairPoll(serverUrl, deviceCode, interval),

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"time"
+
+	"discodrive.org/daemon/internal/engine"
 )
 
 // State represents the daemon's current state.
@@ -17,12 +19,13 @@ const (
 
 // Status is the daemon's current status, serialised to status.json.
 type Status struct {
-	State     State     `json:"state"`
-	LastSync  time.Time `json:"last_sync,omitempty"`
-	ErrorKind string    `json:"error_kind,omitempty"`
-	LastError string    `json:"last_error,omitempty"`
-	Pid       int       `json:"pid"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Activity  engine.Activity `json:"activity"`
+	State     State           `json:"state"`
+	LastSync  time.Time       `json:"last_sync,omitempty"`
+	ErrorKind string          `json:"error_kind,omitempty"`
+	LastError string          `json:"last_error,omitempty"`
+	Pid       int             `json:"pid"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 // ReadStatus reads status.json at the given path.

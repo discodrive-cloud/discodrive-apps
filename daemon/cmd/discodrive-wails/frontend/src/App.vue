@@ -1,9 +1,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { HardDrive, Files, Shield, Settings as SettingsIcon } from 'lucide-vue-next'
+import { HardDrive, Files, Shield, Trash2, Settings as SettingsIcon } from 'lucide-vue-next'
 import { api } from './lib/api.js'
 import { t, setLocale } from './lib/i18n.js'
 import { applyTheme } from './lib/theme.js'
+import Recovery from './components/Recovery.vue'
 import Browser from './views/Browser.vue'
 import Vaults from './views/Vaults.vue'
 import Pairing from './views/Pairing.vue'
@@ -44,6 +45,7 @@ watch(view, (next, prev) => {
 const tabs = [
   { id: 'files', icon: Files, label: 'nav.files' },
   { id: 'vaults', icon: Shield, label: 'nav.vaults' },
+  { id: 'trash', icon: Trash2, label: 'recovery.trash' },
   { id: 'settings', icon: SettingsIcon, label: 'nav.settings' },
 ]
 </script>
@@ -70,6 +72,7 @@ const tabs = [
       <template v-else>
         <Browser ref="browserRef" v-show="view === 'files'" class="h-full" />
         <Vaults ref="vaultsRef" v-show="view === 'vaults'" class="h-full" />
+        <Recovery v-if="view === 'trash'" class="h-full p-4" @changed="browserRef?.refresh?.()" />
         <Settings v-if="view === 'settings'" class="h-full" @unpaired="onUnpaired" />
       </template>
     </main>

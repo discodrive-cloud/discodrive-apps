@@ -9,6 +9,8 @@ final class FullSyncController: ObservableObject {
     static let taskID = "org.discodrive.ios.fullsync"
     @Published private(set) var enabled = UserDefaults.standard.bool(forKey: "fullSync.enabled")
     @Published private(set) var busy = false
+    @Published private(set) var activity = SyncActivity()
+    @Published private(set) var activityError = ""
     @Published private(set) var statusKey = "fullSync.stopped"
     @Published private(set) var folder: URL?
     private weak var app: AppState?
@@ -148,6 +150,7 @@ final class FullSyncController: ObservableObject {
         polling?.cancel(); polling = nil
         await Task.detached { DDFullSyncStop() }.value
         running = false
+        activity = SyncActivity(); activityError = ""
         statusKey = "fullSync.stopped"
     }
 
@@ -176,6 +179,9 @@ final class FullSyncController: ObservableObject {
         guard running, let raw = DDFullSyncStatus() else { return }
         defer { DDFullSyncFree(raw) }
         guard let json = try? JSONSerialization.jsonObject(with: Data(String(cString: raw).utf8)) as? [String: Any] else { return }
+        activityError = json["last_error"] as? String ?? ""
+        if let payload = json["activity"], let data = try? JSONSerialization.data(withJSONObject: payload),
+           let snapshot = try? JSONDecoder().decode(SyncActivity.self, from: data) { activity = snapshot }
         if json["error_kind"] as? String == "bulk_delete" { statusKey = "fullSync.bulkDelete"; return }
         switch json["state"] as? String {
         case "idle": statusKey = "fullSync.ready"

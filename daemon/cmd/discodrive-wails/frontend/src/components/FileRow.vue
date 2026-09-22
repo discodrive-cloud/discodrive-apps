@@ -1,17 +1,17 @@
 <script setup>
-import { Folder, FileText, Star, Pencil, Trash2, FolderInput, Download, Pin, PinOff, CloudOff, Loader2 } from 'lucide-vue-next'
+import { Share2, History, Folder, FileText, Star, Pencil, Trash2, FolderInput, Download, Pin, PinOff, CloudOff, Loader2 } from 'lucide-vue-next'
 import { t } from '../lib/i18n.js'
 defineProps({
   node: { type: Object, required: true },
   busy: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 })
-const emit = defineEmits(['open', 'select', 'pin', 'unpin', 'removeLocal', 'reveal', 'rename', 'del', 'move'])
+const emit = defineEmits(['share', 'history', 'open', 'select', 'pin', 'unpin', 'removeLocal', 'reveal', 'rename', 'del', 'move'])
 </script>
 
 <template>
   <div
-    class="group flex select-none items-center gap-2 rounded px-2 py-1.5"
+    tabindex="0" class="group flex select-none items-center gap-2 rounded px-2 py-1.5"
     :class="selected ? 'bg-accent/10 ring-1 ring-accent/30' : 'hover:bg-ink/5'"
     @click="emit('select', node)"
     @dblclick="emit('open', node)"
@@ -26,7 +26,9 @@ const emit = defineEmits(['open', 'select', 'pin', 'unpin', 'removeLocal', 'reve
     <span v-else-if="!node.isDir && node.state === 'cached'" class="shrink-0 text-xs text-muted">●</span>
 
     <Loader2 v-if="busy" :size="15" class="ml-1 shrink-0 animate-spin text-accent" />
-    <div v-else class="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex">
+    <div v-else class="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex">
+      <button class="btn-ghost px-1.5 py-1" :title="t('share.title')" :aria-label="t('share.title')" @click.stop="emit('share', node)"><Share2 :size="14" /></button>
+      <button v-if="!node.isDir" class="btn-ghost px-1.5 py-1" :title="t('recovery.versions')" :aria-label="t('recovery.versions')" @click.stop="emit('history', node)"><History :size="14" /></button>
       <button v-if="!node.isDir" class="btn-ghost px-1.5 py-1" :title="t('row.download')" @click.stop="emit('reveal', node)"><Download :size="14" /></button>
       <button v-if="!node.isDir && node.state !== 'pinned'" class="btn-ghost px-1.5 py-1" :title="t('row.pin')" @click.stop="emit('pin', node)"><Pin :size="14" /></button>
       <button v-if="!node.isDir && node.state === 'pinned'" class="btn-ghost px-1.5 py-1" :title="t('row.unpin')" @click.stop="emit('unpin', node)"><PinOff :size="14" /></button>

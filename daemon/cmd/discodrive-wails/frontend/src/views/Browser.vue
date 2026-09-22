@@ -8,8 +8,11 @@ import Breadcrumbs from '../components/Breadcrumbs.vue'
 import FileRow from '../components/FileRow.vue'
 import Dialog from '../components/Dialog.vue'
 import FolderPicker from '../components/FolderPicker.vue'
+import Recovery from '../components/Recovery.vue'
+import Sharing from '../components/Sharing.vue'
 import UploadPanel from '../components/UploadPanel.vue'
 
+const historyNode = ref(null), shareNode = ref(null), resourceBusy = ref(false)
 const stack = ref([{ id: '', relPath: '', name: 'root' }])
 const entries = ref([])
 const busy = ref(false)
@@ -151,7 +154,7 @@ function dropFiles(paths) {
   if (paths && paths.length) api.uploadPaths(current().id, current().relPath, paths)
 }
 
-defineExpose({ reload, current, dropFiles })
+defineExpose({ refresh, reload, current, dropFiles })
 </script>
 
 <template>
@@ -203,6 +206,8 @@ defineExpose({ reload, current, dropFiles })
           :node="node"
           :busy="busyIds.has(node.id)"
           :selected="selectedId === node.id"
+          @share="shareNode = $event"
+          @history="historyNode = $event"
           @open="enter"
           @select="onSelect"
           @pin="onPin"
@@ -216,6 +221,12 @@ defineExpose({ reload, current, dropFiles })
       </ul>
     </div>
 
+    <Dialog :open="!!historyNode" :title="t('recovery.versions')" @close="!resourceBusy && (historyNode = null)">
+      <Recovery v-if="historyNode" :key="historyNode.id" :node="historyNode" @busy="resourceBusy = $event" @changed="refresh" />
+    </Dialog>
+    <Dialog :open="!!shareNode" :title="t('share.title')" @close="!resourceBusy && (shareNode = null)">
+      <Sharing v-if="shareNode" :key="shareNode.id" :node="shareNode" @busy="resourceBusy = $event" />
+    </Dialog>
     <Dialog :open="!!dialog && dialog.kind === 'newFolder'" :title="t('dialog.newFolder')" @close="dialog = null">
       <input
         v-model="dialog.name"

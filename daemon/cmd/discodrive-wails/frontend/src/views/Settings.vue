@@ -177,6 +177,20 @@ async function doChangeServer() {
           </button>
           <button v-if="sync.backup" class="btn-ghost" @click="api.revealSyncBackup()">{{ t('fullSync.backup') }}</button>
           <p class="text-xs leading-relaxed text-muted">{{ t('fullSync.backupHint') }}</p>
+        <details class="border-t border-line pt-4">
+          <summary class="cursor-pointer text-sm font-medium">{{ t('activity.title') }}</summary>
+          <div class="mt-3 space-y-3 text-sm" aria-live="polite">
+            <p>{{ t(syncStateKey) }}</p>
+            <template v-if="sync.activity?.phase"><p>{{ t('activity.' + sync.activity.phase) }}</p><p class="break-all">{{ sync.activity.path }}</p></template>
+            <p>{{ t('activity.completed') }}: {{ sync.activity?.completed || 0 }}</p>
+            <p class="text-xs text-muted">{{ t('activity.hint') }}</p>
+            <p v-if="sync.last_error" class="break-words text-danger">{{ sync.last_error }}</p>
+            <h3 v-if="sync.activity?.errors?.length" class="font-semibold">{{ t('activity.errors') }}</h3>
+            <ul class="divide-y divide-line"><li v-for="failure in [...(sync.activity?.errors || [])].reverse()" :key="failure.path" class="space-y-1 py-2">
+              <p class="break-all font-medium">{{ failure.path }}</p><p class="break-words text-muted">{{ failure.message }}</p><p class="text-xs text-muted">{{ new Date(failure.time).toLocaleString() }}</p>
+            </li></ul>
+          </div>
+        </details>
         </section>
 
         <!-- Open at login -->

@@ -50,6 +50,7 @@ var native struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	status syncer.Status
+	engine *engine.Engine
 	runner *syncer.Syncer
 }
 
@@ -112,6 +113,7 @@ func start(cfg configuration) error {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	native.runner = runner
+	native.engine = eng
 	native.cancel = cancel
 	native.done = make(chan struct{})
 	native.status = syncer.Status{State: syncer.StateSyncing}
@@ -134,6 +136,8 @@ func stop() {
 	<-done
 	native.Lock()
 	native.runner = nil
+	native.engine = nil
+	native.status = syncer.Status{}
 	native.cancel = nil
 	native.done = nil
 	native.Unlock()
@@ -152,7 +156,11 @@ func DDFullSyncConfirmDeletion() {
 func DDFullSyncStatus() *C.char {
 	native.Lock()
 	defer native.Unlock()
-	b, _ := json.Marshal(native.status)
+	st := native.status
+	if native.engine != nil {
+		st.Activity = native.engine.Activity()
+	}
+	b, _ := json.Marshal(st)
 	return C.CString(string(b))
 }
 

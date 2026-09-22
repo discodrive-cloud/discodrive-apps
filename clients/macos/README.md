@@ -1,14 +1,14 @@
 # DiscoDrive — native macOS client (standalone)
 
 A windowed app for accessing DiscoDrive files: displays the full tree, fetches content
-**on demand**, and lets you **keep individual files local**. No Finder integration.
+**on demand**, and lets you **keep individual files local**. A File Provider extension
+exposes ordinary files and unlocked vaults in Finder.
 
-## Where this is going
+## Integration
 
 The app is sandboxed and signed with the team's Developer ID (paid Apple Developer account
-since 2026-09). A File Provider extension — the DiscoDrive folder in Finder, like iCloud
-Drive — is being added next; until it lands, files are browsed in the app window. The
-index database lives in the App Group container (`~/Library/Group Containers/<team>.org.discodrive`)
+since 2026-09). Files can be browsed in the app and in the DiscoDrive Finder location.
+The index database lives in the App Group container (`~/Library/Group Containers/<team>.org.discodrive`)
 and the device token in the keychain access group of the same name, so the extension can
 share them. Both identifiers are declared in `Resources/Info.plist` next to the
 entitlements.
@@ -53,7 +53,7 @@ removing or reimporting the domain. macOS provider regression tests run with
 On first launch, enter your DiscoDrive server address → click "Connect" → confirm the
 device in the browser that opens. The token is saved in Keychain.
 
-## What it can do (v1)
+## Features
 
 - Browse the full file tree (folder tree + list view, navigate up to the "DiscoDrive" root).
 - Download a file on double-click (on-demand) and open it in an external app.
@@ -61,10 +61,11 @@ device in the browser that opens. The token is saved in Keychain.
 - "Free up space" — clears non-pinned copies.
 - Multilingual UI (language is stored on the server and synced across devices).
 
-## Out of scope for v1
-
-File upload/editing on the server, encrypted vault (Cryptomator), iOS app,
-notarization. iOS will reuse the `clients/DiscoKit` core.
+- Upload, rename, delete and manage Cryptomator-compatible vaults.
+- Open Trash from the toolbar; restore entries or permanently delete them after confirmation.
+- Open Version history from a file's context menu and restore a saved version.
+- Share files and ordinary folders by read-only link or email, set expiry, and revoke access.
+- Inspect the current sync path, completed operation count, and recent errors in Settings → Sync activity.
 
 ## Distribution
 

@@ -4,6 +4,7 @@ import DiscoKit
 struct SettingsView: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var files: FilesIntegration
+    @State private var activityPresented = false
     @EnvironmentObject var fullSync: FullSyncController
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDeletion = false
@@ -39,6 +40,7 @@ struct SettingsView: View {
                             Text(app.t(fullSync.statusKey)).foregroundStyle(.secondary)
                         }
                     }
+                    Button(app.t("activity.title")) { activityPresented = true }
                     if fullSync.statusKey == "fullSync.bulkDelete" {
                         Button(app.t("fullSync.confirmDelete"), role: .destructive) { confirmingDeletion = true }
                     }
@@ -55,6 +57,7 @@ struct SettingsView: View {
             .navigationTitle(app.t("settings.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(app.t("dialog.done")) { dismiss() } } }
+            .sheet(isPresented: $activityPresented) { SyncActivityView() }
             .alert(app.t("fullSync.confirmDelete"), isPresented: $confirmingDeletion) {
                 Button(app.t("fullSync.confirmDelete"), role: .destructive) { fullSync.confirmDeletion() }
                 Button(app.t("dialog.cancel"), role: .cancel) {}

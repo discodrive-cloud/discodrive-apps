@@ -28,6 +28,8 @@ type Preferences struct {
 	Enabled bool   `json:"enabled"`
 }
 type Status struct {
+	Activity  engine.Activity `json:"activity"`
+	LastError string          `json:"last_error,omitempty"`
 	Preferences
 	State     string `json:"state"`
 	ErrorKind string `json:"errorKind,omitempty"`
@@ -35,16 +37,17 @@ type Status struct {
 }
 
 type Manager struct {
-	mu       sync.Mutex // serializes lifecycle and preference changes, including logout
-	statusMu sync.Mutex
-	profile  string
-	prefs    Preferences
-	account  config.Config
-	closed   bool
-	cancel   context.CancelFunc
-	done     chan struct{}
-	runner   *syncer.Syncer
-	status   Status
+	mu             sync.Mutex // serializes lifecycle and preference changes, including logout
+	statusMu       sync.Mutex
+	profile        string
+	prefs          Preferences
+	account        config.Config
+	closed         bool
+	cancel         context.CancelFunc
+	done           chan struct{}
+	runner         *syncer.Syncer
+	status         Status
+	activityEngine *engine.Engine // protected by statusMu
 }
 
 func New(profile string) *Manager {
@@ -61,11 +64,24 @@ func New(profile string) *Manager {
 	m.status = Status{Preferences: m.prefs, State: "stopped"}
 	return m
 }
-func (m *Manager) Status() Status { m.statusMu.Lock(); defer m.statusMu.Unlock(); return m.status }
+func (m *Manager) Status() Status {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	st := m.status
+	if m.activityEngine != nil {
+		st.Activity = m.activityEngine.Activity()
+	}
+	return st
+}
 func (m *Manager) state(state, kind string) {
 	m.statusMu.Lock()
 	m.status.State = state
 	m.status.ErrorKind = kind
+	if state == "stopped" {
+		m.activityEngine = nil
+		m.status.Activity = engine.Activity{}
+		m.status.LastError = ""
+	}
 	m.statusMu.Unlock()
 }
 func (m *Manager) save(p Preferences) error {
@@ -240,9 +256,20 @@ func (m *Manager) start(ctx context.Context) (err error) {
 		return err
 	}
 	client := protocol.NewStrict(m.account.ServerURL, m.account.DeviceToken)
-	runner := syncer.New(client, engine.NewPrepared(client, idx, root), root, "")
+	eng := engine.NewPrepared(client, idx, root)
+	m.statusMu.Lock()
+	m.activityEngine = eng
+	m.status.LastError = ""
+	m.statusMu.Unlock()
+	runner := syncer.New(client, eng, root, "")
 	runner.BeforePass(func() error { return checkIdentity(root, id) })
-	runner.ObserveStatus(func(s syncer.Status) { m.state(string(s.State), s.ErrorKind) })
+	runner.ObserveStatus(func(s syncer.Status) {
+		m.statusMu.Lock()
+		m.status.State = string(s.State)
+		m.status.ErrorKind = s.ErrorKind
+		m.status.LastError = s.LastError
+		m.statusMu.Unlock()
+	})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	m.cancel, m.done, m.runner = cancel, done, runner

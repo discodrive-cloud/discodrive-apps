@@ -122,6 +122,46 @@ public actor APIClient {
         throw APIError.notAuthenticated
     }
 
+    public struct TrashItem: Decodable, Identifiable, Sendable {
+        public let id: String
+        public let name: String
+        public let is_dir: Bool
+        public let size: Int64?
+        public let deleted_at: String?
+    }
+
+    public struct FileVersion: Decodable, Identifiable, Sendable {
+        public let version: Int64
+        public let size: Int64?
+        public let is_conflict_loser: Bool
+        public var id: Int64 { version }
+    }
+
+    public func trash() async throws -> [TrashItem] {
+        try JSONDecoder().decode([TrashItem].self, from: await get(path: "files/trash"))
+    }
+
+    public func undelete(id: String) async throws {
+        try await send("POST", path: "files/\(id)/undelete", ok: [200])
+    }
+
+    public func purge(id: String) async throws {
+        try await send("DELETE", path: "files/\(id)/purge", ok: [204])
+    }
+
+    public func emptyTrash() async throws {
+        try await send("DELETE", path: "files/trash", ok: [204])
+    }
+
+    public func versions(nodeID: String) async throws -> [FileVersion] {
+        try JSONDecoder().decode([FileVersion].self, from: await get(path: "files/\(nodeID)/versions"))
+    }
+
+    public func restoreVersion(nodeID: String, version: Int64) async throws {
+        try await send("POST", path: "files/\(nodeID)/restore",
+                       body: JSONEncoder().encode(["version": version]), contentType: "application/json", ok: [200])
+    }
+
     public struct Share: Decodable, Identifiable, Sendable {
         public let share_id: String
         public let kind: String

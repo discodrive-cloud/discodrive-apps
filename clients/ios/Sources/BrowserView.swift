@@ -90,6 +90,7 @@ struct QuickLookView: UIViewControllerRepresentable {
 struct BrowserView: View {
     @EnvironmentObject var app: AppState
     @Environment(\.scenePhase) private var scenePhase
+    @State private var trashPresented = false
     @State private var settingsPresented = false
     @State private var preview: PreviewItem?
 
@@ -101,11 +102,12 @@ struct BrowserView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
                             Button { Task { await app.refresh() } } label: { Label(app.t("toolbar.refresh"), systemImage: "arrow.clockwise") }
+                            Button { trashPresented = true } label: { Label(app.t("recovery.trash"), systemImage: "trash.circle") }
                             Button { settingsPresented = true } label: { Label(app.t("settings.title"), systemImage: "gear") }
                             Button { try? app.local?.evictCached() } label: { Label(app.t("toolbar.free"), systemImage: "trash") }
                             Divider()
                             Button(role: .destructive) { app.logout() } label: { Label(app.t("toolbar.logout"), systemImage: "rectangle.portrait.and.arrow.right") }
-                        } label: { Image(systemName: "ellipsis.circle") }
+                        } label: { Image(systemName: "ellipsis.circle") }.accessibilityIdentifier("browser.actions")
                     }
                 }
         }
@@ -116,6 +118,7 @@ struct BrowserView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.importLocalFiles() } }
         }
+        .sheet(isPresented: $trashPresented) { RecoveryView() }
         .sheet(isPresented: $settingsPresented) { SettingsView() }
         .sheet(item: Binding(get: { app.vaultUnlockFolder },
                              set: { app.vaultUnlockFolder = $0; if $0 == nil { app.vaultUnlockError = nil } })) { folder in
@@ -155,6 +158,7 @@ struct FolderView: View {
     @State private var importing = false
     @State private var renameTarget: Node?
     @State private var renameName = ""
+    @State private var historyTarget: Node?
     @State private var shareTarget: Node?
 
     private var folderID: String? { folder?.id }
@@ -189,6 +193,7 @@ struct FolderView: View {
         .sheet(isPresented: $createVaultPresented) {
             CreateVaultView(parentPath: folderPath, isPresented: $createVaultPresented).environmentObject(app)
         }
+        .sheet(item: $historyTarget) { RecoveryView(node: $0) }
         .sheet(item: $shareTarget) { SharingView(node: $0).environmentObject(app) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
@@ -231,6 +236,7 @@ struct FolderView: View {
                 Button { renameName = node.name; renameTarget = node } label: { Label(app.t("menu.rename"), systemImage: "pencil") }.tint(.blue)
             }
             .contextMenu {
+                Button(app.t("recovery.versions")) { historyTarget = node }
                 Button(app.t("share.title")) { shareTarget = node }
                 Button(app.t("menu.keepLocal")) { Task { await app.pin(node) } }
                 Button(app.t("menu.removeLocal")) { app.removeLocal(node) }

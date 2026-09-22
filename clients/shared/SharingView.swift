@@ -1,5 +1,10 @@
 import SwiftUI
 import DiscoKit
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct SharingView: View {
     @EnvironmentObject var app: AppState
@@ -25,8 +30,10 @@ struct SharingView: View {
                     }
                     if !byLink {
                         TextField(app.t("share.email"), text: $email)
+                            #if os(iOS)
                             .textContentType(.emailAddress).keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            #endif
                     }
                     Picker(app.t("share.expiry"), selection: $expiry) {
                         Text(app.t("share.forever")).tag(0)
@@ -40,7 +47,7 @@ struct SharingView: View {
                 if let link {
                     Section {
                         ShareLink(item: link) { Label(app.t("share.send"), systemImage: "square.and.arrow.up") }
-                        Button(app.t("share.copy")) { UIPasteboard.general.url = link }
+                        Button(app.t("share.copy")) { copy(link) }
                     }
                 }
                 Section {
@@ -51,7 +58,7 @@ struct SharingView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(share.email ?? app.t("share.link"))
                             if let expires = share.expires_at {
-                                Text(expires).font(.caption).foregroundStyle(.secondary)
+                                Text(serverDateLabel(expires, language: app.language)).font(.caption).foregroundStyle(.secondary)
                             }
                             Button(app.t("share.revoke"), role: .destructive) { Task { await revoke(share) } }.disabled(busy)
                         }
@@ -59,12 +66,27 @@ struct SharingView: View {
                 } header: { Text(app.t("share.existing")) }
             }
             .navigationTitle(app.t("share.title"))
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(app.t("dialog.done")) { dismiss() } } }
+            #endif
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(app.t("dialog.done")) { dismiss() }.disabled(busy) } }
             .interactiveDismissDisabled(busy)
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        .frame(width: 480, height: 560)
+        #endif
         .task { await reload() }
         .onChange(of: app.paired) { _, _ in dismiss() }
+    }
+
+    private func copy(_ url: URL) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        #else
+        UIPasteboard.general.url = url
+        #endif
     }
 
     private func reload() async {

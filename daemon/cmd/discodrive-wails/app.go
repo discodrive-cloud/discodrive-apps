@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,11 +28,12 @@ import (
 // App is the Wails-bound backend. It reuses the tested on-demand desktop Controller,
 // so the Wails UI is just a new view layer over the same Go core.
 type App struct {
-	mirror *fullsync.Manager
-	ctx    context.Context
-	ctrl   *desktop.Controller
-	idx    *index.Index
-	ready  bool
+	accountMu sync.RWMutex // Recovery and sharing requests finish before account teardown.
+	mirror    *fullsync.Manager
+	ctx       context.Context
+	ctrl      *desktop.Controller
+	idx       *index.Index
+	ready     bool
 
 	up        *protocol.Client // chunked-upload + EnsureDir client (separate JWT cache)
 	uploadSem chan struct{}    // caps concurrent uploads at 3
@@ -76,6 +78,8 @@ func (a *App) startup(ctx context.Context) {
 // background refresh. Shared by startup and the post-pairing flow so the session is
 // built identically. Returns an error if the profile is not paired/openable.
 func (a *App) openProfile(profile string) error {
+	a.accountMu.Lock()
+	defer a.accountMu.Unlock()
 	ctrl, idx, err := desktop.Open(profile)
 	if err != nil {
 		return err

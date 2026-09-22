@@ -5,6 +5,7 @@ import os
 
 struct SettingsView: View {
     @EnvironmentObject var app: AppState
+    @State private var activityPresented = false
     @EnvironmentObject var fullSync: FullSyncController
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var loginItemFailed = false
@@ -63,6 +64,7 @@ struct SettingsView: View {
                             get: { fullSync.enabled }, set: { fullSync.setEnabled($0) }
                         )).disabled(fullSync.busy || (!fullSync.enabled && (fullSync.folder == nil || !app.paired)))
                         Text(app.t(fullSync.statusKey)).font(.callout).foregroundStyle(.secondary)
+                        Button(app.t("activity.title")) { activityPresented = true }
                         if fullSync.statusKey == "fullSync.bulkDelete" {
                             Button(app.t("fullSync.confirmDelete"), role: .destructive) { confirmDeletion = true }
                         }
@@ -75,6 +77,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .sheet(isPresented: $activityPresented) { SyncActivityView() }
         .alert(app.t("fullSync.confirmDelete"), isPresented: $confirmDeletion) {
             Button(app.t("fullSync.confirmDelete"), role: .destructive) { fullSync.confirmDeletion() }
             Button(app.t("dialog.cancel"), role: .cancel) {}

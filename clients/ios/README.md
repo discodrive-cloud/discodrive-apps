@@ -103,3 +103,21 @@ still held the file open, so full eviction of the downloaded copy did not pass.
 The user confirmed that the removal action was visible on the device. Vault opening
 from Files was removed at the user's request after a physical-device failure;
 vaults inside DiscoDrive remain supported.
+
+## Recovery, sharing, and sync activity
+
+Trash lists server-deleted files and folders. Restore returns an entry to the server;
+permanent deletion and emptying the trash require confirmation. Version history is
+available for ordinary files. Restoring a saved version replaces the server content,
+propagates to synced devices, and preserves the previous content in history. The normal
+index refresh marks any old downloaded copy stale; recovery never relabels old bytes as new.
+
+Sharing supports read-only public links or access by email, with optional 1/7/30-day
+expiration and revocation. A public link is shown when created; the server's list of
+existing shares does not return its token.
+
+Settings → Sync activity shows the current operation/path, the number of completed
+operations, and up to 20 recent errors (one per path). Counts are session-local operations,
+not unique files or a whole-storage percentage. History is in memory only and clears when
+the sync engine stops; diagnostic logging is independent. Network failures and individual
+file failures remain visible, and the engine retries according to its normal policy.

@@ -9,6 +9,8 @@ final class FullSyncController: ObservableObject {
     @Published private(set) var enabled = UserDefaults.standard.bool(forKey: "fullSync.enabled")
     @Published private(set) var folder: URL?
     @Published private(set) var busy = false
+    @Published private(set) var activity = SyncActivity()
+    @Published private(set) var activityError = ""
     @Published private(set) var statusKey = "fullSync.stopped"
     @Published private(set) var backup: URL?
     private var running = false
@@ -60,6 +62,7 @@ final class FullSyncController: ObservableObject {
             try validate(url)
             try saveBookmark(url)
             folder = url
+            activity = SyncActivity(); activityError = ""
             statusKey = "fullSync.stopped"
         } catch { statusKey = "fullSync.folderError" }
     }
@@ -111,11 +114,13 @@ final class FullSyncController: ObservableObject {
 
     func stop() async {
         timer?.invalidate(); timer = nil
+        activity = SyncActivity(); activityError = ""
         statusKey = "fullSync.stopped"
         guard running else { return }
         await Task.detached { DDFullSyncStop() }.value
         running = false
         access?.stopAccessingSecurityScopedResource(); access = nil
+        activity = SyncActivity(); activityError = ""
         statusKey = "fullSync.stopped"
     }
 
@@ -149,6 +154,7 @@ final class FullSyncController: ObservableObject {
             if !FileManager.default.fileExists(atPath: backups.path) { backup = nil }
             guard !quitting, enabled, app.paired, app.serverURL == server else {
                 access?.stopAccessingSecurityScopedResource(); access = nil
+                activity = SyncActivity(); activityError = ""
                 statusKey = "fullSync.stopped"
                 return
             }
@@ -178,6 +184,9 @@ final class FullSyncController: ObservableObject {
         guard running, let raw = DDFullSyncStatus() else { return }
         defer { DDFullSyncFree(raw) }
         guard let json = try? JSONSerialization.jsonObject(with: Data(String(cString: raw).utf8)) as? [String: Any] else { return }
+        activityError = json["last_error"] as? String ?? ""
+        if let payload = json["activity"], let data = try? JSONSerialization.data(withJSONObject: payload),
+           let snapshot = try? JSONDecoder().decode(SyncActivity.self, from: data) { activity = snapshot }
         if json["error_kind"] as? String == "bulk_delete" {
             statusKey = "fullSync.bulkDelete"
             return
