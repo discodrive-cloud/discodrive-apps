@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Кошик</string>
+    <string name="recovery_versions" formatted="false">Історія версій</string>
+    <string name="recovery_version" formatted="false">Версія</string>
+    <string name="recovery_restore" formatted="false">Відновити</string>
+    <string name="recovery_restored" formatted="false">Відновлено на сервері.</string>
+    <string name="recovery_purge" formatted="false">Видалити назавжди</string>
+    <string name="recovery_empty" formatted="false">Очистити кошик…</string>
+    <string name="recovery_empty_trash" formatted="false">Кошик порожній.</string>
+    <string name="recovery_empty_versions" formatted="false">Немає збережених версій.</string>
+    <string name="recovery_purge_warning" formatted="false">Вибрані елементи та їхню історію буде назавжди видалено із сервера. Цю дію неможливо скасувати.</string>
+    <string name="recovery_version_hint" formatted="false">Відновлення замінює поточний вміст на всіх синхронізованих пристроях. Попередній вміст залишається в історії версій.</string>
+    <string name="recovery_conflict" formatted="false">Збережена конфліктна версія</string>
+    <string name="activity_title" formatted="false">Перебіг синхронізації</string>
+    <string name="activity_pull" formatted="false">Завантаження</string>
+    <string name="activity_push" formatted="false">Вивантаження</string>
+    <string name="activity_scan" formatted="false">Перевірка локальних файлів</string>
+    <string name="activity_completed" formatted="false">Завершені операції</string>
+    <string name="activity_errors" formatted="false">Останні помилки</string>
+    <string name="activity_empty" formatted="false">У цьому сеансі ще не було операцій.</string>
+    <string name="activity_hint" formatted="false">Дані зберігаються лише протягом поточного сеансу синхронізації. Невдалі операції повторюються.</string>
+    <string name="share_title" formatted="false">Поділитися</string>
+    <string name="share_method" formatted="false">Спосіб доступу</string>
+    <string name="share_link" formatted="false">Посилання</string>
+    <string name="share_user" formatted="false">Користувач</string>
+    <string name="share_email" formatted="false">Електронна пошта</string>
+    <string name="share_expiry" formatted="false">Термін дії</string>
+    <string name="share_forever" formatted="false">Без обмеження</string>
+    <string name="share_day" formatted="false">1 день</string>
+    <string name="share_week" formatted="false">7 днів</string>
+    <string name="share_month" formatted="false">30 днів</string>
+    <string name="share_create" formatted="false">Створити посилання</string>
+    <string name="share_grant" formatted="false">Надати доступ</string>
+    <string name="share_read_only" formatted="false">Одержувачі можуть переглядати й завантажувати. Посилання доступне всім, хто його має, до завершення терміну або відкликання.</string>
+    <string name="share_send" formatted="false">Поділитися посиланням</string>
+    <string name="share_copy" formatted="false">Копіювати посилання</string>
+    <string name="share_empty" formatted="false">Спільного доступу немає</string>
+    <string name="share_revoke" formatted="false">Відкликати доступ</string>
+    <string name="share_existing" formatted="false">Спільний доступ</string>
+    <string name="diagnostics_title" formatted="false">Діагностика</string>
+    <string name="diagnostics_enable" formatted="false">Зберігати журнали синхронізації</string>
+    <string name="diagnostics_export" formatted="false">Поділитися журналом</string>
+    <string name="diagnostics_failed" formatted="false">Не вдалося відкрити журнал. Перевірте вільне місце.</string>
+    <string name="diagnostics_hint" formatted="false">Типово вимкнено. Журнали зберігаються в застосунку (до 4 МБ). Щоб зберегти копію, виберіть «Поділитися журналом». Вони містять шляхи файлів, час операцій і помилки. Після вимкнення запис припиняється, попередні журнали залишаються.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Синхронізацію призупинено: зникло багато локальних файлів. Перед підтвердженням видалення перевірте доступність диска та папки.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Підтвердити видалення…</string>
+    <string name="full_sync_delete_warning" formatted="false">Файли, відсутні в локальній папці, також буде видалено на сервері та інших синхронізованих пристроях. Продовжуйте, лише якщо ви видалили їх навмисно.</string>
+    <string name="full_sync_title" formatted="false">Синхронізація папки</string>
+    <string name="full_sync_description" formatted="false">Зберігає повні копії файлів і синхронізує зміни в обидва боки, поки працює DiscoDrive. Папка вибирається на сервері; без обмеження однією папкою синхронізується все сховище.</string>
+    <string name="full_sync_no_folder" formatted="false">Локальну папку не вибрано</string>
+    <string name="full_sync_choose" formatted="false">Вибрати папку…</string>
+    <string name="full_sync_choose_hint" formatted="false">Виберіть окрему папку для повної локальної копії файлів із сервера.</string>
+    <string name="full_sync_enable" formatted="false">Увімкнути синхронізацію</string>
+    <string name="full_sync_stopped" formatted="false">Синхронізацію вимкнено</string>
+    <string name="full_sync_preparing" formatted="false">Збереження попереднього вмісту…</string>
+    <string name="full_sync_syncing" formatted="false">Синхронізація…</string>
+    <string name="full_sync_ready" formatted="false">Усі зміни синхронізовано</string>
+    <string name="full_sync_error" formatted="false">Не вдалося завершити синхронізацію. Перевірте з’єднання та доступ до папки, потім вимкніть і увімкніть синхронізацію для повтору.</string>
+    <string name="full_sync_access_error" formatted="false">Немає доступу до папки. Вимкніть синхронізацію та виберіть папку знову.</string>
+    <string name="full_sync_folder_error" formatted="false">Виберіть окрему папку поза хмарними дисками та даними застосунку.</string>
+    <string name="full_sync_backup" formatted="false">Показати попередні файли</string>
+    <string name="full_sync_backup_hint" formatted="false">Під час першого запуску попередні локальні файли зберігаються окремо, потім завантажується серверна копія. Надалі зміни та видалення синхронізуються в обидва боки.</string>
+    <string name="preview_previous" formatted="false">Попередній файл</string>
+    <string name="preview_next" formatted="false">Наступний файл</string>
+    <string name="preview_close" formatted="false">Закрити</string>
+    <string name="share_expires_at">Доступ закінчується</string>
+</resources>

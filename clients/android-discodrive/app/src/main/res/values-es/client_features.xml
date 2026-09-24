@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Papelera</string>
+    <string name="recovery_versions" formatted="false">Historial de versiones</string>
+    <string name="recovery_version" formatted="false">Versión</string>
+    <string name="recovery_restore" formatted="false">Restaurar</string>
+    <string name="recovery_restored" formatted="false">Restaurado en el servidor.</string>
+    <string name="recovery_purge" formatted="false">Eliminar definitivamente</string>
+    <string name="recovery_empty" formatted="false">Vaciar papelera…</string>
+    <string name="recovery_empty_trash" formatted="false">La papelera está vacía.</string>
+    <string name="recovery_empty_versions" formatted="false">No hay versiones guardadas.</string>
+    <string name="recovery_purge_warning" formatted="false">Los elementos seleccionados y su historial se eliminarán del servidor permanentemente. Esta acción no se puede deshacer.</string>
+    <string name="recovery_version_hint" formatted="false">La restauración reemplaza el contenido actual en todos los dispositivos sincronizados. El contenido anterior permanece en el historial.</string>
+    <string name="recovery_conflict" formatted="false">Versión en conflicto guardada</string>
+    <string name="activity_title" formatted="false">Actividad de sincronización</string>
+    <string name="activity_pull" formatted="false">Descargando</string>
+    <string name="activity_push" formatted="false">Subiendo</string>
+    <string name="activity_scan" formatted="false">Comprobando archivos locales</string>
+    <string name="activity_completed" formatted="false">Operaciones completadas</string>
+    <string name="activity_errors" formatted="false">Errores recientes</string>
+    <string name="activity_empty" formatted="false">Aún no hay operaciones en esta sesión.</string>
+    <string name="activity_hint" formatted="false">La actividad se conserva solo durante la sesión actual. La sincronización reintenta las operaciones fallidas.</string>
+    <string name="share_title" formatted="false">Compartir</string>
+    <string name="share_method" formatted="false">Compartir mediante</string>
+    <string name="share_link" formatted="false">Enlace</string>
+    <string name="share_user" formatted="false">Usuario</string>
+    <string name="share_email" formatted="false">Correo electrónico</string>
+    <string name="share_expiry" formatted="false">Caducidad</string>
+    <string name="share_forever" formatted="false">Sin caducidad</string>
+    <string name="share_day" formatted="false">1 día</string>
+    <string name="share_week" formatted="false">7 días</string>
+    <string name="share_month" formatted="false">30 días</string>
+    <string name="share_create" formatted="false">Crear enlace</string>
+    <string name="share_grant" formatted="false">Conceder acceso</string>
+    <string name="share_read_only" formatted="false">Los destinatarios pueden ver y descargar. Cualquier persona con el enlace puede usarlo hasta que caduque o se revoque.</string>
+    <string name="share_send" formatted="false">Compartir enlace</string>
+    <string name="share_copy" formatted="false">Copiar enlace</string>
+    <string name="share_empty" formatted="false">Sin acceso compartido</string>
+    <string name="share_revoke" formatted="false">Revocar acceso</string>
+    <string name="share_existing" formatted="false">Acceso compartido</string>
+    <string name="diagnostics_title" formatted="false">Diagnóstico</string>
+    <string name="diagnostics_enable" formatted="false">Guardar registros de sincronización</string>
+    <string name="diagnostics_export" formatted="false">Compartir registro</string>
+    <string name="diagnostics_failed" formatted="false">No se pudo abrir el registro. Compruebe el espacio disponible.</string>
+    <string name="diagnostics_hint" formatted="false">Desactivado por defecto. Los registros se guardan en la aplicación (hasta 4 MB). Use Compartir registro para guardar una copia. Contienen rutas, tiempos y errores. Al desactivar se detiene la escritura; los registros existentes se conservan.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Sincronización pausada: han desaparecido muchos archivos locales. Compruebe que el disco y la carpeta estén disponibles antes de confirmar la eliminación.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Confirmar eliminaciones…</string>
+    <string name="full_sync_delete_warning" formatted="false">Los archivos ausentes de la carpeta local también se eliminarán del servidor y otros dispositivos sincronizados. Continúe solo si los eliminó intencionadamente.</string>
+    <string name="full_sync_title" formatted="false">Sincronización de carpeta</string>
+    <string name="full_sync_description" formatted="false">Guarda copias completas y sincroniza los cambios en ambos sentidos mientras DiscoDrive está abierto. La carpeta se elige en el servidor; sin la restricción de carpeta, se sincroniza todo el almacenamiento.</string>
+    <string name="full_sync_no_folder" formatted="false">No se ha seleccionado una carpeta local</string>
+    <string name="full_sync_choose" formatted="false">Elegir carpeta…</string>
+    <string name="full_sync_choose_hint" formatted="false">Elija una carpeta dedicada a la copia local completa de los archivos del servidor.</string>
+    <string name="full_sync_enable" formatted="false">Activar la sincronización</string>
+    <string name="full_sync_stopped" formatted="false">Sincronización desactivada</string>
+    <string name="full_sync_preparing" formatted="false">Guardando el contenido anterior…</string>
+    <string name="full_sync_syncing" formatted="false">Sincronizando…</string>
+    <string name="full_sync_ready" formatted="false">Actualizado</string>
+    <string name="full_sync_error" formatted="false">No se pudo completar la sincronización. Compruebe la conexión y el acceso a la carpeta, luego desactive y active la sincronización para reintentar.</string>
+    <string name="full_sync_access_error" formatted="false">No se puede acceder a la carpeta. Desactive la sincronización y vuelva a elegirla.</string>
+    <string name="full_sync_folder_error" formatted="false">Elija una carpeta dedicada fuera de las unidades en la nube y los datos de la aplicación.</string>
+    <string name="full_sync_backup" formatted="false">Mostrar archivos anteriores</string>
+    <string name="full_sync_backup_hint" formatted="false">En la primera sincronización, los archivos locales existentes se guardan aparte y se descarga la copia del servidor. Después, los cambios y las eliminaciones se sincronizan en ambos sentidos.</string>
+    <string name="preview_previous" formatted="false">Archivo anterior</string>
+    <string name="preview_next" formatted="false">Archivo siguiente</string>
+    <string name="preview_close" formatted="false">Cerrar</string>
+    <string name="share_expires_at">El acceso caduca</string>
+</resources>

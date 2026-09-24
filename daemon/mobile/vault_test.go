@@ -29,6 +29,7 @@ func decID(id string) (string, error) {
 func startVaultServer(t *testing.T, serverDir string) *httptest.Server {
 	t.Helper()
 	var mu sync.Mutex
+	var seq int64
 	tombs := map[string]bool{}
 
 	type ch struct {
@@ -51,7 +52,6 @@ func startVaultServer(t *testing.T, serverDir string) *httptest.Server {
 		mu.Lock()
 		defer mu.Unlock()
 		var changes []ch
-		var seq int64
 		filepath.WalkDir(serverDir, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -281,5 +281,24 @@ func TestVaultWrongPassword(t *testing.T) {
 		filepath.Join(t.TempDir(), "i.db"), t.TempDir(), false)
 	if !errors.Is(err, vault.ErrWrongPassword) {
 		t.Fatalf("expected ErrWrongPassword, got %v", err)
+	}
+}
+
+func TestVaultCloseRemovesPlaintextAndRejectsReads(t *testing.T) {
+	mv := openTestVault(t, "password123")
+	if err := os.WriteFile(filepath.Join(mv.tmpDir, "preview.txt"), []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(mv.tmpDir); !os.IsNotExist(err) {
+		t.Fatalf("plaintext remains: %v", err)
+	}
+	if _, err := mv.List(""); err == nil {
+		t.Fatal("closed vault accepted read")
+	}
+	if err := mv.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var files: FilesIntegration
     @State private var activityPresented = false
+    @State private var davPresented = false
     @EnvironmentObject var fullSync: FullSyncController
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDeletion = false
@@ -18,6 +19,9 @@ struct SettingsView: View {
                         ForEach(L10n.supported, id: \.self) { Text(L10n.displayName[$0] ?? $0).tag($0) }
                     }
                     NavigationLink(app.t("au.title")) { AutoUploadView() }
+                }
+                Section {
+                    Button(app.t("dav.title")) { davPresented = true }.disabled(!app.paired)
                 }
                 Section {
                     Label(app.t(files.connected ? "ios.files.connected" : "ios.files.disconnected"), systemImage: "folder")
@@ -58,6 +62,7 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(app.t("dialog.done")) { dismiss() } } }
             .sheet(isPresented: $activityPresented) { SyncActivityView() }
+        .sheet(isPresented: $davPresented) { DAVSetupView() }
             .alert(app.t("fullSync.confirmDelete"), isPresented: $confirmingDeletion) {
                 Button(app.t("fullSync.confirmDelete"), role: .destructive) { fullSync.confirmDeletion() }
                 Button(app.t("dialog.cancel"), role: .cancel) {}

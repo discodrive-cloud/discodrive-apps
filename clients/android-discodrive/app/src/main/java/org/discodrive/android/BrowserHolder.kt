@@ -23,9 +23,11 @@ object BrowserHolder {
 
     private val lock = ReentrantLock()
     private val idle = lock.newCondition()
+    private val operations = ReentrantLock()
 
     private var browser: Browser? = null
     private var inUse = 0
+    private var closing = false
 
     /**
      * Opens the browser from the saved profile, or returns null when not paired yet.
@@ -36,11 +38,13 @@ object BrowserHolder {
     fun get(context: Context): Browser? = lock.withLock { open(context) }
 
     private fun open(context: Context): Browser? {
-        browser?.let { return it }
+        if (closing) return null
         val prefs = Prefs(context)
+        if (prefs.unpairing) return null
+        browser?.let { return it }
         val token = prefs.deviceToken ?: return null
         if (prefs.serverURL.isEmpty()) return null
-        val rootDir = File(Environment.getExternalStorageDirectory(), "DiscoDrive")
+        val rootDir = File(context.filesDir, "browser-cache")
         val b = Core.newBrowser(
             prefs.serverURL, token, rootDir.path,
             File(context.filesDir, "index.db").path, prefs.insecure,
@@ -63,7 +67,7 @@ object BrowserHolder {
             b
         }
         try {
-            return block(b)
+            return operations.withLock { block(b) }
         } finally {
             lock.withLock {
                 inUse--
@@ -80,16 +84,17 @@ object BrowserHolder {
      * — after re-pairing, one carrying the new device token.
      *
      * Blocks for up to [timeoutMs] waiting for work in flight, so call it off the main thread.
-     * On timeout it closes anyway: a pass that is somehow stuck must not keep a dead token
-     * alive for the rest of the process's life.
+     * A timeout leaves the handle blocked for new borrowers. A later close can finish
+     * draining it; it must never close SQLite underneath an active operation.
      */
     fun close(timeoutMs: Long = 30_000) = lock.withLock {
-        var remaining = timeoutMs * 1_000_000 // awaitNanos takes nanoseconds
-        while (inUse > 0 && remaining > 0) {
-            remaining = idle.awaitNanos(remaining)
-        }
-        runCatching { browser?.close() }
+        closing = true
+        var remaining = timeoutMs * 1_000_000
+        while (inUse > 0 && remaining > 0) remaining = idle.awaitNanos(remaining)
+        check(inUse == 0) { "Account operations are still finishing. Please try again." }
+        browser?.close()
         browser = null
+        closing = false
     }
 
     /**
@@ -99,8 +104,12 @@ object BrowserHolder {
      */
     fun wipe(context: Context) {
         close()
+        val cache = File(context.filesDir, "browser-cache")
+        check(!cache.exists() || cache.deleteRecursively()) { "Could not remove the previous account cache" }
         val db = File(context.filesDir, "index.db")
         // SQLite in WAL mode keeps two sidecars; leaving them behind half-restores the index.
-        listOf(db, File(db.path + "-wal"), File(db.path + "-shm")).forEach { it.delete() }
+        listOf(db, File(db.path + "-wal"), File(db.path + "-shm")).forEach {
+            check(!it.exists() || it.delete()) { "Could not remove the previous account index" }
+        }
     }
 }

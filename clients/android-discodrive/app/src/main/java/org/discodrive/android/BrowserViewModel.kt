@@ -51,7 +51,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(BrowseState(paired = isPaired()))
     val ui: StateFlow<BrowseState> = _ui.asStateFlow()
 
-    val rootDir: File = File(Environment.getExternalStorageDirectory(), "DiscoDrive")
+    val rootDir: File = File(app.filesDir, "browser-cache")
     private val indexDbPath: String get() = File(getApplication<Application>().filesDir, "index.db").path
 
     init { openIfPaired(); watchRefreshWork() }
@@ -76,7 +76,6 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (opened || opening) return
-        if (!hasStoragePermission()) return
         openBrowser()
     }
 
@@ -85,8 +84,12 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
      * holding onto it is what keeps re-pairing — which closes it — from cutting an operation
      * off mid-flight ("sql: database is closed"). Null when the device is not paired.
      */
-    private suspend fun <T> withBrowser(block: (Browser) -> T): T? =
-        withContext(Dispatchers.IO) { BrowserHolder.use(getApplication(), block) }
+    private suspend fun <T> withBrowser(block: (Browser) -> T): T? {
+        val token = prefs.deviceToken
+        val server = prefs.serverURL
+        val result = withContext(Dispatchers.IO) { BrowserHolder.use(getApplication(), block) }
+        return if (!prefs.unpairing && token == prefs.deviceToken && server == prefs.serverURL) result else null
+    }
 
     /**
      * Opens the local index, shows what it already holds, and only then pulls from the server.
@@ -102,7 +105,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 // Listed inline rather than through reload(), which runs in a coroutine of its
                 // own: its result could land after the pull's and put the pre-pull list back.
-                val js = withBrowser { it.list("") } ?: error("not paired")
+                val js = withBrowser { it.list("") } ?: return@launch
                 opened = true
                 _ui.value = _ui.value.copy(
                     paired = true, error = null, entries = parse(js),
@@ -140,6 +143,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             WorkManager.getInstance(getApplication<Application>())
                 .getWorkInfosForUniqueWorkFlow(RefreshWorker.NAME)
                 .collect { infos ->
+                    if (!isPaired() || prefs.unpairing) return@collect
                     val info = infos.lastOrNull() ?: return@collect
                     if (!info.state.isFinished) {
                         _ui.value = _ui.value.copy(syncing = true)
@@ -210,8 +214,11 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         }
         withContext(Dispatchers.IO) {
+            SyncHolder.close()
+            BrowserHolder.close()
             prefs.saveServer(pending.server, token, pending.insecure)
             prefs.pendingPairing = null
+            DriveDocumentsProvider.notifyRoots(getApplication())
         }
         // The process-wide holder may still carry a Browser built on the previous device token
         // — opening one performs no request, so a dead token lives in it until something asks
@@ -219,7 +226,6 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         // of the process's life. Closing waits for any pass still using the index (an
         // auto-upload batch, the previous refresh): closing under one surfaced as "sql:
         // database is closed" in the middle of a pairing that had otherwise succeeded.
-        withContext(Dispatchers.IO) { BrowserHolder.close() }
         opened = false
         // Paired, settled by the token the server just issued. Waiting for the first successful
         // pull instead stranded the user on this screen whenever that pull failed — the pairing
@@ -310,6 +316,8 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     fun move(id: String, destId: String) = op { it.move(id, destId) }
 
     // open: download (if needed) then hand the local path to the caller (FileProvider ACTION_VIEW).
+    suspend fun preview(id: String): String = withBrowser { it.download(id) } ?: error("Not paired")
+
     fun open(id: String, then: (String) -> Unit) {
         if (!opened) return
         viewModelScope.launch {
@@ -330,22 +338,27 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     fun uploadUri(uri: Uri) {
         val ctx = getApplication<Application>()
         if (!opened) return
+        val parent = currentId()
         viewModelScope.launch {
             _ui.value = _ui.value.copy(loading = true, error = null)
+            var staging: File? = null
             try {
                 val tmp = withContext(Dispatchers.IO) {
                     val name = displayName(ctx, uri)
-                    val f = File(ctx.cacheDir, name)
-                    ctx.contentResolver.openInputStream(uri)!!.use { input -> f.outputStream().use { input.copyTo(it) } }
-                    f
+                    require(name.isNotBlank() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')) { "Invalid file name" }
+                    val directory = java.nio.file.Files.createTempDirectory(ctx.cacheDir.toPath(), "upload-").toFile()
+                    staging = directory
+                    File(directory, name).also { file ->
+                        val source = ctx.contentResolver.openInputStream(uri) ?: error("Could not open file")
+                        source.use { input -> file.outputStream().use { input.copyTo(it) } }
+                    }
                 }
-                val js = withBrowser { it.upload(tmp.path, currentId()); it.list(currentId()) }
-                tmp.delete()
-                if (js == null) return@launch
-                _ui.value = _ui.value.copy(entries = parse(js))
+                val js = withBrowser { it.upload(tmp.path, parent); it.list(parent) } ?: return@launch
+                if (currentId() == parent) _ui.value = _ui.value.copy(entries = parse(js))
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(error = e.message)
             } finally {
+                staging?.deleteRecursively()
                 _ui.value = _ui.value.copy(loading = false)
             }
         }
@@ -358,6 +371,9 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun unpair() {
+        if (_ui.value.loading) return
+        _ui.value = _ui.value.copy(loading = true, error = null)
+        prefs.unpairing = true
         // Unpairing must also stop auto-upload: its rules point at a server this device no
         // longer has a token for, and a scheduled pass would keep failing in the background.
         prefs.autoUpload = false
@@ -366,13 +382,22 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         prefs.folderSync = false
         SyncWorker.cancel(getApplication())
         SyncEvents.stop(getApplication())
-        opened = false
-        opening = false
-        prefs.clear()
-        _ui.value = BrowseState()
-        // Off the main thread: closing waits for work in flight to finish. The index goes with
-        // it — one that outlives the pairing lists files this device no longer has any claim to.
-        viewModelScope.launch { withContext(Dispatchers.IO) { BrowserHolder.wipe(getApplication()); SyncHolder.wipe(getApplication()) } }
+        RefreshWorker.cancel(getApplication())
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    SyncHolder.wipe(getApplication())
+                    BrowserHolder.wipe(getApplication())
+                    prefs.clear()
+                    DriveDocumentsProvider.notifyRoots(getApplication())
+                }
+                opened = false
+                opening = false
+                _ui.value = BrowseState()
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(loading = false, error = e.message)
+            }
+        }
     }
 
     /** Shown on the settings row; the auto-upload screen owns everything else. */

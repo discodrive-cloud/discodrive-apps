@@ -18,6 +18,11 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.discodrive.android.Diagnostics
 import kotlinx.coroutines.withContext
 import org.discodrive.android.Prefs
 import org.discodrive.android.R
@@ -43,13 +48,24 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             runCatching { setForeground(foregroundInfo()) }
         }
 
-        return withContext(Dispatchers.IO) {
+        return coroutineScope {
+            val sampling = launch(Dispatchers.IO) {
+                while (isActive) {
+                    delay(2000)
+                    if (Prefs(applicationContext).loggingEnabled) {
+                        SyncHolder.use(applicationContext) { Diagnostics.record(applicationContext, it.activityJSON()) }
+                    }
+                }
+            }
+            try { withContext(Dispatchers.IO) {
             var error: String? = null
             SyncHolder.use(applicationContext) { client ->
                 error = runCatching { client.syncOnce() }.exceptionOrNull()?.message
+                Diagnostics.record(applicationContext, client.activityJSON(), error)
             }
             if (error == null) Result.success()
-            else Result.failure(workDataOf(KEY_ERROR to error)) // retried on its own schedule; the text is for the screen
+            else Result.failure(workDataOf(KEY_ERROR to error)) // retried on its own schedule
+            } } finally { sampling.cancel() }
         }
     }
 

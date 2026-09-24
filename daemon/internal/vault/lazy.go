@@ -5,6 +5,7 @@ package vault
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 
@@ -143,18 +144,34 @@ func (v *Vault) ReadFile(src Source, fileStoragePath string) ([]byte, error) {
 // WriteFile encrypts plaintext and writes file `name` into the directory parentDirID.
 // Mirrors the file branch of encryptDir (including .c9s shortening).
 func (v *Vault) WriteFile(sink Sink, parentDirID, name string, plaintext []byte) error {
+	var buf bytes.Buffer
+	if err := v.EncryptContent(&buf, bytes.NewReader(plaintext)); err != nil {
+		return err
+	}
+	return v.WriteEncryptedFile(sink, parentDirID, name, &buf)
+}
+
+// WriteEncryptedFile stores content produced by EncryptContent without buffering
+// another whole file when the sink supports streaming. Shortened names share the
+// same layout as the byte-oriented API.
+func (v *Vault) WriteEncryptedFile(sink Sink, parentDirID, name string, encrypted io.Reader) error {
 	parentHash, err := v.DirIdHash(parentDirID)
 	if err != nil {
-		return fmt.Errorf("vault: DirIdHash(%q): %w", parentDirID, err)
+		return err
 	}
 	encName, err := v.EncryptName(name, parentDirID)
 	if err != nil {
-		return fmt.Errorf("vault: encrypting name %q: %w", name, err)
+		return err
 	}
-
-	var buf bytes.Buffer
-	if err := v.EncryptContent(&buf, bytes.NewReader(plaintext)); err != nil {
-		return fmt.Errorf("vault: encrypting content of %q: %w", name, err)
+	write := func(sp string) error {
+		if streaming, ok := sink.(interface{ WriteFileStream(string, io.Reader) error }); ok {
+			return streaming.WriteFileStream(sp, encrypted)
+		}
+		data, err := io.ReadAll(encrypted)
+		if err != nil {
+			return err
+		}
+		return sink.WriteFile(sp, data)
 	}
 
 	if len(encName) > shorteningThreshold {
@@ -166,9 +183,9 @@ func (v *Vault) WriteFile(sink Sink, parentDirID, name string, plaintext []byte)
 		if err := sink.WriteFile(path.Join(c9sPath, "name.c9s"), []byte(encName)); err != nil {
 			return fmt.Errorf("vault: writing name.c9s for %q: %w", name, err)
 		}
-		return sink.WriteFile(path.Join(c9sPath, "contents.c9r"), buf.Bytes())
+		return write(path.Join(c9sPath, "contents.c9r"))
 	}
-	return sink.WriteFile(path.Join(parentHash, encName), buf.Bytes())
+	return write(path.Join(parentHash, encName))
 }
 
 // MakeDir creates subdirectory `name` in parentDirID and returns the new dirID.

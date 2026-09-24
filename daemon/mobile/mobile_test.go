@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestPairRoundTrip(t *testing.T) {
@@ -252,5 +253,50 @@ func TestRePairWithRetainedIndexDoesNotUploadOldFiles(t *testing.T) {
 	}
 	if uploads.Load() != 0 {
 		t.Fatal("backup was uploaded in a later pass")
+	}
+}
+
+// Closing cancels a blocked request and drains the current pass before closing SQLite.
+func TestCloseCancelsSyncAndRejectsLaterWork(t *testing.T) {
+	entered := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth/device/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"token": "jwt"})
+	})
+	mux.HandleFunc("GET /sync/meta", func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-r.Context().Done()
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c, _ := newClient(t, srv.URL)
+	done := make(chan error, 1)
+	go func() { done <- c.SyncOnce() }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request did not start")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("close did not cancel request")
+	}
+	if err := <-done; err == nil {
+		t.Fatal("cancelled pass succeeded")
+	}
+	if err := c.SyncOnce(); err == nil {
+		t.Fatal("closed client accepted a pass")
+	}
+	if err := c.ResetLocalIndex(); err == nil {
+		t.Fatal("closed client accepted an index reset")
+	}
+	if !json.Valid([]byte(c.ActivityJSON())) {
+		t.Fatal("invalid activity snapshot")
 	}
 }

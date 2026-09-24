@@ -6,6 +6,7 @@ import os
 struct SettingsView: View {
     @EnvironmentObject var app: AppState
     @State private var activityPresented = false
+    @State private var davPresented = false
     @EnvironmentObject var fullSync: FullSyncController
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var loginItemFailed = false
@@ -52,6 +53,9 @@ struct SettingsView: View {
                     .foregroundStyle(.red)
             }
             Section {
+                Button(app.t("dav.title")) { davPresented = true }.disabled(!app.paired)
+            }
+            Section {
                 GroupBox(app.t("fullSync.title")) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(app.t("fullSync.description")).font(.callout).foregroundStyle(.secondary)
@@ -78,6 +82,7 @@ struct SettingsView: View {
             }
         }
         .sheet(isPresented: $activityPresented) { SyncActivityView() }
+        .sheet(isPresented: $davPresented) { DAVSetupView() }
         .alert(app.t("fullSync.confirmDelete"), isPresented: $confirmDeletion) {
             Button(app.t("fullSync.confirmDelete"), role: .destructive) { fullSync.confirmDeletion() }
             Button(app.t("dialog.cancel"), role: .cancel) {}

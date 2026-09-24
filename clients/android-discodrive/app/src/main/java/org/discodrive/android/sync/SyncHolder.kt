@@ -17,7 +17,7 @@ import kotlin.concurrent.withLock
  * event listener all borrow this one through [use]; [close] belongs to switching the sync
  * off and to unpairing, and waits for a pass in flight.
  *
- * The folder is deliberately not the browser's `/sdcard/DiscoDrive`: the engine deletes
+ * The folder is separate from the browser's private cache: the engine deletes
  * whatever under its root is not in its index, and the browser's cache would be gone.
  */
 object SyncHolder {
@@ -27,6 +27,7 @@ object SyncHolder {
 
     private var client: Client? = null
     private var inUse = 0
+    private var closing = false
 
     val syncDir: File = File(Environment.getExternalStorageDirectory(), "DiscoDriveSync")
 
@@ -36,8 +37,10 @@ object SyncHolder {
     fun get(context: Context): Client? = lock.withLock { open(context) }
 
     private fun open(context: Context): Client? {
-        client?.let { return it }
+        if (closing) return null
         val prefs = Prefs(context)
+        if (prefs.unpairing) return null
+        client?.let { return it }
         val token = prefs.deviceToken ?: return null
         if (prefs.serverURL.isEmpty()) return null
         syncDir.mkdirs()
@@ -65,10 +68,14 @@ object SyncHolder {
 
     /** Closes the client once nothing is using it; blocks up to [timeoutMs], so call it off the main thread. */
     fun close(timeoutMs: Long = 30_000) = lock.withLock {
+        closing = true
+        client?.cancel()
         var remaining = timeoutMs * 1_000_000
         while (inUse > 0 && remaining > 0) remaining = idle.awaitNanos(remaining)
-        runCatching { client?.close() }
+        check(inUse == 0) { "Account operations are still finishing. Please try again." }
+        client?.close()
         client = null
+        closing = false
     }
 
     /**
@@ -79,6 +86,8 @@ object SyncHolder {
     fun wipe(context: Context) {
         close()
         val db = dbFile(context)
-        listOf(db, File(db.path + "-wal"), File(db.path + "-shm")).forEach { it.delete() }
+        listOf(db, File(db.path + "-wal"), File(db.path + "-shm")).forEach {
+            check(!it.exists() || it.delete()) { "Could not remove the previous account index" }
+        }
     }
 }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <external-path name="discodrive" path="DiscoDrive/"/>
+    <files-path name="browser" path="browser-cache/"/>
+    <files-path name="diagnostics" path="diagnostics/"/>
     <cache-path name="vaulttmp" path="vault/"/>
 </paths>

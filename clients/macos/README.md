@@ -22,6 +22,9 @@ entitlements.
 
 ## Build and run
 
+The default Debug build is for development only. Do not distribute it or use it to update
+a paired Release installation: it has a separate account identity and a development profile.
+
 ```bash
 cd clients/macos
 xcodegen generate
@@ -69,8 +72,30 @@ device in the browser that opens. The token is saved in Keychain.
 
 ## Distribution
 
-Releases are signed with Developer ID and notarized (`scripts/macos-sign.sh`,
-`scripts/macos-notarize.sh`); the App Store is the eventual channel.
+Use an archive exported with Developer ID signing for the app **and both extensions**.
+A normal Release build can still carry an Apple Development signature and a profile limited
+to registered Macs. Release configuration alone does not make it distributable.
+
+From the repository root (Apple Silicon):
+
+```bash
+xcodebuild -project clients/macos/DiscoDrive.xcodeproj -scheme DiscoDrive \
+  -configuration Release -destination 'generic/platform=macOS' ARCHS=arm64 \
+  -archivePath clients/macos/build/DiscoDrive.xcarchive archive
+xcodebuild -exportArchive -archivePath clients/macos/build/DiscoDrive.xcarchive \
+  -exportPath clients/macos/build/distribution \
+  -exportOptionsPlist clients/macos/DistributionExport.plist -allowProvisioningUpdates
+ditto -c -k --keepParent clients/macos/build/distribution/DiscoDrive.app /tmp/DiscoDrive-native.zip
+SIGN_REQUIRED=1 bash scripts/macos-notarize.sh /tmp/DiscoDrive-native.zip
+xcrun stapler staple clients/macos/build/distribution/DiscoDrive.app
+scripts/verify-native-macos.sh clients/macos/build/distribution/DiscoDrive.app
+```
+
+Re-create the ZIP after stapling before transferring it. The verification rejects Debug
+identities, development signing/entitlements, device-restricted profiles and Gatekeeper
+rejection. The distribution bundle retains `org.discodrive.app` and its Release App Group
+and Keychain group; do not reset pairing or remove the Finder domain to update it.
+The App Store is a separate distribution channel.
 
 ## Full folder synchronization
 

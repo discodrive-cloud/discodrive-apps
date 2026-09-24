@@ -2,6 +2,9 @@
 const app = () => window.go.main.App
 
 export const api = {
+  getDAVSetup: () => app().GetDAVSetup(),
+  prepareDAV: (calendars, contacts) => app().PrepareDAV(calendars, contacts),
+  revokeDAV: () => app().RevokeDAV(),
   trash: () => app().Trash(),
   undelete: (id) => app().Undelete(id),
   purge: (id) => app().Purge(id),

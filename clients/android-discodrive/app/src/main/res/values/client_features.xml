@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Trash</string>
+    <string name="recovery_versions" formatted="false">Version history</string>
+    <string name="recovery_version" formatted="false">Version</string>
+    <string name="recovery_restore" formatted="false">Restore</string>
+    <string name="recovery_restored" formatted="false">Restored on the server.</string>
+    <string name="recovery_purge" formatted="false">Delete permanently</string>
+    <string name="recovery_empty" formatted="false">Empty trash…</string>
+    <string name="recovery_empty_trash" formatted="false">Trash is empty.</string>
+    <string name="recovery_empty_versions" formatted="false">No saved versions.</string>
+    <string name="recovery_purge_warning" formatted="false">This permanently removes the selected items and their history from the server. This cannot be undone.</string>
+    <string name="recovery_version_hint" formatted="false">Restoring replaces the current contents on all synced devices. The previous contents remain in version history.</string>
+    <string name="recovery_conflict" formatted="false">Saved conflicting version</string>
+    <string name="activity_title" formatted="false">Sync activity</string>
+    <string name="activity_pull" formatted="false">Downloading</string>
+    <string name="activity_push" formatted="false">Uploading</string>
+    <string name="activity_scan" formatted="false">Checking local files</string>
+    <string name="activity_completed" formatted="false">Completed operations</string>
+    <string name="activity_errors" formatted="false">Recent errors</string>
+    <string name="activity_empty" formatted="false">No operations in this session yet.</string>
+    <string name="activity_hint" formatted="false">Activity is kept only during the current sync session. Failed operations are retried by synchronization.</string>
+    <string name="share_title" formatted="false">Share</string>
+    <string name="share_method" formatted="false">Share via</string>
+    <string name="share_link" formatted="false">Link</string>
+    <string name="share_user" formatted="false">User</string>
+    <string name="share_email" formatted="false">Email address</string>
+    <string name="share_expiry" formatted="false">Expires after</string>
+    <string name="share_forever" formatted="false">No expiry</string>
+    <string name="share_day" formatted="false">1 day</string>
+    <string name="share_week" formatted="false">7 days</string>
+    <string name="share_month" formatted="false">30 days</string>
+    <string name="share_create" formatted="false">Create link</string>
+    <string name="share_grant" formatted="false">Grant access</string>
+    <string name="share_read_only" formatted="false">Recipients can view and download. Anyone with a link can use it until it expires or you revoke it.</string>
+    <string name="share_send" formatted="false">Share link</string>
+    <string name="share_copy" formatted="false">Copy link</string>
+    <string name="share_empty" formatted="false">No shared access</string>
+    <string name="share_revoke" formatted="false">Revoke access</string>
+    <string name="share_existing" formatted="false">Shared access</string>
+    <string name="diagnostics_title" formatted="false">Diagnostics</string>
+    <string name="diagnostics_enable" formatted="false">Save sync logs</string>
+    <string name="diagnostics_export" formatted="false">Share log</string>
+    <string name="diagnostics_failed" formatted="false">The log could not be opened. Please check available storage.</string>
+    <string name="diagnostics_hint" formatted="false">Off by default. Logs are kept privately in the app (up to 4 MB). Use Share log to save a copy. Logs contain file paths, timings and errors. Turning this off stops writing; existing logs remain.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Synchronization paused because many local files disappeared. Check that your disk and folder are available before confirming deletion.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Confirm deletions…</string>
+    <string name="full_sync_delete_warning" formatted="false">Files missing from the local folder will also be deleted on the server and other synced devices. Continue only if you deleted them intentionally.</string>
+    <string name="full_sync_title" formatted="false">Folder synchronization</string>
+    <string name="full_sync_description" formatted="false">Keeps complete local copies and syncs changes in both directions while DiscoDrive is running. The server selects the folder; when its folder restriction is off, the entire storage is synced.</string>
+    <string name="full_sync_no_folder" formatted="false">No local folder selected</string>
+    <string name="full_sync_choose" formatted="false">Choose folder…</string>
+    <string name="full_sync_choose_hint" formatted="false">Choose a dedicated folder for a complete local copy of your server files.</string>
+    <string name="full_sync_enable" formatted="false">Enable synchronization</string>
+    <string name="full_sync_stopped" formatted="false">Synchronization is off</string>
+    <string name="full_sync_preparing" formatted="false">Saving the previous contents…</string>
+    <string name="full_sync_syncing" formatted="false">Synchronizing…</string>
+    <string name="full_sync_ready" formatted="false">Up to date</string>
+    <string name="full_sync_error" formatted="false">Synchronization could not complete. Check the connection and folder access, then switch synchronization off and on to retry.</string>
+    <string name="full_sync_access_error" formatted="false">Folder access is unavailable. Switch synchronization off and choose the folder again.</string>
+    <string name="full_sync_folder_error" formatted="false">Choose a dedicated folder outside cloud storage and application data.</string>
+    <string name="full_sync_backup" formatted="false">Show previous files</string>
+    <string name="full_sync_backup_hint" formatted="false">On first sync, existing local files are saved separately and the server copy is downloaded. Later changes and deletions sync in both directions.</string>
+    <string name="preview_previous" formatted="false">Previous file</string>
+    <string name="preview_next" formatted="false">Next file</string>
+    <string name="preview_close" formatted="false">Close</string>
+    <string name="share_expires_at">Access expires</string>
+</resources>

@@ -476,6 +476,12 @@ func (i *Index) SetLocal(nodeID, state string, version int64, path string) error
 	return err
 }
 
+// SetLocalState changes pinning without claiming that cached bytes have a newer version.
+func (i *Index) SetLocalState(nodeID, state string) error {
+	_, err := i.db.Exec("UPDATE local SET state=? WHERE node_id=?", state, nodeID)
+	return err
+}
+
 // LocalStatus returns the cache state ("" if none), whether it is stale vs serverVersion, and path.
 func (i *Index) LocalStatus(nodeID string, serverVersion int64) (state string, stale bool, path string) {
 	var v int64

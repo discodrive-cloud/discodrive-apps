@@ -35,10 +35,13 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val tmpDir: String get() = File(getApplication<Application>().cacheDir, "vault").path
 
     fun open(server: String, token: String, vaultRoot: String, password: String, insecure: Boolean) {
+        if (vault != null || _ui.value.loading) return
         viewModelScope.launch {
             _ui.value = VaultState(loading = true)
             try {
                 val v = withContext(Dispatchers.IO) {
+                    val previous = File(tmpDir)
+                    check(!previous.exists() || previous.deleteRecursively()) { "Could not clear previous vault previews" }
                     Core.openVault(server, token, vaultRoot, password, indexDbPath, tmpDir, insecure)
                 }
                 vault = v
@@ -77,6 +80,11 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value = _ui.value.copy(loading = false)
             }
         }
+    }
+
+    suspend fun preview(e: VEntry): String {
+        val current = vault ?: error("Vault is closed")
+        return withContext(Dispatchers.IO) { current.openFile(e.fileStoragePath, e.name) }
     }
 
     fun openFile(e: VEntry, then: (String) -> Unit) {
@@ -121,10 +129,11 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val name = displayName(ctx, uri)
                 withContext(Dispatchers.IO) {
-                    val tmp = File(ctx.cacheDir, name)
-                    ctx.contentResolver.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-                    v.writeFile(currentDirID(), name, tmp.path)
-                    tmp.delete()
+                    val tmp = File.createTempFile("vault-upload-", ".tmp", ctx.cacheDir)
+                    try {
+                        ctx.contentResolver.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                        v.writeFile(currentDirID(), name, tmp.path)
+                    } finally { tmp.delete() }
                 }
                 val js = withContext(Dispatchers.IO) { v.list(currentDirID()) }
                 _ui.value = _ui.value.copy(entries = parse(js))
@@ -137,9 +146,16 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun lock() {
-        try { vault?.close() } catch (_: Exception) {}
-        vault = null
-        _ui.value = VaultState()
+        if (_ui.value.loading) return
+        val current = vault ?: return
+        _ui.value = _ui.value.copy(loading = true)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { current.close() }
+                vault = null
+                _ui.value = VaultState()
+            } catch (e: Exception) { _ui.value = _ui.value.copy(loading = false, error = e.message) }
+        }
     }
 
     // dismissError clears a failed-open state (e.g. wrong password) and returns to the browser.

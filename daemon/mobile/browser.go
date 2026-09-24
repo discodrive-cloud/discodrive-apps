@@ -2,6 +2,8 @@ package mobile
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,8 +39,7 @@ type browseEntry struct {
 	LocalPath string `json:"localPath"`
 }
 
-// NewBrowser builds a browser. rootDir — folder for downloaded files (the UI passes a shared
-// path); indexDBPath — sqlite index (app-private). insecure — accept self-signed TLS.
+// NewBrowser builds a browser. rootDir — private folder for downloaded files; indexDBPath — sqlite index (app-private). insecure — accept self-signed TLS.
 func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath string, insecure bool) (*Browser, error) {
 	setInsecure(insecure)
 	if err := os.MkdirAll(rootDir, 0o755); err != nil {
@@ -48,13 +49,10 @@ func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath string, insecure bo
 	if err != nil {
 		return nil, err
 	}
-	// An index built against another server lists files this one does not have; showing them
-	// would be a lie, and every open of one would 404.
-	if stored, serr := idx.ServerURL(); serr == nil && stored != "" && stored != serverURL {
-		if err := idx.Clear(); err != nil {
-			idx.Close()
-			return nil, err
-		}
+	identity := sha256.Sum256([]byte(serverURL + "\n" + deviceToken + "\n" + rootDir))
+	if err := idx.BindMirrorPairing(hex.EncodeToString(identity[:])); err != nil {
+		idx.Close()
+		return nil, err
 	}
 	if err := idx.SetServerURL(serverURL); err != nil {
 		idx.Close()
@@ -86,6 +84,9 @@ func pullChanges(ctx context.Context, client *protocol.Client, idx *index.Index)
 		// while the file list sat empty.
 		if err := idx.Batch(func(b *index.Batch) error {
 			for _, c := range changes {
+				if c.Seq <= since {
+					continue
+				}
 				if c.Deleted {
 					if err := b.Delete(c.NodeID); err != nil {
 						return err
@@ -99,10 +100,10 @@ func pullChanges(ctx context.Context, client *protocol.Client, idx *index.Index)
 			}
 			// Once, at the end: the page is all-or-nothing, so the cursor either covers
 			// every row in it or none of them.
-			if n := len(changes); n > 0 {
-				return b.SetCursor(changes[n-1].Seq)
+			if cursor < since {
+				return fmt.Errorf("change cursor moved backwards")
 			}
-			return nil
+			return b.SetCursor(cursor)
 		}); err != nil {
 			return err
 		}
@@ -121,9 +122,10 @@ func (b *Browser) List(parentNodeID string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if ok {
-			parentPath = n.RelPath
+		if !ok || !n.IsDir {
+			return "", fmt.Errorf("folder not found")
 		}
+		parentPath = n.RelPath
 	}
 	kids, err := b.idx.Children(parentPath)
 	if err != nil {
@@ -148,8 +150,25 @@ func (b *Browser) Download(nodeID string) (string, error) {
 
 func (b *Browser) download(nodeID, state string) (string, error) {
 	n, ok, err := b.idx.Get(nodeID)
-	if err != nil || !ok {
+	if err != nil {
 		return "", err
+	}
+	if !ok || n.IsDir {
+		return "", fmt.Errorf("file not found")
+	}
+	oldState, stale, local := b.idx.LocalStatus(nodeID, n.Version)
+	if oldState != "" && !stale && local != "" {
+		if info, err := os.Stat(local); err == nil && info.Mode().IsRegular() {
+			if state == "pinned" && oldState != "pinned" {
+				if err = b.idx.SetLocal(nodeID, state, n.Version, local); err != nil {
+					return "", err
+				}
+			}
+			return local, nil
+		}
+	}
+	if oldState == "pinned" {
+		state = "pinned"
 	}
 	// RelPath is server-controlled; contain it to rootDir so a malicious server can't
 	// write outside the download folder via ../ traversal or a symlinked component.
@@ -162,15 +181,19 @@ func (b *Browser) download(nodeID, state string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
-	f, err := os.Create(dst)
+	f, err := os.CreateTemp(filepath.Dir(dst), ".download-*")
 	if err != nil {
 		return "", err
 	}
+	defer os.Remove(f.Name())
 	if derr := b.client.Download(context.Background(), nodeID, f); derr != nil {
 		f.Close()
 		return "", derr
 	}
 	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(f.Name(), dst); err != nil {
 		return "", err
 	}
 	if err := b.idx.SetLocal(nodeID, state, n.Version, dst); err != nil {
@@ -187,17 +210,15 @@ func (b *Browser) Pin(nodeID string) error {
 
 // Unpin keeps the local copy but clears the pinned flag.
 func (b *Browser) Unpin(nodeID string) error {
-	n, ok, err := b.idx.Get(nodeID)
-	if err != nil || !ok {
-		return err
-	}
-	return b.idx.SetLocal(nodeID, "cached", n.Version, b.idx.LocalPathOf(nodeID))
+	return b.idx.SetLocalState(nodeID, "cached")
 }
 
 // RemoveLocal deletes the local copy and the cache record.
 func (b *Browser) RemoveLocal(nodeID string) error {
 	if p := b.idx.LocalPathOf(nodeID); p != "" {
-		_ = os.Remove(p)
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
 	return b.idx.DeleteLocal(nodeID)
 }
@@ -385,3 +406,17 @@ func (b *Browser) Delete(nodeID string) error {
 
 // Close releases the index.
 func (b *Browser) Close() error { return b.idx.Close() }
+
+// Document supplies one provider entry without searching the entire tree.
+func (b *Browser) Document(id string) (string, error) {
+	n, ok, err := b.idx.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("document not found")
+	}
+	state, stale, local := b.idx.LocalStatus(id, n.Version)
+	data, err := json.Marshal(browseEntry{ID: id, Name: path.Base(n.RelPath), IsDir: n.IsDir, Size: n.Size, Version: n.Version, Cached: state != "", Pinned: state == "pinned", Stale: stale, LocalPath: local})
+	return string(data), err
+}

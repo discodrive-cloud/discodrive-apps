@@ -32,11 +32,13 @@ class Prefs(context: Context) {
      * while the browser still had focus) could lose part of it and come back unpaired.
      */
     fun saveServer(url: String, token: String, insecureTLS: Boolean) {
-        sp.edit()
+        val saved = sp.edit()
             .putString("serverURL", url)
             .putString("deviceToken", token)
             .putBoolean("insecure", insecureTLS)
+            .putBoolean("unpairing", false)
             .commit()
+        check(saved) { "Could not save the pairing" }
     }
 
     /**
@@ -55,6 +57,14 @@ class Prefs(context: Context) {
             if (v == null) e.remove("pendingPairing") else e.putString("pendingPairing", v.toJson())
             e.commit()
         }
+
+    var loggingEnabled: Boolean
+        get() = sp.getBoolean("loggingEnabled", false)
+        set(v) { sp.edit().putBoolean("loggingEnabled", v).apply() }
+
+    var unpairing: Boolean
+        get() = sp.getBoolean("unpairing", false)
+        set(v) { check(sp.edit().putBoolean("unpairing", v).commit()) }
 
     // --- folder sync ---
 
@@ -105,5 +115,5 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("pauseOnRoaming", true)
         set(v) { sp.edit().putBoolean("pauseOnRoaming", v).apply() }
 
-    fun clear() { sp.edit().clear().apply() }
+    fun clear() { check(sp.edit().clear().commit()) { "Could not clear the pairing" } }
 }

@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -52,7 +53,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
         vm.openIfPaired()
     }
     when {
-        !hasPerm -> PermissionGate {
+        ui.paired && (showFolderSync || showAutoUpload) && !hasPerm -> PermissionGate(onBack = { showFolderSync = false; showAutoUpload = false }) {
             launcher.launch(
                 Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
                     Uri.parse("package:" + ctx.packageName))
@@ -97,7 +98,8 @@ fun VaultOpeningScreen(loading: Boolean, error: String?, onBack: () -> Unit) {
 }
 
 @Composable
-fun PermissionGate(onGrant: () -> Unit) {
+fun PermissionGate(onBack: () -> Unit, onGrant: () -> Unit) {
+    BackHandler(onBack = onBack)
     Column(
         Modifier.fillMaxSize().padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -107,6 +109,7 @@ fun PermissionGate(onGrant: () -> Unit) {
         Text(stringResource(R.string.perm_title), style = MaterialTheme.typography.titleLarge)
         Text(stringResource(R.string.perm_body))
         Button(onClick = onGrant) { Text(stringResource(R.string.perm_grant)) }
+        TextButton(onClick = onBack) { Text(stringResource(R.string.back)) }
     }
 }
 

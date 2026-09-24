@@ -4,7 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- iOS: add opt-in encrypted Calendar/Contacts setup without manual account-password entry (experimental; requires server support).
+
 ### Added
+
+- Apple clients: Calendar/Contacts account setup through a password-free installation
+  profile, a separate revocable app password and system confirmation; seven languages.
+- Android: Trash, version restoration, link/email sharing, preview navigation, optional
+  rotating sync logs, sync activity, mass-deletion confirmation and a read-only system
+  document provider. Folder sync runs inside the app using the existing shared engine.
 
 - Native macOS, iOS and Wails: server Trash with restoration and confirmed permanent
   deletion; file version history and restoration with a cross-device warning.
@@ -38,6 +46,14 @@ All notable changes to this project are documented in this file.
   of its parents instead of only from the root.
 
 ### Changed
+
+- Native macOS: document Developer ID archive export and add distribution verification
+  to reject Debug identities and device-restricted development bundles.
+
+- Android: private browsing cache, account-bound document grants, themed launcher icon,
+  streamed vault reads/uploads, bounded verified metadata caching and plaintext cleanup.
+- Android: cancel and drain the sync engine before closing; preserve server-authoritative
+  re-pairing, block new operations during unpairing and retain stale cache versions on unpin.
 
 - iOS: keep vaults inside the app; remove the Files unlock action and retire old vault locations.
 

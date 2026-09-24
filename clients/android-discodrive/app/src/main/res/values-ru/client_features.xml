@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Корзина</string>
+    <string name="recovery_versions" formatted="false">История версий</string>
+    <string name="recovery_version" formatted="false">Версия</string>
+    <string name="recovery_restore" formatted="false">Восстановить</string>
+    <string name="recovery_restored" formatted="false">Восстановлено на сервере.</string>
+    <string name="recovery_purge" formatted="false">Удалить навсегда</string>
+    <string name="recovery_empty" formatted="false">Очистить корзину…</string>
+    <string name="recovery_empty_trash" formatted="false">Корзина пуста.</string>
+    <string name="recovery_empty_versions" formatted="false">Сохранённых версий нет.</string>
+    <string name="recovery_purge_warning" formatted="false">Выбранные элементы и их история будут удалены с сервера навсегда. Это действие нельзя отменить.</string>
+    <string name="recovery_version_hint" formatted="false">Восстановление заменяет содержимое на всех синхронизируемых устройствах. Предыдущее содержимое остаётся в истории версий.</string>
+    <string name="recovery_conflict" formatted="false">Сохранённая конфликтная версия</string>
+    <string name="activity_title" formatted="false">Ход синхронизации</string>
+    <string name="activity_pull" formatted="false">Скачивание</string>
+    <string name="activity_push" formatted="false">Отправка</string>
+    <string name="activity_scan" formatted="false">Проверка локальных файлов</string>
+    <string name="activity_completed" formatted="false">Завершено операций</string>
+    <string name="activity_errors" formatted="false">Последние ошибки</string>
+    <string name="activity_empty" formatted="false">В этом сеансе операций ещё не было.</string>
+    <string name="activity_hint" formatted="false">Сведения хранятся только в текущем сеансе синхронизации. Неудачные операции синхронизация повторит.</string>
+    <string name="share_title" formatted="false">Поделиться</string>
+    <string name="share_method" formatted="false">Способ доступа</string>
+    <string name="share_link" formatted="false">Ссылка</string>
+    <string name="share_user" formatted="false">Пользователь</string>
+    <string name="share_email" formatted="false">Электронная почта</string>
+    <string name="share_expiry" formatted="false">Срок действия</string>
+    <string name="share_forever" formatted="false">Без ограничения</string>
+    <string name="share_day" formatted="false">1 день</string>
+    <string name="share_week" formatted="false">7 дней</string>
+    <string name="share_month" formatted="false">30 дней</string>
+    <string name="share_create" formatted="false">Создать ссылку</string>
+    <string name="share_grant" formatted="false">Предоставить доступ</string>
+    <string name="share_read_only" formatted="false">Получатели могут просматривать и скачивать. Ссылкой может воспользоваться любой, у кого она есть, до истечения срока или отзыва доступа.</string>
+    <string name="share_send" formatted="false">Отправить ссылку</string>
+    <string name="share_copy" formatted="false">Скопировать ссылку</string>
+    <string name="share_empty" formatted="false">Общий доступ не предоставлен</string>
+    <string name="share_revoke" formatted="false">Отозвать доступ</string>
+    <string name="share_existing" formatted="false">Общий доступ</string>
+    <string name="diagnostics_title" formatted="false">Диагностика</string>
+    <string name="diagnostics_enable" formatted="false">Сохранять журнал синхронизации</string>
+    <string name="diagnostics_export" formatted="false">Поделиться журналом</string>
+    <string name="diagnostics_failed" formatted="false">Не удалось открыть журнал. Проверьте свободное место.</string>
+    <string name="diagnostics_hint" formatted="false">По умолчанию выключено. Логи хранятся внутри приложения (до 4 МБ). Чтобы сохранить копию, выберите «Поделиться логом». Логи содержат пути файлов, время операций и ошибки. После выключения запись прекращается, прежние логи остаются.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Синхронизация приостановлена: исчезло много локальных файлов. Перед подтверждением удаления проверьте, доступны ли диск и папка.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Подтвердить удаления…</string>
+    <string name="full_sync_delete_warning" formatted="false">Файлы, отсутствующие в локальной папке, будут удалены также на сервере и других синхронизируемых устройствах. Продолжайте, только если вы удалили их намеренно.</string>
+    <string name="full_sync_title" formatted="false">Синхронизация папки</string>
+    <string name="full_sync_description" formatted="false">Хранит полные копии файлов и синхронизирует изменения в обе стороны, пока работает DiscoDrive. Папка выбирается на сервере; если ограничение одной папкой выключено, синхронизируется всё хранилище.</string>
+    <string name="full_sync_no_folder" formatted="false">Локальная папка не выбрана</string>
+    <string name="full_sync_choose" formatted="false">Выбрать папку…</string>
+    <string name="full_sync_choose_hint" formatted="false">Выберите отдельную папку для полной локальной копии файлов с сервера.</string>
+    <string name="full_sync_enable" formatted="false">Включить синхронизацию</string>
+    <string name="full_sync_stopped" formatted="false">Синхронизация выключена</string>
+    <string name="full_sync_preparing" formatted="false">Сохранение прежнего содержимого…</string>
+    <string name="full_sync_syncing" formatted="false">Синхронизация…</string>
+    <string name="full_sync_ready" formatted="false">Все изменения синхронизированы</string>
+    <string name="full_sync_error" formatted="false">Не удалось завершить синхронизацию. Проверьте соединение и доступ к папке, затем выключите и включите синхронизацию для повтора.</string>
+    <string name="full_sync_access_error" formatted="false">Доступ к папке недоступен. Выключите синхронизацию и выберите папку заново.</string>
+    <string name="full_sync_folder_error" formatted="false">Выберите отдельную папку вне облачных дисков и данных приложения.</string>
+    <string name="full_sync_backup" formatted="false">Показать прежние файлы</string>
+    <string name="full_sync_backup_hint" formatted="false">При первом запуске прежние локальные файлы сохраняются отдельно, затем скачивается серверная копия. После этого изменения и удаления синхронизируются в обе стороны.</string>
+    <string name="preview_previous" formatted="false">Предыдущий файл</string>
+    <string name="preview_next" formatted="false">Следующий файл</string>
+    <string name="preview_close" formatted="false">Закрыть</string>
+    <string name="share_expires_at">Доступ истекает</string>
+</resources>

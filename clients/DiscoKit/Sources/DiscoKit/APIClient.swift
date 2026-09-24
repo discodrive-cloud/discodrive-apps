@@ -194,6 +194,70 @@ public actor APIClient {
 
     public func shareURL(token: String) -> URL { baseURL.appendingPathComponent("s").appendingPathComponent(token) }
 
+    public struct DAVAccess: Decodable, Sendable {
+        public let caldav: Bool
+        public let carddav: Bool
+    }
+    public struct DAVAccount: Decodable, Sendable {
+        public let id: String
+        public let email: String
+    }
+    public struct DAVCredential: Codable, Sendable {
+        public let id: String
+        public let password: String
+    }
+    public func davAccess() async throws -> DAVAccess {
+        try JSONDecoder().decode(DAVAccess.self, from: await get(path: "me/access"))
+    }
+    public func davAccount() async throws -> DAVAccount {
+        try JSONDecoder().decode(DAVAccount.self, from: await get(path: "me"))
+    }
+    public func createDAVPassword(name: String) async throws -> DAVCredential {
+        let data = try await send("POST", path: "devices/webdav", body: JSONEncoder().encode(["name": name]), contentType: "application/json", ok: [201])
+        return try JSONDecoder().decode(DAVCredential.self, from: data)
+    }
+    public func revokeDAVPassword(id: String) async throws {
+        try await send("DELETE", path: "devices/\(id)", ok: [200, 204, 404])
+    }
+    public func appleProfile(installationID: String, calendars: Bool, contacts: Bool) async throws -> URL {
+        let body = try JSONSerialization.data(withJSONObject: ["server_url": baseURL.absoluteString, "installation_id": installationID, "calendars": calendars, "contacts": contacts])
+        let data = try await send("POST", path: "me/apple-profile", body: body, contentType: "application/json", ok: [201])
+        struct Response: Decodable { let download_path: String }
+        let path = try JSONDecoder().decode(Response.self, from: data).download_path
+        guard path.hasPrefix("/apple-profile/"), !path.contains(".."),
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { throw APIError.badResponse }
+        components.path = path
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else { throw APIError.badResponse }
+        return url
+    }
+
+    public func appleEnrollmentAvailable() async throws -> Bool {
+        struct Response: Decodable { let enabled: Bool }
+        return try JSONDecoder().decode(Response.self, from: await get(path: "me/apple-enrollment")).enabled
+    }
+
+    public func appleEnrollment(installationID: String, calendars: Bool, contacts: Bool, credential: DAVCredential) async throws -> URL {
+        guard baseURL.scheme?.lowercased() == "https" else { throw APIError.badResponse }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "server_url": baseURL.absoluteString, "installation_id": installationID,
+            "calendars": calendars, "contacts": contacts,
+            "device_id": credential.id, "password": credential.password,
+        ])
+        let data = try await send("POST", path: "me/apple-enrollment", body: body, contentType: "application/json", ok: [201])
+        struct Response: Decodable { let download_path: String }
+        let path = try JSONDecoder().decode(Response.self, from: data).download_path
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[0].isEmpty, parts[1] == "apple-enrollment",
+              parts[2].count == 64, parts[2].allSatisfy({ "0123456789abcdef".contains($0) }),
+              parts[3] == "DiscoDrive.mobileconfig",
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { throw APIError.badResponse }
+        components.path = path; components.query = nil; components.fragment = nil
+        guard let url = components.url else { throw APIError.badResponse }
+        return url
+    }
+
     // MARK: - Writes
 
     // Shared authorized request with a body and a single 401 retry.

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Papierkorb</string>
+    <string name="recovery_versions" formatted="false">Versionsverlauf</string>
+    <string name="recovery_version" formatted="false">Version</string>
+    <string name="recovery_restore" formatted="false">Wiederherstellen</string>
+    <string name="recovery_restored" formatted="false">Auf dem Server wiederhergestellt.</string>
+    <string name="recovery_purge" formatted="false">Endgültig löschen</string>
+    <string name="recovery_empty" formatted="false">Papierkorb leeren…</string>
+    <string name="recovery_empty_trash" formatted="false">Der Papierkorb ist leer.</string>
+    <string name="recovery_empty_versions" formatted="false">Keine gespeicherten Versionen.</string>
+    <string name="recovery_purge_warning" formatted="false">Die ausgewählten Elemente und ihr Verlauf werden endgültig vom Server gelöscht. Dies kann nicht rückgängig gemacht werden.</string>
+    <string name="recovery_version_hint" formatted="false">Die Wiederherstellung ersetzt den aktuellen Inhalt auf allen synchronisierten Geräten. Der vorherige Inhalt bleibt im Versionsverlauf erhalten.</string>
+    <string name="recovery_conflict" formatted="false">Gespeicherte Konfliktversion</string>
+    <string name="activity_title" formatted="false">Synchronisierungsaktivität</string>
+    <string name="activity_pull" formatted="false">Herunterladen</string>
+    <string name="activity_push" formatted="false">Hochladen</string>
+    <string name="activity_scan" formatted="false">Lokale Dateien werden geprüft</string>
+    <string name="activity_completed" formatted="false">Abgeschlossene Vorgänge</string>
+    <string name="activity_errors" formatted="false">Letzte Fehler</string>
+    <string name="activity_empty" formatted="false">Noch keine Vorgänge in dieser Sitzung.</string>
+    <string name="activity_hint" formatted="false">Die Aktivität wird nur während der aktuellen Synchronisierungssitzung gespeichert. Fehlgeschlagene Vorgänge werden erneut versucht.</string>
+    <string name="share_title" formatted="false">Teilen</string>
+    <string name="share_method" formatted="false">Teilen über</string>
+    <string name="share_link" formatted="false">Link</string>
+    <string name="share_user" formatted="false">Benutzer</string>
+    <string name="share_email" formatted="false">E-Mail-Adresse</string>
+    <string name="share_expiry" formatted="false">Gültig für</string>
+    <string name="share_forever" formatted="false">Unbegrenzt</string>
+    <string name="share_day" formatted="false">1 Tag</string>
+    <string name="share_week" formatted="false">7 Tage</string>
+    <string name="share_month" formatted="false">30 Tage</string>
+    <string name="share_create" formatted="false">Link erstellen</string>
+    <string name="share_grant" formatted="false">Zugriff gewähren</string>
+    <string name="share_read_only" formatted="false">Empfänger können ansehen und herunterladen. Jeder mit dem Link kann ihn bis zum Ablauf oder Widerruf nutzen.</string>
+    <string name="share_send" formatted="false">Link teilen</string>
+    <string name="share_copy" formatted="false">Link kopieren</string>
+    <string name="share_empty" formatted="false">Kein geteilter Zugriff</string>
+    <string name="share_revoke" formatted="false">Zugriff widerrufen</string>
+    <string name="share_existing" formatted="false">Geteilter Zugriff</string>
+    <string name="diagnostics_title" formatted="false">Diagnose</string>
+    <string name="diagnostics_enable" formatted="false">Sync-Protokolle speichern</string>
+    <string name="diagnostics_export" formatted="false">Protokoll teilen</string>
+    <string name="diagnostics_failed" formatted="false">Das Protokoll konnte nicht geöffnet werden. Prüfen Sie den freien Speicher.</string>
+    <string name="diagnostics_hint" formatted="false">Standardmäßig ausgeschaltet. Protokolle bleiben in der App (bis zu 4 MB). Über „Protokoll teilen“ können Sie eine Kopie speichern. Sie enthalten Dateipfade, Zeiten und Fehler. Beim Ausschalten endet die Aufzeichnung; vorhandene Protokolle bleiben erhalten.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Synchronisierung angehalten: Viele lokale Dateien fehlen. Prüfen Sie vor der Löschbestätigung, ob Laufwerk und Ordner verfügbar sind.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Löschungen bestätigen…</string>
+    <string name="full_sync_delete_warning" formatted="false">Lokal fehlende Dateien werden auch auf dem Server und anderen synchronisierten Geräten gelöscht. Fahren Sie nur fort, wenn Sie die Dateien absichtlich gelöscht haben.</string>
+    <string name="full_sync_title" formatted="false">Ordnersynchronisierung</string>
+    <string name="full_sync_description" formatted="false">Speichert vollständige Kopien und synchronisiert Änderungen in beide Richtungen, solange DiscoDrive läuft. Der Ordner wird auf dem Server gewählt; ohne Ordnerbeschränkung wird der gesamte Speicher synchronisiert.</string>
+    <string name="full_sync_no_folder" formatted="false">Kein lokaler Ordner ausgewählt</string>
+    <string name="full_sync_choose" formatted="false">Ordner auswählen…</string>
+    <string name="full_sync_choose_hint" formatted="false">Wählen Sie einen eigenen Ordner für die vollständige lokale Kopie Ihrer Serverdateien.</string>
+    <string name="full_sync_enable" formatted="false">Synchronisierung aktivieren</string>
+    <string name="full_sync_stopped" formatted="false">Synchronisierung ausgeschaltet</string>
+    <string name="full_sync_preparing" formatted="false">Bisherige Inhalte werden gesichert…</string>
+    <string name="full_sync_syncing" formatted="false">Synchronisierung läuft…</string>
+    <string name="full_sync_ready" formatted="false">Auf dem neuesten Stand</string>
+    <string name="full_sync_error" formatted="false">Die Synchronisierung konnte nicht abgeschlossen werden. Prüfen Sie Verbindung und Ordnerzugriff und schalten Sie die Synchronisierung aus und wieder ein.</string>
+    <string name="full_sync_access_error" formatted="false">Der Ordnerzugriff ist nicht verfügbar. Schalten Sie die Synchronisierung aus und wählen Sie den Ordner erneut.</string>
+    <string name="full_sync_folder_error" formatted="false">Wählen Sie einen eigenen Ordner außerhalb von Cloud-Laufwerken und Anwendungsdaten.</string>
+    <string name="full_sync_backup" formatted="false">Bisherige Dateien anzeigen</string>
+    <string name="full_sync_backup_hint" formatted="false">Bei der ersten Synchronisierung werden vorhandene lokale Dateien separat gesichert und die Serverkopie heruntergeladen. Danach werden Änderungen und Löschungen in beide Richtungen synchronisiert.</string>
+    <string name="preview_previous" formatted="false">Vorherige Datei</string>
+    <string name="preview_next" formatted="false">Nächste Datei</string>
+    <string name="preview_close" formatted="false">Schließen</string>
+    <string name="share_expires_at">Zugriff läuft ab</string>
+</resources>

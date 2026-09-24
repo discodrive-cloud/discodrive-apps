@@ -5,6 +5,7 @@ import { api } from '../lib/api.js'
 import { t, setLocale, languages } from '../lib/i18n.js'
 import { applyTheme } from '../lib/theme.js'
 import Dialog from '../components/Dialog.vue'
+import DAVSetup from '../components/DAVSetup.vue'
 
 const emit = defineEmits(['unpaired'])
 
@@ -145,6 +146,8 @@ async function doChangeServer() {
             <button class="btn-ghost shrink-0" @click="confirmUnpair = true">{{ t('settings.changeServer') }}</button>
           </div>
         </div>
+
+        <DAVSetup />
 
         <!-- Cache -->
         <div>

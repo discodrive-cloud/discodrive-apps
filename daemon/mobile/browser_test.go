@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"discodrive.org/daemon/internal/index"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -184,5 +185,88 @@ func TestBrowserRelPath(t *testing.T) {
 	}
 	if got := b.RelPath("nope"); got != "" {
 		t.Fatalf("RelPath(nope) = %q, want empty", got)
+	}
+}
+
+func TestUnpinPreservesStaleVersion(t *testing.T) {
+	b, err := NewBrowser("http://localhost", "token", t.TempDir(), filepath.Join(t.TempDir(), "index.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	file := filepath.Join(t.TempDir(), "old.txt")
+	if err := b.idx.Put(index.Node{NodeID: "file", RelPath: "old.txt", Version: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.idx.SetLocal("file", "pinned", 1, file); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Unpin("file"); err != nil {
+		t.Fatal(err)
+	}
+	state, stale, _ := b.idx.LocalStatus("file", 2)
+	if state != "cached" || !stale {
+		t.Fatalf("unpin changed cached version: %s stale=%v", state, stale)
+	}
+	if _, err := b.Download("missing"); err == nil {
+		t.Fatal("missing file accepted")
+	}
+}
+
+func TestBrowserPairingDoesNotReusePreviousAccountCache(t *testing.T) {
+	srv := browseMux(`{"changes":[{"seq":1,"node_id":"same-id","path":"file.txt","version":1}],"cursor":1}`, "new account bytes")
+	defer srv.Close()
+	root, db := t.TempDir(), filepath.Join(t.TempDir(), "index.db")
+	b, err := NewBrowser(srv.URL, "old-token", root, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.idx.Put(index.Node{NodeID: "same-id", RelPath: "file.txt", Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(file, []byte("old account bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.idx.SetLocal("same-id", "cached", 1, file); err != nil {
+		t.Fatal(err)
+	}
+	b.Close()
+	b, err = NewBrowser(srv.URL, "new-token", root, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if err := b.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	downloaded, err := b.Download("same-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(downloaded)
+	if err != nil || string(data) != "new account bytes" {
+		t.Fatalf("reused previous account copy: %q %v", data, err)
+	}
+}
+
+func TestRemoveLocalKeepsRecordWhenRemovalFails(t *testing.T) {
+	b, err := NewBrowser("http://localhost", "token", t.TempDir(), filepath.Join(t.TempDir(), "index.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "keep"), []byte("bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.idx.SetLocal("file", "cached", 1, directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.RemoveLocal("file"); err == nil {
+		t.Fatal("expected removal failure")
+	}
+	if b.LocalPath("file") != directory {
+		t.Fatal("lost the cache record after removal failed")
 	}
 }

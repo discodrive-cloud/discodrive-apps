@@ -6,6 +6,8 @@ import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import mobile.EventListener
 import org.discodrive.android.Prefs
 
@@ -19,30 +21,47 @@ import org.discodrive.android.Prefs
  */
 object SyncEvents {
     private val main = Handler(Looper.getMainLooper())
-    private var running = false
+    @Volatile private var running = false
+    @Volatile private var generation = 0L
+    private val commands = Mutex()
 
     fun start(context: Context) {
         val app = context.applicationContext
         val prefs = Prefs(app)
         if (running || !prefs.folderSync || prefs.deviceToken == null) return
         running = true
+        val current = ++generation
         kick = Runnable { SyncWorker.syncNow(app) }
         CoroutineScope(Dispatchers.IO).launch {
-            SyncHolder.get(app)?.startEvents(object : EventListener {
-                override fun onChange() {
-                    main.removeCallbacks(kick)
-                    main.postDelayed(kick, 2_000)
-                }
-            })
+            commands.withLock {
+                if (current != generation || !running) return@withLock
+                runCatching {
+                    SyncHolder.use(app) { client -> client.startEvents(object : EventListener {
+                        override fun onChange() {
+                            main.post {
+                                if (running && current == generation) {
+                                    main.removeCallbacks(kick)
+                                    main.postDelayed(kick, 2_000)
+                                }
+                            }
+                        }
+                    }) }
+                }.onFailure { main.post { if (current == generation) running = false } }
+            }
         }
     }
 
     fun stop(context: Context) {
         if (!running) return
         running = false
+        val current = ++generation
         main.removeCallbacks(kick)
         val app = context.applicationContext
-        CoroutineScope(Dispatchers.IO).launch { SyncHolder.get(app)?.stopEvents() }
+        CoroutineScope(Dispatchers.IO).launch {
+            commands.withLock {
+                if (current == generation) runCatching { SyncHolder.use(app) { it.stopEvents() } }
+            }
+        }
     }
 
     private var kick = Runnable {}

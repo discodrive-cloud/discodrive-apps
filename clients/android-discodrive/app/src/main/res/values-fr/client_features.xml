@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Corbeille</string>
+    <string name="recovery_versions" formatted="false">Historique des versions</string>
+    <string name="recovery_version" formatted="false">Version</string>
+    <string name="recovery_restore" formatted="false">Restaurer</string>
+    <string name="recovery_restored" formatted="false">Restauré sur le serveur.</string>
+    <string name="recovery_purge" formatted="false">Supprimer définitivement</string>
+    <string name="recovery_empty" formatted="false">Vider la corbeille…</string>
+    <string name="recovery_empty_trash" formatted="false">La corbeille est vide.</string>
+    <string name="recovery_empty_versions" formatted="false">Aucune version enregistrée.</string>
+    <string name="recovery_purge_warning" formatted="false">Les éléments sélectionnés et leur historique seront définitivement supprimés du serveur. Cette action est irréversible.</string>
+    <string name="recovery_version_hint" formatted="false">La restauration remplace le contenu actuel sur tous les appareils synchronisés. Le contenu précédent reste dans l’historique.</string>
+    <string name="recovery_conflict" formatted="false">Version en conflit conservée</string>
+    <string name="activity_title" formatted="false">Activité de synchronisation</string>
+    <string name="activity_pull" formatted="false">Téléchargement</string>
+    <string name="activity_push" formatted="false">Envoi</string>
+    <string name="activity_scan" formatted="false">Vérification des fichiers locaux</string>
+    <string name="activity_completed" formatted="false">Opérations terminées</string>
+    <string name="activity_errors" formatted="false">Erreurs récentes</string>
+    <string name="activity_empty" formatted="false">Aucune opération dans cette session.</string>
+    <string name="activity_hint" formatted="false">L’activité est conservée uniquement pendant la session en cours. Les opérations échouées sont réessayées.</string>
+    <string name="share_title" formatted="false">Partager</string>
+    <string name="share_method" formatted="false">Partager via</string>
+    <string name="share_link" formatted="false">Lien</string>
+    <string name="share_user" formatted="false">Utilisateur</string>
+    <string name="share_email" formatted="false">Adresse e-mail</string>
+    <string name="share_expiry" formatted="false">Durée de validité</string>
+    <string name="share_forever" formatted="false">Sans expiration</string>
+    <string name="share_day" formatted="false">1 jour</string>
+    <string name="share_week" formatted="false">7 jours</string>
+    <string name="share_month" formatted="false">30 jours</string>
+    <string name="share_create" formatted="false">Créer un lien</string>
+    <string name="share_grant" formatted="false">Accorder l’accès</string>
+    <string name="share_read_only" formatted="false">Les destinataires peuvent consulter et télécharger. Toute personne ayant le lien peut l’utiliser jusqu’à son expiration ou sa révocation.</string>
+    <string name="share_send" formatted="false">Partager le lien</string>
+    <string name="share_copy" formatted="false">Copier le lien</string>
+    <string name="share_empty" formatted="false">Aucun accès partagé</string>
+    <string name="share_revoke" formatted="false">Révoquer l’accès</string>
+    <string name="share_existing" formatted="false">Accès partagé</string>
+    <string name="diagnostics_title" formatted="false">Diagnostic</string>
+    <string name="diagnostics_enable" formatted="false">Enregistrer les journaux de synchronisation</string>
+    <string name="diagnostics_export" formatted="false">Partager le journal</string>
+    <string name="diagnostics_failed" formatted="false">Impossible d’ouvrir le journal. Vérifiez l’espace disponible.</string>
+    <string name="diagnostics_hint" formatted="false">Désactivé par défaut. Les journaux restent dans l’application (4 Mo maximum). Utilisez le partage du journal pour enregistrer une copie. Ils contiennent les chemins, les horaires et les erreurs. La désactivation arrête l’écriture ; les journaux existants sont conservés.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Synchronisation suspendue : de nombreux fichiers locaux ont disparu. Vérifiez que le disque et le dossier sont accessibles avant de confirmer la suppression.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Confirmer les suppressions…</string>
+    <string name="full_sync_delete_warning" formatted="false">Les fichiers absents du dossier local seront aussi supprimés du serveur et des autres appareils synchronisés. Continuez uniquement si vous les avez supprimés volontairement.</string>
+    <string name="full_sync_title" formatted="false">Synchronisation de dossier</string>
+    <string name="full_sync_description" formatted="false">Conserve des copies complètes et synchronise les modifications dans les deux sens lorsque DiscoDrive fonctionne. Le dossier est choisi sur le serveur ; sans restriction de dossier, tout le stockage est synchronisé.</string>
+    <string name="full_sync_no_folder" formatted="false">Aucun dossier local sélectionné</string>
+    <string name="full_sync_choose" formatted="false">Choisir un dossier…</string>
+    <string name="full_sync_choose_hint" formatted="false">Choisissez un dossier dédié à la copie locale complète des fichiers du serveur.</string>
+    <string name="full_sync_enable" formatted="false">Activer la synchronisation</string>
+    <string name="full_sync_stopped" formatted="false">Synchronisation désactivée</string>
+    <string name="full_sync_preparing" formatted="false">Sauvegarde du contenu précédent…</string>
+    <string name="full_sync_syncing" formatted="false">Synchronisation…</string>
+    <string name="full_sync_ready" formatted="false">À jour</string>
+    <string name="full_sync_error" formatted="false">La synchronisation n’a pas pu se terminer. Vérifiez la connexion et l’accès au dossier, puis désactivez et réactivez la synchronisation.</string>
+    <string name="full_sync_access_error" formatted="false">L’accès au dossier est indisponible. Désactivez la synchronisation et choisissez à nouveau le dossier.</string>
+    <string name="full_sync_folder_error" formatted="false">Choisissez un dossier dédié en dehors des disques cloud et des données de l’application.</string>
+    <string name="full_sync_backup" formatted="false">Afficher les anciens fichiers</string>
+    <string name="full_sync_backup_hint" formatted="false">À la première synchronisation, les fichiers locaux existants sont sauvegardés séparément, puis la copie du serveur est téléchargée. Ensuite, modifications et suppressions sont synchronisées dans les deux sens.</string>
+    <string name="preview_previous" formatted="false">Fichier précédent</string>
+    <string name="preview_next" formatted="false">Fichier suivant</string>
+    <string name="preview_close" formatted="false">Fermer</string>
+    <string name="share_expires_at">Expiration de l’accès</string>
+</resources>

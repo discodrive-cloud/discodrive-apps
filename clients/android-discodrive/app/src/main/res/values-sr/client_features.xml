@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_trash" formatted="false">Отпад</string>
+    <string name="recovery_versions" formatted="false">Историја верзија</string>
+    <string name="recovery_version" formatted="false">Верзија</string>
+    <string name="recovery_restore" formatted="false">Вратите</string>
+    <string name="recovery_restored" formatted="false">Враћено на серверу.</string>
+    <string name="recovery_purge" formatted="false">Трајно избришите</string>
+    <string name="recovery_empty" formatted="false">Испразните отпад…</string>
+    <string name="recovery_empty_trash" formatted="false">Отпад је празан.</string>
+    <string name="recovery_empty_versions" formatted="false">Нема сачуваних верзија.</string>
+    <string name="recovery_purge_warning" formatted="false">Изабране ставке и њихова историја биће трајно избрисане са сервера. Ова радња се не може поништити.</string>
+    <string name="recovery_version_hint" formatted="false">Враћање замењује тренутни садржај на свим синхронизованим уређајима. Претходни садржај остаје у историји верзија.</string>
+    <string name="recovery_conflict" formatted="false">Сачувана конфликтна верзија</string>
+    <string name="activity_title" formatted="false">Ток синхронизације</string>
+    <string name="activity_pull" formatted="false">Преузимање</string>
+    <string name="activity_push" formatted="false">Отпремање</string>
+    <string name="activity_scan" formatted="false">Провера локалних датотека</string>
+    <string name="activity_completed" formatted="false">Завршене операције</string>
+    <string name="activity_errors" formatted="false">Недавне грешке</string>
+    <string name="activity_empty" formatted="false">У овој сесији још нема операција.</string>
+    <string name="activity_hint" formatted="false">Активност се чува само током текуће сесије синхронизације. Неуспеле операције се понављају.</string>
+    <string name="share_title" formatted="false">Поделите</string>
+    <string name="share_method" formatted="false">Начин дељења</string>
+    <string name="share_link" formatted="false">Веза</string>
+    <string name="share_user" formatted="false">Корисник</string>
+    <string name="share_email" formatted="false">Имејл адреса</string>
+    <string name="share_expiry" formatted="false">Рок важења</string>
+    <string name="share_forever" formatted="false">Без ограничења</string>
+    <string name="share_day" formatted="false">1 дан</string>
+    <string name="share_week" formatted="false">7 дана</string>
+    <string name="share_month" formatted="false">30 дана</string>
+    <string name="share_create" formatted="false">Направите везу</string>
+    <string name="share_grant" formatted="false">Одобрите приступ</string>
+    <string name="share_read_only" formatted="false">Примаоци могу да прегледају и преузимају. Свако ко има везу може је користити до истека или опозива.</string>
+    <string name="share_send" formatted="false">Поделите везу</string>
+    <string name="share_copy" formatted="false">Копирајте везу</string>
+    <string name="share_empty" formatted="false">Нема дељеног приступа</string>
+    <string name="share_revoke" formatted="false">Опозовите приступ</string>
+    <string name="share_existing" formatted="false">Дељени приступ</string>
+    <string name="diagnostics_title" formatted="false">Дијагностика</string>
+    <string name="diagnostics_enable" formatted="false">Чувајте дневник синхронизације</string>
+    <string name="diagnostics_export" formatted="false">Поделите дневник</string>
+    <string name="diagnostics_failed" formatted="false">Дневник није отворен. Проверите слободан простор.</string>
+    <string name="diagnostics_hint" formatted="false">Подразумевано искључено. Дневници се чувају у апликацији (до 4 MB). Изаберите дељење дневника да сачувате копију. Садрже путање датотека, времена и грешке. Искључивање зауставља упис; постојећи дневници остају.</string>
+    <string name="full_sync_bulk_delete" formatted="false">Синхронизација је паузирана: нестало је много локалних датотека. Пре потврде брисања проверите да ли су диск и фасцикла доступни.</string>
+    <string name="full_sync_confirm_delete" formatted="false">Потврдите брисања…</string>
+    <string name="full_sync_delete_warning" formatted="false">Датотеке које недостају у локалној фасцикли биће обрисане и са сервера и других синхронизованих уређаја. Наставите само ако сте их намерно обрисали.</string>
+    <string name="full_sync_title" formatted="false">Синхронизација фасцикле</string>
+    <string name="full_sync_description" formatted="false">Чува потпуне копије и синхронизује измене у оба смера док DiscoDrive ради. Фасцикла се бира на серверу; без ограничења на једну фасциклу синхронизује се цело складиште.</string>
+    <string name="full_sync_no_folder" formatted="false">Локална фасцикла није изабрана</string>
+    <string name="full_sync_choose" formatted="false">Изаберите фасциклу…</string>
+    <string name="full_sync_choose_hint" formatted="false">Изаберите засебну фасциклу за потпуну локалну копију датотека са сервера.</string>
+    <string name="full_sync_enable" formatted="false">Укључите синхронизацију</string>
+    <string name="full_sync_stopped" formatted="false">Синхронизација је искључена</string>
+    <string name="full_sync_preparing" formatted="false">Чување претходног садржаја…</string>
+    <string name="full_sync_syncing" formatted="false">Синхронизација…</string>
+    <string name="full_sync_ready" formatted="false">Све измене су синхронизоване</string>
+    <string name="full_sync_error" formatted="false">Синхронизација није завршена. Проверите везу и приступ фасцикли, затим искључите и укључите синхронизацију да бисте покушали поново.</string>
+    <string name="full_sync_access_error" formatted="false">Приступ фасцикли није доступан. Искључите синхронизацију и поново изаберите фасциклу.</string>
+    <string name="full_sync_folder_error" formatted="false">Изаберите засебну фасциклу изван облачних дискова и података апликације.</string>
+    <string name="full_sync_backup" formatted="false">Прикажи претходне датотеке</string>
+    <string name="full_sync_backup_hint" formatted="false">При првој синхронизацији постојеће локалне датотеке чувају се одвојено, а затим се преузима копија са сервера. Потом се измене и брисања синхронизују у оба смера.</string>
+    <string name="preview_previous" formatted="false">Претходна датотека</string>
+    <string name="preview_next" formatted="false">Следећа датотека</string>
+    <string name="preview_close" formatted="false">Затворите</string>
+    <string name="share_expires_at">Приступ истиче</string>
+</resources>

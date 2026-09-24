@@ -19,8 +19,13 @@ type EventListener interface {
 // The stream needs a live process: on Android that means while the app is visible or a
 // sync pass runs in the foreground. Everything else is the periodic worker's job.
 func (c *Client) StartEvents(l EventListener) {
-	c.StopEvents()
-	ctx, cancel := context.WithCancel(context.Background())
+	c.eventsMu.Lock()
+	defer c.eventsMu.Unlock()
+	c.stopEvents()
+	if c.ctx.Err() != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(c.ctx)
 	c.mu.Lock()
 	c.eventsCancel = cancel
 	c.eventsDone = make(chan struct{})
@@ -52,6 +57,12 @@ func (c *Client) StartEvents(l EventListener) {
 // StopEvents drops the event stream and waits for the listener goroutine to end, so no
 // OnChange arrives after it returns. Safe to call when nothing is running.
 func (c *Client) StopEvents() {
+	c.eventsMu.Lock()
+	defer c.eventsMu.Unlock()
+	c.stopEvents()
+}
+
+func (c *Client) stopEvents() {
 	c.mu.Lock()
 	cancel, done := c.eventsCancel, c.eventsDone
 	c.eventsCancel, c.eventsDone = nil, nil

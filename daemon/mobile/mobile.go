@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -84,8 +85,13 @@ type Client struct {
 	eng    *engine.Engine
 	idx    *index.Index
 
-	mu     sync.Mutex
-	status Status
+	opMu     sync.Mutex
+	eventsMu sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	closed   bool
+	mu       sync.Mutex
+	status   Status
 
 	// The event stream, while one is held (see StartEvents).
 	eventsCancel context.CancelFunc
@@ -121,7 +127,8 @@ func New(serverURL, deviceToken, syncDir, stateDBPath string, insecureTLS bool) 
 	}
 	client := protocol.New(serverURL, deviceToken)
 	eng := engine.New(client, idx, syncDir)
-	return &Client{client: client, eng: eng, idx: idx, status: Status{State: "idle"}}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Client{client: client, eng: eng, idx: idx, ctx: ctx, cancel: cancel, status: Status{State: "idle"}}, nil
 }
 
 // BulkDeleteMarker appears in the error text when a pass refused to delete a large share of
@@ -131,7 +138,13 @@ const BulkDeleteMarker = "refusing to delete"
 
 // ConfirmBulkDelete lets the next pass carry deletions the safety check stopped. Call it only
 // after the user has been told how many files it is about, and what they are.
-func (c *Client) ConfirmBulkDelete() { c.eng.ConfirmBulkDelete() }
+func (c *Client) ConfirmBulkDelete() {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if c.ctx.Err() == nil {
+		c.eng.ConfirmBulkDelete()
+	}
+}
 
 // ResetLocalIndex forgets what this device knows about the server's tree, so the next pass
 // fetches all of it again. Nothing on the server is touched and nothing local is deleted or
@@ -141,15 +154,27 @@ func (c *Client) ConfirmBulkDelete() { c.eng.ConfirmBulkDelete() }
 // one: the folder went missing rather than the files being deleted, so the fix is to rebuild
 // the local copy, not to make the server match a mirror that no longer exists. Files still
 // present on disk are uploaded as new ones by the pass that follows.
-func (c *Client) ResetLocalIndex() error { return c.eng.ResetIndexKeepingFiles() }
+func (c *Client) ResetLocalIndex() error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
+	return c.eng.ResetIndexKeepingFiles()
+}
 
 // SyncOnce runs one sync pass. Blocks; call off the UI thread. Concurrent calls serialize.
 func (c *Client) SyncOnce() error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	c.status.State = "syncing"
 	c.mu.Unlock()
 
-	err := c.syncPass(context.Background())
+	err := c.syncPass(c.ctx)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -209,9 +234,25 @@ func (c *Client) Status() *Status {
 	return &s
 }
 
+// Cancel interrupts network work before an embedding app waits for its borrowers.
+func (c *Client) Cancel() { c.cancel() }
+
 // Close drops the event stream, if any, and releases the local index. The Client must not
 // be used afterwards.
 func (c *Client) Close() error {
+	c.cancel()
 	c.StopEvents()
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
 	return c.idx.Close()
+}
+
+// ActivityJSON remains readable while a sync pass is running.
+func (c *Client) ActivityJSON() string {
+	b, _ := json.Marshal(c.eng.Activity())
+	return string(b)
 }

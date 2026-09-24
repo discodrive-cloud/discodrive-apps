@@ -31,6 +31,13 @@ fun VaultScreen(vm: VaultViewModel, ui: VaultState) {
     val ctx = LocalContext.current
     var sheetFor by remember { mutableStateOf<VEntry?>(null) }
     var newFolder by remember { mutableStateOf(false) }
+    var previewIndex by remember { mutableStateOf<Int?>(null) }
+    var previewFiles by remember { mutableStateOf<List<VEntry>>(emptyList()) }
+    previewIndex?.let { selected ->
+        PreviewScreen(previewFiles.map { it.name }, selected, load = { i -> vm.preview(previewFiles[i]) }) { previewIndex = null }
+        return
+    }
+
     var menu by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -80,7 +87,7 @@ fun VaultScreen(vm: VaultViewModel, ui: VaultState) {
     sheetFor?.let { e ->
         ModalBottomSheet(onDismissRequest = { sheetFor = null }) {
             Column(Modifier.padding(bottom = 24.dp)) {
-                vSheetItem(stringResource(R.string.action_open)) { sheetFor = null; vm.openFile(e) { path -> openVaultFile(ctx, path) } }
+                vSheetItem(stringResource(R.string.action_open)) { sheetFor = null; previewFiles = ui.entries.filter { !it.isDir }; previewIndex = previewFiles.indexOf(e).takeIf { it >= 0 } }
                 vSheetItem(stringResource(R.string.action_delete)) { sheetFor = null; vm.delete(e) }
             }
         }

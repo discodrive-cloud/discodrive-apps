@@ -40,8 +40,23 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
     var renameFor by remember { mutableStateOf<Entry?>(null) }
     var moveFor by remember { mutableStateOf<Entry?>(null) }
     var newFolder by remember { mutableStateOf(false) }
+    var previewIndex by remember { mutableStateOf<Int?>(null) }
+    var previewFiles by remember { mutableStateOf<List<Entry>>(emptyList()) }
+    previewIndex?.let { selected ->
+        PreviewScreen(previewFiles.map { it.name }, selected, load = { i -> vm.preview(previewFiles[i].id) }) { previewIndex = null; vm.reload() }
+        return
+    }
+
     var menu by remember { mutableStateOf(false) }
     var unlockDialog by remember { mutableStateOf(false) }
+    var recovery by remember { mutableStateOf(false) }
+    var versionsFor by remember { mutableStateOf<Entry?>(null) }
+    var sharingFor by remember { mutableStateOf<Entry?>(null) }
+    if (recovery || versionsFor != null) {
+        RecoveryScreen(versionsFor, onChanged = { vm.syncNow() }) { recovery = false; versionsFor = null }
+        return
+    }
+    sharingFor?.let { entry -> SharingScreen(entry) { sharingFor = null }; return }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.uploadUri(uri)
@@ -68,6 +83,7 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text(stringResource(R.string.menu_new_folder)) }, onClick = { menu = false; newFolder = true })
                     DropdownMenuItem(text = { Text(stringResource(R.string.menu_upload)) }, onClick = { menu = false; picker.launch("*/*") })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.recovery_trash)) }, onClick = { menu = false; recovery = true })
                     DropdownMenuItem(text = { Text(stringResource(R.string.menu_settings)) }, onClick = { menu = false; onSettings() })
                 }
             }
@@ -119,12 +135,14 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
         ModalBottomSheet(onDismissRequest = { sheetFor = null }) {
             Column(Modifier.padding(bottom = 24.dp)) {
                 if (!e.isDir) {
-                    sheetItem(stringResource(R.string.action_open)) { sheetFor = null; vm.open(e.id) { path -> openInApp(ctx, path) } }
+                    sheetItem(stringResource(R.string.action_open)) { sheetFor = null; previewFiles = ui.entries.filter { !it.isDir }; previewIndex = previewFiles.indexOf(e).takeIf { it >= 0 } }
                     sheetItem(stringResource(R.string.action_download)) { sheetFor = null; vm.download(e.id) }
                     if (e.pinned) sheetItem(stringResource(R.string.action_unpin)) { sheetFor = null; vm.unpin(e.id) }
                     else sheetItem(stringResource(R.string.action_pin)) { sheetFor = null; vm.pin(e.id) }
                     if (e.cached) sheetItem(stringResource(R.string.action_remove_local)) { sheetFor = null; vm.removeLocal(e.id) }
                 }
+                sheetItem(stringResource(R.string.share_title)) { sheetFor = null; sharingFor = e }
+                if (!e.isDir) sheetItem(stringResource(R.string.recovery_versions)) { sheetFor = null; versionsFor = e }
                 sheetItem(stringResource(R.string.action_rename)) { sheetFor = null; renameFor = e }
                 sheetItem(stringResource(R.string.action_move)) { sheetFor = null; moveFor = e }
                 sheetItem(stringResource(R.string.action_delete)) { sheetFor = null; vm.delete(e.id) }
