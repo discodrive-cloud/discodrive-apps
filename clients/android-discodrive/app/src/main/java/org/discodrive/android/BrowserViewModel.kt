@@ -48,7 +48,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     private var resuming = false
 
     // Paired is a fact about the stored token, known before anything touches the network.
-    private val _ui = MutableStateFlow(BrowseState(paired = isPaired()))
+    private val _ui = MutableStateFlow(BrowseState(paired = isPaired(), loading = isPaired()))
     val ui: StateFlow<BrowseState> = _ui.asStateFlow()
 
     val rootDir: File = File(app.filesDir, "browser-cache")
@@ -101,6 +101,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun openBrowser() {
         opening = true
+        _ui.value = _ui.value.copy(loading = true)
         viewModelScope.launch {
             try {
                 // Listed inline rather than through reload(), which runs in a coroutine of its
@@ -108,7 +109,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                 val js = withBrowser { it.list("") } ?: return@launch
                 opened = true
                 _ui.value = _ui.value.copy(
-                    paired = true, error = null, entries = parse(js),
+                    paired = true, loading = false, error = null, entries = parse(js),
                     stack = listOf(Folder("", getApplication<Application>().getString(R.string.app_name))),
                 )
                 syncNow()
@@ -116,6 +117,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value = _ui.value.copy(error = e.message)
             } finally {
                 opening = false
+                _ui.value = _ui.value.copy(loading = false)
             }
         }
     }

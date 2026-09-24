@@ -19,6 +19,7 @@ struct FilePreviewView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var retry = 0
+    @State private var exportURL: ExportFile?
 
     init(files: [PreviewFile], selectedID: String, url: URL,
          load: @escaping @MainActor (String) async throws -> URL) {
@@ -36,6 +37,14 @@ struct FilePreviewView: View {
                 Button { navigate(1) } label: { Image(systemName: "chevron.right").frame(minWidth: 44, minHeight: 44) }
                     .accessibilityLabel(app.t("preview.next")).accessibilityIdentifier("preview.next")
                     .disabled(position + 1 >= files.count)
+                Button {
+                    if let url { exportURL = ExportFile(url: url) }
+                } label: {
+                    Image(systemName: "square.and.arrow.down").frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel(app.t("menu.saveToFiles"))
+                .accessibilityIdentifier("preview.saveToFiles")
+                .disabled(url == nil || loading)
                 Spacer()
                 Text("\(position + 1) / \(files.count)").monospacedDigit().foregroundStyle(.secondary)
                 Button(app.t("preview.close")) { dismiss() }
@@ -53,6 +62,7 @@ struct FilePreviewView: View {
             } else if let url { QuickLookView(url: url).id(url) }
         }
         .background(Color(uiColor: .systemBackground))
+        .sheet(item: $exportURL) { item in SaveToFilesView(url: item.url) }
         .task(id: "\(position):\(retry)") {
             guard url == nil, files.indices.contains(position) else { return }
             loading = true; error = nil
@@ -68,6 +78,39 @@ struct FilePreviewView: View {
     }
     private func navigate(_ offset: Int) {
         url = nil; error = nil; loading = true; position += offset
+    }
+}
+
+final class ExportFile: Identifiable {
+    let id = UUID()
+    let url: URL
+    private let temporaryDirectory: URL?
+    init(url: URL, temporaryDirectory: URL? = nil) {
+        self.url = url; self.temporaryDirectory = temporaryDirectory
+    }
+    deinit {
+        if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    }
+}
+
+// Export a copy through the system picker; the original stays managed by the app.
+struct SaveToFilesView: UIViewControllerRepresentable {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator { dismiss() } }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let finish: () -> Void
+        init(finish: @escaping () -> Void) { self.finish = finish }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish() }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finish() }
     }
 }
 
@@ -160,6 +203,8 @@ struct FolderView: View {
     @State private var renameName = ""
     @State private var historyTarget: Node?
     @State private var shareTarget: Node?
+    @State private var exportURL: ExportFile?
+    @State private var preparingExport = false
 
     private var folderID: String? { folder?.id }
     private var folderPath: String { folder?.path ?? "" }
@@ -167,6 +212,17 @@ struct FolderView: View {
     var body: some View {
         List {
             ForEach(app.children(of: folderID)) { node in row(node) }
+        }
+        .overlay {
+            if app.children(of: folderID).isEmpty {
+                VStack(spacing: 12) {
+                    if app.fileListLoading { ProgressView(app.t("browse.loading")) }
+                    else if let error = app.fileListError {
+                        Text(error).foregroundStyle(.secondary)
+                        Button(app.t("toolbar.refresh")) { Task { await app.refresh() } }
+                    } else { Text(app.t("browse.empty")).foregroundStyle(.secondary) }
+                }.padding()
+            }
         }
         .navigationTitle(folder?.name ?? "DiscoDrive")
         .navigationBarTitleDisplayMode(.inline)
@@ -195,6 +251,8 @@ struct FolderView: View {
         }
         .sheet(item: $historyTarget) { RecoveryView(node: $0) }
         .sheet(item: $shareTarget) { SharingView(node: $0).environmentObject(app) }
+        .sheet(item: $exportURL) { SaveToFilesView(url: $0.url) }
+        .overlay { if preparingExport { ProgressView().padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             let accessed = urls.filter { $0.startAccessingSecurityScopedResource() }
@@ -238,8 +296,19 @@ struct FolderView: View {
             .contextMenu {
                 Button(app.t("recovery.versions")) { historyTarget = node }
                 Button(app.t("share.title")) { shareTarget = node }
-                Button(app.t("menu.keepLocal")) { Task { await app.pin(node) } }
-                Button(app.t("menu.removeLocal")) { app.removeLocal(node) }
+                Button {
+                    preparingExport = true
+                    Task {
+                        defer { preparingExport = false }
+                        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Exports/" + UUID().uuidString)
+                        if let url = await app.prepareExport(node, in: directory) {
+                            exportURL = ExportFile(url: url, temporaryDirectory: directory)
+                        }
+                    }
+                } label: { Label(app.t("menu.saveToFiles"), systemImage: "square.and.arrow.down") }
+                .disabled(preparingExport)
+                Button(app.t("ios.keepInApp")) { Task { await app.pin(node) } }
+                Button(app.t("ios.removeFromApp")) { app.removeLocal(node) }
             }
         }
     }

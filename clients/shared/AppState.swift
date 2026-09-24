@@ -41,7 +41,10 @@ final class AppState: ObservableObject {
 
     private var session = AccountSession()
     @Published private(set) var loggingOut = false
-    private var refreshing = false
+    @Published private(set) var refreshing = false
+    @Published private(set) var fileListLoaded = false
+    @Published private(set) var fileListError: String?
+    var fileListLoading: Bool { refreshing || (!fileListLoaded && fileListError == nil) }
     private var eventsTask: Task<Void, Never>?
     static let log = Logger(subsystem: "org.discodrive.app", category: "state")
     // Called after every successful refresh; the macOS app uses it to nudge the File
@@ -101,6 +104,7 @@ final class AppState: ObservableObject {
     func activate(serverURL: URL, token: String) {
         session.invalidate()
         session = AccountSession()
+        fileListLoaded = false; fileListError = nil
         refreshing = false; importing = false; downloadingIDs = []
         let dir = appSupportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -300,6 +304,7 @@ final class AppState: ObservableObject {
         let session = self.session
         refreshing = true; defer { if session.isActive { refreshing = false } }
         syncStatus = .syncing
+        fileListError = nil
         do {
             // The pull — network plus applying pages to SQLite — runs away from the main
             // actor; the first one after pairing applies the whole tree and used to hold
@@ -318,6 +323,7 @@ final class AppState: ObservableObject {
             }
             await rebuildTree()
             try session.check()
+            fileListLoaded = true
             statusText = t("status.updated")
             syncStatus = .idle
             Self.log.notice("refreshed: \(self.tree.count) root folders, cursor \(cursor)")
@@ -325,6 +331,7 @@ final class AppState: ObservableObject {
             return true
         } catch {
             guard session.isActive, !(error is CancellationError) else { return false }
+            fileListError = t("browse.loadFailed")
             // The full error goes to the log; the window gets a plain reason only when
             // there is one worth reading. A hiccup in the shared index or a dropped
             // connection is retried on the next refresh without a word.
@@ -642,6 +649,31 @@ final class AppState: ObservableObject {
             revision += 1
             return local.localURL(nodeID: node.id)
         } catch {
+            guard session.isActive, !(error is CancellationError) else { return nil }
+            fail("status.downloadError", error)
+            return nil
+        }
+    }
+
+    // Exports own their temporary directory and never register a downloaded copy in LocalStore.
+    func prepareExport(_ node: Node, in directory: URL) async -> URL? {
+        guard let client, let local, session.isActive else { return nil }
+        let session = self.session
+        let url = directory.appendingPathComponent(node.name)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let status = try local.status(nodeID: node.id, serverVersion: node.version)
+            if (status == .cached || status == .pinned), let source = local.localURL(nodeID: node.id) {
+                try FileManager.default.copyItem(at: source, to: url)
+            } else {
+                downloadingIDs.insert(node.id)
+                defer { if session.isActive { downloadingIDs.remove(node.id) } }
+                try await session.perform { try await client.download(nodeID: node.id, to: url) }
+            }
+            try session.check()
+            return url
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
             guard session.isActive, !(error is CancellationError) else { return nil }
             fail("status.downloadError", error)
             return nil

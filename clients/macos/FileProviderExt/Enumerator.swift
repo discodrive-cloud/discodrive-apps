@@ -13,6 +13,12 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
         self.container = container
     }
 
+    private struct PageToken: Codable {
+        let version: Int
+        let container: String
+        let afterID: String
+    }
+
     func invalidate() {}
 
     func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
@@ -24,16 +30,31 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
                 // A fresh index (nothing applied yet) is filled from the beginning before
                 // Finder gets its first, otherwise empty, answer.
                 if try core.index.cursor() == 0 { _ = try await core.pull(since: 0) }
-                let nodes: [Node]
-                switch container {
-                case .workingSet:    nodes = try core.index.allNodes()
-                case .rootContainer: nodes = try core.index.children(of: nil)
-                default:             nodes = try core.index.children(of: container.rawValue)
+                let afterID: String?
+                if page.rawValue == NSFileProviderPage.initialPageSortedByName as Data ||
+                    page.rawValue == NSFileProviderPage.initialPageSortedByDate as Data {
+                    afterID = nil
+                } else {
+                    guard let token = try? JSONDecoder().decode(PageToken.self, from: page.rawValue),
+                          token.version == 1, token.container == container.rawValue else {
+                        throw NSFileProviderError(.pageExpired)
+                    }
+                    afterID = token.afterID
                 }
-                for chunk in stride(from: 0, to: nodes.count, by: 500) {
-                    observer.didEnumerate(nodes[chunk..<min(chunk + 500, nodes.count)].map(core.item(for:)))
+                let limit = 200
+                let nodes = try core.index.enumerationPage(
+                    parentID: container == .rootContainer ? nil : container.rawValue,
+                    workingSet: container == .workingSet, afterID: afterID, limit: limit + 1)
+                let items = nodes.prefix(limit)
+                let next: NSFileProviderPage?
+                if nodes.count > limit, let last = items.last {
+                    next = NSFileProviderPage(try JSONEncoder().encode(
+                        PageToken(version: 1, container: container.rawValue, afterID: last.id)))
+                } else {
+                    next = nil
                 }
-                observer.finishEnumerating(upTo: nil)
+                observer.didEnumerate(items.map(core.item(for:)))
+                observer.finishEnumerating(upTo: next)
             } catch {
                 observer.finishEnumeratingWithError(error)
             }

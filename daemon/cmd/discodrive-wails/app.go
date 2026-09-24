@@ -74,9 +74,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-// openProfile opens the paired profile's controller + upload client and starts a
-// background refresh. Shared by startup and the post-pairing flow so the session is
-// built identically. Returns an error if the profile is not paired/openable.
+// openProfile opens the paired profile's controller and upload client. Shared by
+// startup and pairing; the browser awaits the first refresh to show progress and errors.
 func (a *App) openProfile(profile string) error {
 	a.accountMu.Lock()
 	defer a.accountMu.Unlock()
@@ -92,7 +91,6 @@ func (a *App) openProfile(profile string) error {
 			_ = a.mirror.Attach(a.ctx, cfg)
 		}
 	}
-	go func() { _, _ = ctrl.Refresh(a.ctx) }()
 	return nil
 }
 

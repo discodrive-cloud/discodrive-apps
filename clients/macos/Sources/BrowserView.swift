@@ -128,8 +128,14 @@ struct BrowserView: View {
                 Divider()
                 if files.isEmpty {
                     Spacer()
-                    Text(app.t("browse.empty"))
-                        .foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                    if app.fileListLoading {
+                        ProgressView(app.t("browse.loading")).frame(maxWidth: .infinity)
+                    } else if let error = app.fileListError {
+                        Text(error).foregroundStyle(.secondary)
+                        Button(app.t("toolbar.refresh")) { Task { await app.refresh() } }
+                    } else {
+                        Text(app.t("browse.empty")).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                    }
                     Spacer()
                 } else {
                     List(files, selection: $selectedFile) { node in

@@ -149,11 +149,37 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
         }
     }
 
-    // Every node, folders first then by path — what the working-set enumerator hands the
-    // system on its first pass.
+    // Every node, folders first then by path. File Provider uses enumerationPage instead
+    // to avoid loading the entire index into its memory-limited extension process.
     public func allNodes() throws -> [Node] {
         try dbQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM nodes ORDER BY is_dir DESC, path").map(Self.rowToNode)
+        }
+    }
+
+    // Keyset pagination keeps memory bounded and does not skip rows when a preceding
+    // node is deleted between File Provider requests. The system sorts the displayed items.
+    public func enumerationPage(parentID: String?, workingSet: Bool, afterID: String?, limit: Int) throws -> [Node] {
+        precondition(limit > 0)
+        return try dbQueue.read { db in
+            var conditions: [String] = []
+            var arguments = StatementArguments()
+            if !workingSet {
+                if let parentID {
+                    conditions.append("parent_id = ?")
+                    arguments += [parentID]
+                } else {
+                    conditions.append("parent_id IS NULL")
+                }
+            }
+            if let afterID {
+                conditions.append("id > ?")
+                arguments += [afterID]
+            }
+            let filter = conditions.isEmpty ? "" : " WHERE " + conditions.joined(separator: " AND ")
+            arguments += [limit]
+            return try Row.fetchAll(db, sql: "SELECT * FROM nodes" + filter + " ORDER BY id LIMIT ?",
+                                    arguments: arguments).map(Self.rowToNode)
         }
     }
 

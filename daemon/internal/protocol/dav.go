@@ -83,3 +83,47 @@ func (c *Client) AppleProfile(ctx context.Context, installation string, calendar
 	u.Fragment = ""
 	return u.String(), nil
 }
+
+func (c *Client) AppleEnrollmentAvailable(ctx context.Context) (bool, error) {
+	var out struct {
+		Enabled bool `json:"enabled"`
+	}
+	err := c.readResource(ctx, "/me/apple-enrollment", &out)
+	return out.Enabled, err
+}
+
+// Keep the credential in the HTTPS request body, never in the download URL.
+func (c *Client) AppleEnrollment(ctx context.Context, installation string, calendars, contacts bool, credential DAVCredential) (string, error) {
+	u, err := url.Parse(c.baseURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return "", fmt.Errorf("encrypted setup requires HTTPS")
+	}
+	resp, err := c.doJSON(ctx, http.MethodPost, "/me/apple-enrollment", map[string]any{
+		"server_url": c.baseURL, "installation_id": installation, "calendars": calendars, "contacts": contacts,
+		"device_id": credential.ID, "password": credential.Password,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		return "", statusErr(resp, "prepare Apple enrollment")
+	}
+	var out struct {
+		Path string `json:"download_path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	parts := strings.Split(out.Path, "/")
+	if len(parts) != 4 || parts[0] != "" || parts[1] != "apple-enrollment" || len(parts[2]) != 64 || parts[3] != "DiscoDrive.mobileconfig" {
+		return "", fmt.Errorf("invalid enrollment download path")
+	}
+	for _, ch := range parts[2] {
+		if !strings.ContainsRune("0123456789abcdef", ch) {
+			return "", fmt.Errorf("invalid enrollment ticket")
+		}
+	}
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = out.Path, "", "", ""
+	return u.String(), nil
+}

@@ -12,7 +12,7 @@ final class DAVSetupUITests: XCTestCase {
         app.launch()
         let setup = app.buttons["Calendars and contacts"]
         XCTAssertTrue(setup.waitForExistence(timeout: 20)); setup.tap()
-        let prepare = app.buttons["Prepare connection"]
+        let prepare = app.buttons["Connect with password entry"]
         XCTAssertTrue(prepare.waitForExistence(timeout: 10))
         for _ in 0..<20 { if prepare.isEnabled { break }; Thread.sleep(forTimeInterval: 0.25) }
         XCTAssertTrue(prepare.isEnabled); prepare.tap()

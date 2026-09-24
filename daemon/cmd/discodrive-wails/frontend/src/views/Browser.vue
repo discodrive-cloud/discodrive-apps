@@ -16,6 +16,8 @@ const historyNode = ref(null), shareNode = ref(null), resourceBusy = ref(false)
 const stack = ref([{ id: '', relPath: '', name: 'root' }])
 const entries = ref([])
 const busy = ref(false)
+const initializing = ref(true)
+const loadError = ref(false)
 const status = ref('')
 
 const current = () => stack.value[stack.value.length - 1]
@@ -45,15 +47,19 @@ async function goTo(index) {
 }
 
 async function refresh() {
+  if (busy.value) return
   busy.value = true
-  status.value = 'Refreshing…'
+  loadError.value = false
+  status.value = ''
   try {
     await api.refresh()
     await reload()
     status.value = ''
   } catch (e) {
+    loadError.value = true
     status.value = String(e)
   } finally {
+    initializing.value = false
     busy.value = false
   }
 }
@@ -138,7 +144,8 @@ function onDrop(e) { e.preventDefault(); dragOver.value = false } // native OnFi
 
 const unsubs = []
 onMounted(() => {
-  reload()
+  // Cached files stay usable while the initial server refresh is pending.
+  reload().catch(() => {}).finally(refresh)
   unsubs.push(api.onEvent('upload:progress', (e) => { uploads.value[e.id] = { ...e, state: 'uploading' } }))
   unsubs.push(api.onEvent('upload:done', (e) => {
     uploads.value[e.id] = { ...(uploads.value[e.id] || e), state: 'done' }
@@ -196,6 +203,14 @@ defineExpose({ refresh, reload, current, dropFiles })
       @drop="onDrop"
     >
       <div v-if="dragOver" class="mt-20 text-center text-sm text-accent">{{ t('browser.dropHere') }}</div>
+      <div v-else-if="!entries.length && (initializing || busy)" role="status" aria-live="polite" class="mt-20 flex flex-col items-center gap-3 text-sm text-muted">
+        <RefreshCw :size="24" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <span>{{ t('browser.loading') }}</span>
+      </div>
+      <div v-else-if="!entries.length && loadError" role="status" class="mt-20 flex flex-col items-center gap-3 text-sm text-muted">
+        <span>{{ t('browser.loadFailed') }}</span>
+        <button class="btn-ghost" @click="refresh">{{ t('common.refresh') }}</button>
+      </div>
       <div v-else-if="!entries.length" class="mt-20 text-center text-sm text-muted">
         {{ t('browser.empty') }}
       </div>

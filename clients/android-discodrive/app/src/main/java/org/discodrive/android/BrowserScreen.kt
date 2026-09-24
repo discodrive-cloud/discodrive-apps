@@ -94,7 +94,7 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
             ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
             // The first pull after pairing has nothing in the index to show yet. A bare empty
             // list read as a broken app, so say what the progress bar is for.
-            if (ui.syncing && ui.entries.isEmpty() && ui.error == null) {
+            if ((ui.loading || ui.syncing) && ui.entries.isEmpty() && ui.error == null) {
                 Text(
                     stringResource(R.string.browse_first_sync),
                     style = MaterialTheme.typography.bodyMedium,

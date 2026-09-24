@@ -37,6 +37,9 @@ struct DAVSetupView: View {
                 } footer: { Text(app.t("dav.hint")) }
                 #if os(iOS)
                 Section {
+                    Text(app.t("dav.profileSignatureHint"))
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button(app.t("dav.automatic")) { Task { await prepare(automatic: true) } }
                         .disabled(busy || service == nil || (!calendars && !contacts))
                 } footer: { Text(app.t("dav.automaticHint")) }

@@ -61,6 +61,12 @@ func (a *App) GetDAVSetup() (DAVSetup, error) {
 	return out, err
 }
 func (a *App) PrepareDAV(calendars, contacts bool) (DAVSetup, error) {
+	return a.prepareDAV(calendars, contacts, false)
+}
+func (a *App) PrepareDAVAutomatic(calendars, contacts bool) (DAVSetup, error) {
+	return a.prepareDAV(calendars, contacts, true)
+}
+func (a *App) prepareDAV(calendars, contacts, automatic bool) (DAVSetup, error) {
 	out := DAVSetup{Supported: runtime.GOOS == "darwin"}
 	if !out.Supported {
 		return out, fmt.Errorf("unsupported platform")
@@ -76,9 +82,19 @@ func (a *App) PrepareDAV(calendars, contacts bool) (DAVSetup, error) {
 	if err != nil {
 		return out, err
 	}
-	out.URL, err = a.up.AppleProfile(a.ctx, service, calendars, contacts)
-	if err != nil {
-		return out, err
+	if automatic {
+		enabled, err := a.up.AppleEnrollmentAvailable(a.ctx)
+		if err != nil {
+			return out, err
+		}
+		if !enabled {
+			return out, fmt.Errorf("encrypted setup unavailable")
+		}
+	} else {
+		out.URL, err = a.up.AppleProfile(a.ctx, service, calendars, contacts)
+		if err != nil {
+			return out, err
+		}
 	}
 	stored, err := davcredentials.Load(service)
 	if err != nil {
@@ -87,6 +103,9 @@ func (a *App) PrepareDAV(calendars, contacts bool) (DAVSetup, error) {
 	out.Credential = &protocol.DAVCredential{}
 	if stored != "" {
 		err = json.Unmarshal([]byte(stored), out.Credential)
+		if err == nil && automatic {
+			out.URL, err = a.up.AppleEnrollment(a.ctx, service, calendars, contacts, *out.Credential)
+		}
 		return out, err
 	}
 	created, err := a.up.CreateDAVPassword(a.ctx, "DiscoDrive · macOS calendars and contacts")
@@ -102,7 +121,10 @@ func (a *App) PrepareDAV(calendars, contacts bool) (DAVSetup, error) {
 		return out, err
 	}
 	out.Credential = &created
-	return out, nil
+	if automatic {
+		out.URL, err = a.up.AppleEnrollment(a.ctx, service, calendars, contacts, created)
+	}
+	return out, err
 }
 func (a *App) RevokeDAV() error {
 	a.accountMu.RLock()
