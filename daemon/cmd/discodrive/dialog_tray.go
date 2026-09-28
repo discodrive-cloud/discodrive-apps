@@ -13,12 +13,7 @@ import (
 func promptText(title, prompt string, hidden bool) (string, bool) {
 	switch runtime.GOOS {
 	case "darwin":
-		hiddenArg := ""
-		if hidden {
-			hiddenArg = " with hidden answer"
-		}
-		script := `display dialog "` + escapeAS(prompt) + `" default answer "" with title "` + escapeAS(title) + `"` + hiddenArg
-		out, err := exec.Command("osascript", "-e", script).Output()
+		out, err := exec.Command("osascript", osascriptArgs(dialogScript(hidden), prompt, title)...).Output()
 		if err != nil {
 			return "", false // cancel or error
 		}
@@ -42,14 +37,36 @@ func promptText(title, prompt string, hidden bool) (string, bool) {
 	}
 }
 
-func escapeAS(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
+// The dialog texts can carry server-controlled data (a vault folder name, an error
+// quoting a file name), so they are never spliced into AppleScript source: the scripts
+// are constants and the values arrive through argv.
+func dialogScript(hidden bool) []string {
+	show := `display dialog (item 1 of argv) default answer "" with title (item 2 of argv)`
+	if hidden {
+		show += " with hidden answer"
+	}
+	return []string{"on run argv", show, "end run"}
+}
+
+var notifyScript = []string{"on run argv", "display notification (item 1 of argv) with title (item 2 of argv)", "end run"}
+
+// osascriptArgs builds `osascript -e line… -- value…`. The "--" keeps a value that
+// starts with a dash (e.g. "-e …") from being parsed as another script line.
+func osascriptArgs(script []string, values ...string) []string {
+	args := make([]string, 0, 2*len(script)+1+len(values))
+	for _, line := range script {
+		args = append(args, "-e", line)
+	}
+	args = append(args, "--")
+	return append(args, values...)
+}
 
 // notify shows a native desktop notification (best-effort).
 func notify(title, msg string) {
 	switch runtime.GOOS {
 	case "darwin":
-		_ = exec.Command("osascript", "-e", `display notification "`+escapeAS(msg)+`" with title "`+escapeAS(title)+`"`).Start()
+		_ = exec.Command("osascript", osascriptArgs(notifyScript, msg, title)...).Start()
 	default:
-		_ = exec.Command("notify-send", title, msg).Start()
+		_ = exec.Command("notify-send", "--", title, msg).Start()
 	}
 }
