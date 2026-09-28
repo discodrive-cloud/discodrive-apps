@@ -5,19 +5,24 @@ on:
     tags: ["v*"]
   workflow_dispatch: {}
 
+# Build jobs run third-party code (npm, Go modules, Gradle plugins): they get a
+# read-only token. Only the release job can write.
 permissions:
-  contents: write
+  contents: read
 
 env:
-  GO_VERSION: "1.26"
+  # An exact patch, so a runner's cached older 1.26 is never used for a release.
+  GO_VERSION: "1.26.8"
   WAILS_VERSION: "v2.12.0"
 
 jobs:
   daemon:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: daemon/go.sum
@@ -34,7 +39,7 @@ jobs:
           cd dist
           for d in */; do tar czf "discodrive-daemon-${d%/}.tar.gz" -C "$d" .; done
           ls -la
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: daemon
           path: dist/*.tar.gz
@@ -43,17 +48,49 @@ jobs:
     runs-on: macos-latest
     env:
       # Developer ID certificate (+ key) as a base64 .p12, and an App Store Connect API
-      # key for notarytool. Without them the job still builds, ad-hoc signed — see
-      # dev/ops/macos-signing.md for how they are made.
-      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-      NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
-      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-      NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+      # key for notarytool — see dev/ops/macos-signing.md for how they are made. The
+      # secrets themselves are handed only to the import step, not to the job's env.
+      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Refuse an unsigned tagged release
+        # The Homebrew cask points at the .dmg by name; an ad-hoc-signed one published
+        # under that name would reach brew users un-notarized.
+        if: startsWith(github.ref, 'refs/tags/') && env.HAS_SIGNING != 'true'
+        run: |
+          echo "::error::MACOS_CERT_P12 is not configured; tagged releases must be signed and notarized"
+          exit 1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: daemon/go.sum
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "20"
+      - name: Install desktop toolchain + NSIS
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          brew install makensis
+      - name: Resolve version + stamp wails.json
+        id: ver
+        run: |
+          V=""
+          case "$GITHUB_REF" in refs/tags/v*) V="${GITHUB_REF_NAME#v}";; esac
+          scripts/set-version.sh "$V"
+          [ -n "$V" ] || V="$(jq -r '.info.productVersion' daemon/cmd/discodrive-wails/wails.json)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Import Developer ID certificate + notarization key
-        if: env.MACOS_CERT_P12 != ''
+        if: env.HAS_SIGNING == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        # After the toolchain installs: go install, brew and setup-node run before any key
+        # exists. The build steps below (wails runs npm ci) still run with the keychain
+        # unlocked; moving signing into its own job is the complete fix.
         run: |
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
@@ -72,31 +109,18 @@ jobs:
           echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
           # From here on an unsigned or un-notarized artefact is a failure, not a notice.
           echo "SIGN_REQUIRED=1" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: daemon/go.sum
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-      - name: Install desktop toolchain + NSIS
-        run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          brew install makensis
-      - name: Resolve version + stamp wails.json
-        id: ver
-        run: |
-          V=""
-          case "$GITHUB_REF" in refs/tags/v*) V="${GITHUB_REF_NAME#v}";; esac
-          scripts/set-version.sh "$V"
-          [ -n "$V" ] || V="$(jq -r '.info.productVersion' daemon/cmd/discodrive-wails/wails.json)"
-          echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Build macOS .dmg (universal, signed + notarized)
-        run: make dmg-desktop-macos VERSION="${{ steps.ver.outputs.version }}"
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: make dmg-desktop-macos VERSION="$VER"
       - name: Build Windows .exe + installers (cross-built)
         run: make desktop-windows
       - name: Build darwin daemon (both flavours × amd64+arm64, signed + notarized)
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: make daemon-macos-release
       - name: Remove the signing keychain
         if: always() && env.SIGNING_KEYCHAIN != ''
@@ -113,7 +137,7 @@ jobs:
           done
           cp dist/discodrive-daemon-*.tar.gz out/
           ls -la out
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: desktop-mac-win
           path: out/*
@@ -121,7 +145,9 @@ jobs:
   desktop-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Resolve version + stamp wails.json
         id: ver
         run: |
@@ -140,7 +166,7 @@ jobs:
           cp dist/linux/DiscoDrive "out/DiscoDrive-$VER-linux-amd64"
           chmod +x "out/DiscoDrive-$VER-linux-amd64"
           ls -la out
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: desktop-linux
           path: out/*
@@ -148,12 +174,14 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: daemon/go.sum
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: "17"
@@ -167,18 +195,33 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260611195102-4dd8f1dbf5d2
           go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260611195102-4dd8f1dbf5d2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Build Android bindings + apps (debug)
+      - name: Build Android bindings + app (release, signed)
+        # Only a release build signed with the long-lived key is published: a debug build
+        # is debuggable (adb run-as reads the app's files and token) and every CI runner
+        # would sign it with a different throwaway key, so updates would not install.
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          DISCODRIVE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DISCODRIVE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DISCODRIVE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           make bind-android
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_B64 is not configured; no APK is published"
+            exit 0
+          fi
+          export DISCODRIVE_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$DISCODRIVE_KEYSTORE"
+          trap 'rm -f "$DISCODRIVE_KEYSTORE"' EXIT
           # Folder sync lives inside the full client now; the separate Fast Sync app is no
           # longer released for Android.
-          (cd clients/android-discodrive && gradle assembleDebug) || echo "android-discodrive build needs gradle setup"
+          (cd clients/android-discodrive && gradle assembleRelease)
       - name: Collect apks
         run: |
           mkdir -p out
-          find clients -name '*.apk' -path '*/outputs/*' -exec cp {} out/ \; || true
-          ls -la out || true
-      - uses: actions/upload-artifact@v7
+          find clients/android-discodrive -name '*-release.apk' -path '*/outputs/*' -exec cp {} out/ \;
+          ls -la out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: android
           path: out/*.apk
@@ -188,9 +231,13 @@ jobs:
     needs: [daemon, desktop-mac-win, desktop-linux, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
       - name: Flatten
@@ -226,7 +273,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Update tap formula
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

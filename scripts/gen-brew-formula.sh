@@ -39,13 +39,8 @@ case "$FLAVOR" in
     ;;
 esac
 
-sha() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    curl -fsSL "$BASE/discodrive-daemon-$1${SUFFIX}.tar.gz" | sha256sum | cut -d' ' -f1
-  else
-    curl -fsSL "$BASE/discodrive-daemon-$1${SUFFIX}.tar.gz" | shasum -a 256 | cut -d' ' -f1
-  fi
-}
+. "$(dirname "$0")/lib-sha256-url.sh"
+sha() { sha256_url "$BASE/discodrive-daemon-$1${SUFFIX}.tar.gz"; }
 
 SHA_DARWIN_ARM64=$(sha darwin-arm64)
 SHA_DARWIN_AMD64=$(sha darwin-amd64)

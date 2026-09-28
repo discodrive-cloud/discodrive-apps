@@ -54,3 +54,12 @@ local.properties
 /daemon/cmd/discodrive-wails/frontend/wailsjs/
 
 /daemon/cmd/discodrive-wails/frontend/package.json.md5
+
+# Signing material and local secrets never belong in git.
+.env
+.env.*
+*.p12
+*.p8
+*.jks
+*.keystore
+*.mobileprovision

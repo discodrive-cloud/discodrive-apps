@@ -12,9 +12,13 @@
 # Build + export the binary to ./dist/linux:
 #   docker build -f scripts/linux.Dockerfile -o type=local,dest=dist/linux .
 
-FROM debian:bookworm-slim AS build
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS build
 
-ARG GO_VERSION=1.25.0
+# Keep in step with GO_VERSION in .github/workflows/release.yml. The checksums are
+# go.dev's published sha256 for this version, verified before unpacking.
+ARG GO_VERSION=1.26.8
+ARG GO_SHA256_AMD64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
+ARG GO_SHA256_ARM64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0
 ARG WAILS_VERSION=v2.12.0
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
@@ -26,8 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Go toolchain (architecture-aware: amd64 / arm64).
 RUN ARCH="$(dpkg --print-architecture)" \
-    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
-       | tar -C /usr/local -xz
+    && case "$ARCH" in amd64) SUM="$GO_SHA256_AMD64";; arm64) SUM="$GO_SHA256_ARM64";; *) exit 1;; esac \
+    && curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
+    && echo "$SUM  /tmp/go.tgz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz
 
 RUN go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
 

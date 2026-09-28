@@ -12,11 +12,8 @@ set -eu
 VER="${1:?usage: gen-brew-cask.sh <version>}"
 URL="https://github.com/discodrive-cloud/discodrive-apps/releases/download/v${VER}/DiscoDrive-${VER}-macos.dmg"
 
-if command -v sha256sum >/dev/null 2>&1; then
-  SHA=$(curl -fsSL "$URL" | sha256sum | cut -d' ' -f1)
-else
-  SHA=$(curl -fsSL "$URL" | shasum -a 256 | cut -d' ' -f1)
-fi
+. "$(dirname "$0")/lib-sha256-url.sh"
+SHA=$(sha256_url "$URL")
 
 cat <<EOF
 cask "discodrive" do

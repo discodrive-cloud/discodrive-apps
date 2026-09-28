@@ -23,6 +23,28 @@ android {
         versionCode = 3
         versionName = appVersion
     }
+    // Releases are signed with one long-lived key so updates install over each other.
+    // The keystore stays out of the repo: CI decodes it from a secret and points these
+    // variables at it. Without them a release build is left unsigned and not shipped.
+    val keystore = System.getenv("DISCODRIVE_KEYSTORE")
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("DISCODRIVE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("DISCODRIVE_KEY_ALIAS")
+                keyPassword = System.getenv("DISCODRIVE_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // Not debuggable (the release default). R8 stays off: the gomobile bindings
+            // are reached through JNI and would need keep rules first.
+            isMinifyEnabled = false
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
