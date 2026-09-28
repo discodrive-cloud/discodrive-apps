@@ -9,6 +9,12 @@ struct DiscoDriveApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        // Debug builds may talk to a self-hosted server with a self-signed cert. Set first:
+        // DiscoNet.session reads it once, when the app state below first creates it.
+        // Release builds keep strict TLS validation.
+        DiscoNet.allowInsecureTLS = true
+        #endif
         KeychainConfig.accessGroup = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveKeychainGroup") as? String
         AppState.appGroupID = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveAppGroup") as? String
         try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("VaultPreviews"))
@@ -30,11 +36,6 @@ struct DiscoDriveApp: App {
         _fullSync = StateObject(wrappedValue: sync)
         // Must be registered before the app finishes launching, or iOS refuses the handler.
         AutoUploadService.shared.registerBackgroundTask()
-        #if DEBUG
-        // Debug builds may talk to a self-hosted server with a self-signed cert.
-        // Release builds keep strict TLS validation.
-        DiscoNet.allowInsecureTLS = true
-        #endif
     }
 
     var body: some Scene {

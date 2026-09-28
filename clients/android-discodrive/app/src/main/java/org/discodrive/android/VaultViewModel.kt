@@ -158,6 +158,15 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // Leaving the vault screen without locking (back out of the app, swipe it away) must
+    // not leave decrypted previews in the cache or the vault handle open.
+    override fun onCleared() {
+        val current = vault ?: return
+        vault = null
+        Thread { runCatching { current.close() } }.start()
+        super.onCleared()
+    }
+
     // dismissError clears a failed-open state (e.g. wrong password) and returns to the browser.
     fun dismissError() { _ui.value = VaultState() }
 

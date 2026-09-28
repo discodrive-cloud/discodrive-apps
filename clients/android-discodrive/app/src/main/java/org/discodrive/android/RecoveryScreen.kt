@@ -36,7 +36,10 @@ fun RecoveryScreen(node: Entry?, onChanged: () -> Unit, onBack: () -> Unit) {
                 ?: error("Not paired")
         }
         val array = JSONArray(json)
-        rows = List(array.length()) { array.getJSONObject(it) }
+        // Rows missing what the list keys on are dropped here: a strict read during
+        // composition would crash the screen on one incomplete server row.
+        rows = List(array.length()) { array.optJSONObject(it) }.filterNotNull()
+            .filter { if (node == null) it.optString("id").isNotEmpty() && it.has("name") else it.has("version") && !it.isNull("version") }
     }
     fun action(block: (mobile.Browser) -> Unit) {
         if (busy) return

@@ -28,6 +28,8 @@ object SyncHolder {
     private var client: Client? = null
     private var inUse = 0
     private var closing = false
+    /** A close timed out while work was running; the last borrower finishes it. */
+    private var abandoned = false
 
     val syncDir: File = File(Environment.getExternalStorageDirectory(), "DiscoDriveSync")
 
@@ -61,7 +63,17 @@ object SyncHolder {
         } finally {
             lock.withLock {
                 inUse--
-                if (inUse == 0) idle.signalAll()
+                if (inUse == 0) {
+                    idle.signalAll()
+                    // Without this a timed-out close left sync refusing every borrower
+                    // until the process died.
+                    if (abandoned) {
+                        runCatching { client?.close() }
+                        client = null
+                        abandoned = false
+                        closing = false
+                    }
+                }
             }
         }
     }
@@ -72,9 +84,13 @@ object SyncHolder {
         client?.cancel()
         var remaining = timeoutMs * 1_000_000
         while (inUse > 0 && remaining > 0) remaining = idle.awaitNanos(remaining)
-        check(inUse == 0) { "Account operations are still finishing. Please try again." }
+        if (inUse > 0) {
+            abandoned = true
+            error("Account operations are still finishing. Please try again.")
+        }
         client?.close()
         client = null
+        abandoned = false
         closing = false
     }
 

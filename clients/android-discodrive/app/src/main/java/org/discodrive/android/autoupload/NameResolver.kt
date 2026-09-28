@@ -5,6 +5,16 @@ const val EXISTS_ABSENT = "absent"
 const val EXISTS_SAME = "same"
 const val EXISTS_DIFFERENT = "different"
 
+/** What [NameResolver.resolve] decided. */
+sealed interface Resolution {
+    /** Upload under this name. */
+    data class Upload(val name: String) : Resolution
+    /** The identical bytes are already there: nothing to send. */
+    data object AlreadyThere : Resolution
+    /** Every candidate is taken by other content: try again later, it was NOT sent. */
+    data object NoFreeName : Resolution
+}
+
 /**
  * Decides what name a file should land under in the destination folder.
  *
@@ -17,22 +27,22 @@ object NameResolver {
     private const val MAX_TRIES = 50
 
     /**
-     * Returns the name to upload under, or null when the file should be skipped — either
-     * the identical bytes are already there, or no free name was found.
+     * Returns the name to upload under, [Resolution.AlreadyThere] when the identical bytes
+     * are already there, or [Resolution.NoFreeName].
      *
      * [exists] takes a candidate name and answers [EXISTS_ABSENT] / [EXISTS_SAME] /
      * [EXISTS_DIFFERENT]; it is a lambda so this stays testable without the Go layer.
      */
-    fun resolve(name: String, exists: (String) -> String): String? {
+    fun resolve(name: String, exists: (String) -> String): Resolution {
         for (attempt in 0..MAX_TRIES) {
             val candidate = if (attempt == 0) name else suffixed(name, attempt)
             when (exists(candidate)) {
-                EXISTS_ABSENT -> return candidate
-                EXISTS_SAME -> return null
+                EXISTS_ABSENT -> return Resolution.Upload(candidate)
+                EXISTS_SAME -> return Resolution.AlreadyThere
                 else -> Unit // taken by other content — try the next suffix
             }
         }
-        return null
+        return Resolution.NoFreeName
     }
 
     /** `IMG_1.jpg` + 2 → `IMG_1-2.jpg`; keeps dotfiles and multi-part extensions sane. */

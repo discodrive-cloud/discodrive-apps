@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import java.io.File
+import kotlinx.coroutines.launch
 
 private const val AUTHORITY = "org.discodrive.android.fileprovider"
 
@@ -39,6 +40,7 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
     var sheetFor by remember { mutableStateOf<Entry?>(null) }
     var renameFor by remember { mutableStateOf<Entry?>(null) }
     var moveFor by remember { mutableStateOf<Entry?>(null) }
+    var deleteFor by remember { mutableStateOf<Entry?>(null) }
     var newFolder by remember { mutableStateOf(false) }
     var previewIndex by remember { mutableStateOf<Int?>(null) }
     var previewFiles by remember { mutableStateOf<List<Entry>>(emptyList()) }
@@ -145,7 +147,7 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
                 if (!e.isDir) sheetItem(stringResource(R.string.recovery_versions)) { sheetFor = null; versionsFor = e }
                 sheetItem(stringResource(R.string.action_rename)) { sheetFor = null; renameFor = e }
                 sheetItem(stringResource(R.string.action_move)) { sheetFor = null; moveFor = e }
-                sheetItem(stringResource(R.string.action_delete)) { sheetFor = null; vm.delete(e.id) }
+                sheetItem(stringResource(R.string.action_delete)) { sheetFor = null; deleteFor = e }
             }
         }
     }
@@ -162,16 +164,34 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
             if (name != null && name.isNotBlank()) vm.rename(e.id, name)
         }
     }
+    // One tap in the sheet used to delete at once. Restoring from the trash brings the
+    // file back, but not its place in music playlists or edited book metadata, so ask.
+    deleteFor?.let { e ->
+        AlertDialog(
+            onDismissRequest = { deleteFor = null },
+            title = { Text(stringResource(R.string.confirm_delete_title)) },
+            text = { Text(stringResource(if (e.isDir) R.string.confirm_delete_dir else R.string.confirm_delete_file, e.name)) },
+            confirmButton = {
+                TextButton(onClick = { deleteFor = null; vm.delete(e.id) }) {
+                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteFor = null }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
     moveFor?.let { e ->
         MovePicker(vm, moving = e, onDismiss = { moveFor = null }) { destId ->
             moveFor = null
             vm.move(e.id, destId)
         }
     }
+    // Outside the `if`: the dialog leaves composition as it closes, and a scope created
+    // inside it would cancel the unlock before it runs.
+    val unlockScope = rememberCoroutineScope()
     if (unlockDialog) {
         PasswordDialog(stringResource(R.string.unlock_vault)) { pwd ->
             unlockDialog = false
-            if (pwd != null && pwd.isNotEmpty()) onUnlock(vm.currentRelPath(), pwd)
+            if (pwd != null && pwd.isNotEmpty()) unlockScope.launch { vm.currentRelPath()?.let { onUnlock(it, pwd) } }
         }
     }
 }

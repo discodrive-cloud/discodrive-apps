@@ -70,6 +70,16 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
                 );
                 CREATE INDEX IF NOT EXISTS idx_uploads_state ON uploads(state);
             """)
+            let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
+            if version < 1 {
+                // Before names were taken from the original, every edited photo went up as
+                // FullSizeRender.*, and once those names ran out the rest were recorded as
+                // sent without being sent (bytes 0). Put them back into the queue.
+                try db.execute(sql: """
+                    DELETE FROM uploads WHERE state = ? AND bytes = 0 AND server_name LIKE 'FullSizeRender%'
+                    """, arguments: [UploadState.sent.rawValue])
+                try db.execute(sql: "PRAGMA user_version = 1")
+            }
         }
     }
 
@@ -82,6 +92,20 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
             """, arguments: [assetID, Int64(modified.timeIntervalSince1970 * 1000)])
             guard let row else { return false }
             return (row["state"] as String?) != UploadState.deferred.rawValue
+        }
+    }
+
+    /// Whether a pass may try this asset: always while it has failed fewer than
+    /// `maxAttempts` times, then once per `retryAfter` — a long outage or a missing
+    /// destination must not drop a photo from the backup for good.
+    public func mayRetry(assetID: String, maxAttempts: Int, retryAfter: TimeInterval,
+                         now: Date = Date()) throws -> Bool {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT attempts, at FROM uploads WHERE asset_id = ?",
+                                             arguments: [assetID]) else { return true }
+            let attempts: Int = row["attempts"]
+            let at = Date(timeIntervalSince1970: Double(row["at"] as Int64) / 1000)
+            return attempts < maxAttempts || now.timeIntervalSince(at) >= retryAfter
         }
     }
 

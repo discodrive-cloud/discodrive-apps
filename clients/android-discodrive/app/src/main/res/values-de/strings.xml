@@ -31,6 +31,9 @@
     <string name="action_rename">Umbenennen</string>
     <string name="action_move">Verschieben</string>
     <string name="action_delete">Löschen</string>
+    <string name="confirm_delete_title">Löschen?</string>
+    <string name="confirm_delete_file">„%1$s“ wird in den Papierkorb verschoben.</string>
+    <string name="confirm_delete_dir">„%1$s“ und sein gesamter Inhalt werden in den Papierkorb verschoben.</string>
 
     <string name="dialog_new_folder_title">Neuer Ordner</string>
     <string name="dialog_rename_title">Umbenennen</string>

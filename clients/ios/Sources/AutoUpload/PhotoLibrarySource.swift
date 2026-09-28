@@ -1,5 +1,6 @@
 import Foundation
 import Photos
+import DiscoKit
 
 /// One photo or video worth uploading, described without touching its bytes.
 struct PhotoItem: Identifiable, Sendable {
@@ -72,9 +73,11 @@ enum PhotoLibrarySource {
             ?? resources.first { $0.type == .photo || $0.type == .video }
             ?? resources.first
         guard let resource = preferred else { return nil }
+        let original = resources.first { $0.type == .photo || $0.type == .video }
         return PhotoItem(
             id: asset.localIdentifier,
-            filename: resource.originalFilename,
+            filename: NameResolver.uploadName(resource: resource.originalFilename,
+                                              original: original?.originalFilename),
             created: asset.creationDate ?? asset.modificationDate ?? Date(),
             modified: asset.modificationDate ?? asset.creationDate ?? Date(),
             isVideo: asset.mediaType == .video,

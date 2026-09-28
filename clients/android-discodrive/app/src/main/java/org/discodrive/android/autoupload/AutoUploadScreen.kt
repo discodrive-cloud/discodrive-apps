@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -130,7 +132,11 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
         )
     }
     if (showLog) {
-        LogDialog(entries = vm.log(), onDismiss = { showLog = false })
+        // Read off the main thread: the journal is a database.
+        val entries by produceState(emptyList<JournalEntry>()) {
+            value = withContext(Dispatchers.IO) { vm.log() }
+        }
+        LogDialog(entries = entries, onDismiss = { showLog = false })
     }
     if (askBackfill) {
         AlertDialog(

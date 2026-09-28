@@ -31,6 +31,9 @@
     <string name="action_rename">Renombrar</string>
     <string name="action_move">Mover</string>
     <string name="action_delete">Eliminar</string>
+    <string name="confirm_delete_title">¿Eliminar?</string>
+    <string name="confirm_delete_file">«%1$s» se moverá a la papelera.</string>
+    <string name="confirm_delete_dir">«%1$s» y todo su contenido se moverán a la papelera.</string>
 
     <string name="dialog_new_folder_title">Nueva carpeta</string>
     <string name="dialog_rename_title">Renombrar</string>

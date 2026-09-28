@@ -42,6 +42,10 @@ final class AppState: ObservableObject {
     private var session = AccountSession()
     @Published private(set) var loggingOut = false
     @Published private(set) var refreshing = false
+    /// A change arrived while a refresh was running. That refresh may already have read
+    /// past it, so one more runs when it finishes — otherwise the last change of a burst
+    /// stayed invisible until some unrelated event.
+    private var refreshAgain = false
     @Published private(set) var fileListLoaded = false
     @Published private(set) var fileListError: String?
     var fileListLoading: Bool { refreshing || (!fileListLoaded && fileListError == nil) }
@@ -297,12 +301,22 @@ final class AppState: ObservableObject {
     // another one was already running.
     @discardableResult
     func refresh() async -> Bool {
+        if refreshing, session.isActive { refreshAgain = true }
         guard let client, let index, session.isActive, !refreshing else {
             Self.log.notice("refresh skipped (client=\(self.client == nil ? 0 : 1) index=\(self.index == nil ? 0 : 1) refreshing=\(self.refreshing))")
             return false
         }
         let session = self.session
-        refreshing = true; defer { if session.isActive { refreshing = false } }
+        refreshing = true
+        defer {
+            if session.isActive {
+                refreshing = false
+                if refreshAgain {
+                    refreshAgain = false
+                    Task { await self.refresh() }
+                }
+            }
+        }
         syncStatus = .syncing
         fileListError = nil
         do {

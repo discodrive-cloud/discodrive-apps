@@ -11,6 +11,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.discodrive.android.Prefs
@@ -40,6 +41,8 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             while (isActive) {
                 delay(1500)
+                // Poll only while the sync screen is collecting the state.
+                _ui.subscriptionCount.first { it > 0 }
                 if (!prefs.folderSync) continue
                 val result = withContext(Dispatchers.IO) { runCatching { SyncHolder.use(getApplication()) { Pair(it.status(), it.activityJSON()) } } }
                 if (!prefs.folderSync) continue

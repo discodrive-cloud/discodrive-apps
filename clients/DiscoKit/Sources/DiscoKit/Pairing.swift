@@ -61,7 +61,11 @@ public struct Pairing: Sendable {
             failingSince = nil
             let o = try JSONDecoder().decode(Out.self, from: data)
             switch o.status {
-            case "approved": return o.device_token ?? ""
+            case "approved":
+                // An approval without a token would leave the app "paired" with every
+                // request failing.
+                guard let token = o.device_token, !token.isEmpty else { throw APIError.notAuthenticated }
+                return token
             case "pending": try await Task.sleep(for: interval)
             default: throw APIError.notAuthenticated
             }

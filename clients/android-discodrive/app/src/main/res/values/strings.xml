@@ -38,6 +38,9 @@
     <string name="action_rename">Rename</string>
     <string name="action_move">Move</string>
     <string name="action_delete">Delete</string>
+    <string name="confirm_delete_title">Delete?</string>
+    <string name="confirm_delete_file">“%1$s” will be moved to the trash.</string>
+    <string name="confirm_delete_dir">“%1$s” and everything in it will be moved to the trash.</string>
 
     <!-- Browser dialogs -->
     <string name="dialog_new_folder_title">New folder</string>

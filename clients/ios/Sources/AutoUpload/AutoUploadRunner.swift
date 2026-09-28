@@ -29,6 +29,8 @@ actor AutoUploadRunner {
 
     /// Give up on an asset after this many failed passes; it stays visible in the log.
     static let maxAttempts = 5
+    /// After `maxAttempts` failures an asset is tried once a day instead of every pass.
+    static let retryAfter: TimeInterval = 24 * 60 * 60
 
     private let api: APIClient
     private let journal: UploadJournal
@@ -95,7 +97,8 @@ actor AutoUploadRunner {
             if isCancelled() { break }
             progress(i, candidates.count, item.filename)
             guard let asset = byID[item.id] else { continue }
-            if (try? journal.attempts(assetID: item.id)) ?? 0 >= Self.maxAttempts {
+            if (try? journal.mayRetry(assetID: item.id, maxAttempts: Self.maxAttempts,
+                                      retryAfter: Self.retryAfter)) == false {
                 result.deferred += 1
                 continue
             }
@@ -105,16 +108,24 @@ actor AutoUploadRunner {
                 defer { try? FileManager.default.removeItem(at: url) }
 
                 let sha = try Self.sha256(of: url)
-                let name = NameResolver.resolve(described.filename) { candidate in
+                let name: String
+                switch NameResolver.resolve(described.filename, exists: { candidate in
                     guard let hash = taken[candidate] else { return .absent }
                     return hash == sha && !hash.isEmpty ? .same : .different
-                }
-                guard let name else {
-                    // Already on the server byte for byte (or no free name): record it so
-                    // the next pass does not export and hash it again.
+                }) {
+                case .upload(let free):
+                    name = free
+                case .alreadyThere:
+                    // Already on the server byte for byte: record it so the next pass does
+                    // not export and hash it again.
                     try journal.markSent(assetID: item.id, modified: item.modified,
                                          bytes: 0, sha: sha, serverName: described.filename)
                     result.skipped += 1
+                    continue
+                case .noFreeName:
+                    try? journal.markDeferred(assetID: item.id, modified: item.modified,
+                                              error: "no free name in the destination folder")
+                    result.deferred += 1
                     continue
                 }
 
@@ -137,6 +148,9 @@ actor AutoUploadRunner {
                 try? journal.markDeferred(assetID: item.id, modified: item.modified,
                                           error: String(describing: error).prefix(300).description)
                 result.deferred += 1
+                // The destination may be gone on the server: resolve it again next pass
+                // (ensuring a folder that exists is a no-op).
+                settings.destID = nil
             }
         }
         return result

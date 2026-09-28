@@ -31,6 +31,9 @@
     <string name="action_rename">Переименовать</string>
     <string name="action_move">Переместить</string>
     <string name="action_delete">Удалить</string>
+    <string name="confirm_delete_title">Удалить?</string>
+    <string name="confirm_delete_file">«%1$s» будет перемещён в корзину.</string>
+    <string name="confirm_delete_dir">«%1$s» и всё содержимое будут перемещены в корзину.</string>
 
     <string name="dialog_new_folder_title">Новая папка</string>
     <string name="dialog_rename_title">Переименовать</string>

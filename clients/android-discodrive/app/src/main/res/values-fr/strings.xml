@@ -31,6 +31,9 @@
     <string name="action_rename">Renommer</string>
     <string name="action_move">Déplacer</string>
     <string name="action_delete">Supprimer</string>
+    <string name="confirm_delete_title">Supprimer ?</string>
+    <string name="confirm_delete_file">« %1$s » sera placé dans la corbeille.</string>
+    <string name="confirm_delete_dir">« %1$s » et tout son contenu seront placés dans la corbeille.</string>
 
     <string name="dialog_new_folder_title">Nouveau dossier</string>
     <string name="dialog_rename_title">Renommer</string>

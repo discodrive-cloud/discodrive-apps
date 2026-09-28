@@ -40,7 +40,10 @@ fun SharingScreen(node: Entry, onBack: () -> Unit) {
     val expiry = listOf(0 to R.string.share_forever, 1 to R.string.share_day, 7 to R.string.share_week, 30 to R.string.share_month)
     suspend fun load() {
         val json = withContext(Dispatchers.IO) { BrowserHolder.use(context) { it.shares(node.id) } ?: kotlin.error("Not paired") }
-        val array = JSONArray(json); shares = List(array.length()) { array.getJSONObject(it) }
+        val array = JSONArray(json)
+        // A row without its id could be neither shown nor revoked; drop it rather than crash.
+        shares = List(array.length()) { array.optJSONObject(it) }.filterNotNull()
+            .filter { it.optString("share_id").isNotEmpty() }
     }
     fun run(block: (mobile.Browser) -> String?, revoked: String? = null) {
         if (busy) return
@@ -48,7 +51,7 @@ fun SharingScreen(node: Entry, onBack: () -> Unit) {
             busy = true; mutating = true; error = null
             try {
                 val result = withContext(Dispatchers.IO) { BrowserHolder.use(context) { browser -> Pair(true, block(browser)) } ?: kotlin.error("Not paired") }
-                result.second?.let { val json = JSONObject(it); link = json.optString("url").takeIf { url -> url.isNotEmpty() }; createdID = json.getString("share_id") }
+                result.second?.let { val json = JSONObject(it); link = json.optString("url").takeIf { url -> url.isNotEmpty() }; createdID = json.optString("share_id").ifEmpty { null } }
                 if (revoked != null && revoked == createdID) { link = null; createdID = null }
                 load()
             } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message }

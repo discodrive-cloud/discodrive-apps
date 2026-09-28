@@ -92,7 +92,9 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     companion object {
         private const val NAME = "folder-sync-periodic"
         private const val CHANNEL = "folder-sync"
-        private const val NOTIFICATION_ID = 43
+        // Distinct from RefreshWorker (43): both can run at once, and a shared id let one
+        // worker's notification replace — or be cancelled with — the other's.
+        private const val NOTIFICATION_ID = 44
         private const val KEY_MANUAL = "manual"
 
         const val MANUAL_NAME = "folder-sync-manual"

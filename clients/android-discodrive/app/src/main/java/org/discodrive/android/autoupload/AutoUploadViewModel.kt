@@ -35,7 +35,7 @@ data class AutoUploadState(
 class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = Prefs(app)
-    private val observers = FolderObservers(app)
+    private val observers = FolderObservers.get(app)
 
     private val _state = MutableStateFlow(AutoUploadState())
     val state: StateFlow<AutoUploadState> = _state.asStateFlow()
@@ -111,7 +111,7 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun updateRule(path: String, f: (Rule) -> Rule) {
         val target = Rule.normalize(path)
-        prefs.rules = prefs.rules.map { if (it.sourcePath == target) f(it) else it }
+        prefs.updateRules { current -> current.map { if (it.sourcePath == target) f(it) else it } }
         reload()
     }
 
@@ -174,10 +174,5 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
             Block.LOW_BATTERY -> ctx.getString(R.string.au_blocked_battery)
             Block.NO_NETWORK -> ctx.getString(R.string.au_blocked_network)
         }
-    }
-
-    override fun onCleared() {
-        observers.stop()
-        super.onCleared()
     }
 }

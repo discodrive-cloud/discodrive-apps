@@ -17,6 +17,8 @@ import kotlinx.coroutines.withContext
 import mobile.Browser
 import androidx.work.WorkManager
 import org.discodrive.android.autoupload.AutoUploadWorker
+import org.discodrive.android.autoupload.FolderObservers
+import org.discodrive.android.autoupload.UploadJournal
 import org.discodrive.android.sync.SyncEvents
 import org.discodrive.android.sync.SyncHolder
 import org.discodrive.android.sync.SyncWorker
@@ -262,9 +264,17 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     // currentFolderIsVault: the currently-listed folder is a Cryptomator vault.
     fun currentFolderIsVault(): Boolean = _ui.value.entries.any { it.name == "masterkey.cryptomator" }
 
-    // currentRelPath: rel_path of the current folder ("" at root) — used as vaultRoot when unlocking.
-    fun currentRelPath(): String =
-        if (atRoot()) "" else (BrowserHolder.use(getApplication()) { it.relPath(currentId()) } ?: "")
+    // currentRelPath: rel_path of the current folder ("" at root) — used as vaultRoot when
+    // unlocking. Off the main thread: the shared browser can be held for minutes by an
+    // upload batch or a refresh, and waiting for it on the UI thread froze the app (ANR).
+    suspend fun currentRelPath(): String? = resolveSelectedFolder(
+        currentFolder = { currentId() },
+        resolve = { id ->
+            withContext(Dispatchers.IO) {
+                BrowserHolder.use(getApplication()) { it.relPath(id) }
+            }
+        },
+    )
 
     fun enter(e: Entry) {
         _ui.value = _ui.value.copy(stack = _ui.value.stack + Folder(e.id, e.name))
@@ -380,6 +390,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         // longer has a token for, and a scheduled pass would keep failing in the background.
         prefs.autoUpload = false
         AutoUploadWorker.cancel(getApplication())
+        FolderObservers.get(getApplication()).stop()
         // Folder sync goes the same way: its engine is bound to this pairing.
         prefs.folderSync = false
         SyncWorker.cancel(getApplication())
@@ -390,6 +401,9 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO) {
                     SyncHolder.wipe(getApplication())
                     BrowserHolder.wipe(getApplication())
+                    // The journal records what went to THIS server; kept, it would stop
+                    // every one of those photos from ever reaching the next one.
+                    UploadJournal.wipe(getApplication())
                     prefs.clear()
                     DriveDocumentsProvider.notifyRoots(getApplication())
                 }

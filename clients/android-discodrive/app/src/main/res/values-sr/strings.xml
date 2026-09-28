@@ -31,6 +31,9 @@
     <string name="action_rename">Преименуј</string>
     <string name="action_move">Премести</string>
     <string name="action_delete">Обриши</string>
+    <string name="confirm_delete_title">Обрисати?</string>
+    <string name="confirm_delete_file">„%1$s“ ће бити премештен у отпад.</string>
+    <string name="confirm_delete_dir">„%1$s“ и сав његов садржај биће премештени у отпад.</string>
 
     <string name="dialog_new_folder_title">Нова фасцикла</string>
     <string name="dialog_rename_title">Преименуј</string>

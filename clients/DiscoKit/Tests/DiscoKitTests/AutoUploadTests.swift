@@ -9,42 +9,52 @@ final class NameResolverTests: XCTestCase {
     }
 
     func testFreeNameIsUsedAsIs() {
-        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed([:])), "IMG_1.jpg")
+        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed([:])), .upload("IMG_1.jpg"))
     }
 
     func testIdenticalContentIsSkipped() {
-        XCTAssertNil(NameResolver.resolve("IMG_1.jpg", exists: fixed(["IMG_1.jpg": .same])))
+        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed(["IMG_1.jpg": .same])), .alreadyThere)
     }
 
     func testTakenNameGetsASuffix() {
         XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed(["IMG_1.jpg": .different])),
-                       "IMG_1-1.jpg")
+                       .upload("IMG_1-1.jpg"))
     }
 
     func testSuffixKeepsCounting() {
         let taken: [String: NameState] = ["IMG_1.jpg": .different, "IMG_1-1.jpg": .different,
                                           "IMG_1-2.jpg": .different]
-        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed(taken)), "IMG_1-3.jpg")
+        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed(taken)), .upload("IMG_1-3.jpg"))
     }
 
     /// A suffixed candidate holding the very same bytes means the photo is already there
     /// under that name — a third copy would be pure noise.
     func testSuffixedCandidateWithSameContentIsSkipped() {
         let state: [String: NameState] = ["IMG_1.jpg": .different, "IMG_1-1.jpg": .same]
-        XCTAssertNil(NameResolver.resolve("IMG_1.jpg", exists: fixed(state)))
+        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: fixed(state)), .alreadyThere)
     }
 
     func testExtensionEdgeCases() {
-        XCTAssertEqual(NameResolver.resolve("VIDEO", exists: fixed(["VIDEO": .different])), "VIDEO-1")
-        XCTAssertEqual(NameResolver.resolve(".config", exists: fixed([".config": .different])), ".config-1")
+        XCTAssertEqual(NameResolver.resolve("VIDEO", exists: fixed(["VIDEO": .different])), .upload("VIDEO-1"))
+        XCTAssertEqual(NameResolver.resolve(".config", exists: fixed([".config": .different])), .upload(".config-1"))
         XCTAssertEqual(NameResolver.resolve("clip.tar.gz", exists: fixed(["clip.tar.gz": .different])),
-                       "clip.tar-1.gz")
+                       .upload("clip.tar-1.gz"))
     }
 
-    /// Giving up beats looping: something is wrong with the destination, and the caller
-    /// records the asset as deferred instead of spinning.
-    func testGivesUpAfterTheCap() {
-        XCTAssertNil(NameResolver.resolve("IMG_1.jpg", exists: { _ in .different }))
+    /// Giving up beats looping — but it is not "already uploaded": the caller defers the
+    /// asset for a later pass instead of recording it as sent.
+    func testGivesUpAfterTheCapWithoutCallingItUploaded() {
+        XCTAssertEqual(NameResolver.resolve("IMG_1.jpg", exists: { _ in .different }), .noFreeName)
+    }
+
+    /// Every edited photo's full-size resource is called FullSizeRender.*; uploading under
+    /// that name ran out of suffixes after 51 photos. The original's name is used instead,
+    /// with the extension of the bytes actually sent.
+    func testEditedPhotoKeepsItsOriginalName() {
+        XCTAssertEqual(NameResolver.uploadName(resource: "FullSizeRender.jpg", original: "IMG_1234.HEIC"), "IMG_1234.jpg")
+        XCTAssertEqual(NameResolver.uploadName(resource: "FullSizeRender.mov", original: "IMG_0007.MOV"), "IMG_0007.mov")
+        XCTAssertEqual(NameResolver.uploadName(resource: "IMG_1.HEIC", original: nil), "IMG_1.HEIC")
+        XCTAssertEqual(NameResolver.uploadName(resource: "FullSizeRender", original: "IMG_2.HEIC"), "IMG_2")
     }
 }
 
@@ -52,6 +62,34 @@ final class UploadJournalTests: XCTestCase {
 
     private func journal() throws -> UploadJournal {
         try UploadJournal(dbQueue: try DatabaseQueue())   // in-memory
+    }
+
+    /// Edited photos recorded as sent without being sent (no free FullSizeRender name) go
+    /// back into the queue once; real uploads stay recorded.
+    func testMigrationRequeuesUnsentRenders() throws {
+        let db = try DatabaseQueue()
+        let v = Date(timeIntervalSince1970: 1_000_000)
+        do {
+            let j = try UploadJournal(dbQueue: db)
+            try j.markSent(assetID: "lost", modified: v, bytes: 0, sha: "H", serverName: "FullSizeRender.jpg")
+            try j.markSent(assetID: "sent", modified: v, bytes: 99, sha: "H2", serverName: "FullSizeRender-3.jpg")
+            try j.markSent(assetID: "same", modified: v, bytes: 0, sha: "H3", serverName: "IMG_1.jpg")
+        }
+        try db.write { try $0.execute(sql: "PRAGMA user_version = 0") }   // a journal from before
+        let j = try UploadJournal(dbQueue: db)
+        XCTAssertFalse(try j.isKnown(assetID: "lost", modified: v))
+        XCTAssertTrue(try j.isKnown(assetID: "sent", modified: v))
+        XCTAssertTrue(try j.isKnown(assetID: "same", modified: v))
+    }
+
+    func testGivenUpAssetIsRetriedDaily() throws {
+        let j = try journal()
+        let v = Date(timeIntervalSince1970: 1_000_000)
+        for _ in 0..<5 { try j.markDeferred(assetID: "A", modified: v, error: "offline") }
+        XCTAssertFalse(try j.mayRetry(assetID: "A", maxAttempts: 5, retryAfter: 86_400))
+        XCTAssertTrue(try j.mayRetry(assetID: "A", maxAttempts: 5, retryAfter: 86_400,
+                                     now: Date().addingTimeInterval(86_401)))
+        XCTAssertTrue(try j.mayRetry(assetID: "new", maxAttempts: 5, retryAfter: 86_400))
     }
 
     func testUnknownAssetIsNotKnown() throws {

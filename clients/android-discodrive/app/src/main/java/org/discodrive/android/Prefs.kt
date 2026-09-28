@@ -1,17 +1,56 @@
 package org.discodrive.android
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.discodrive.android.autoupload.Rule
 
 class Prefs(context: Context) {
-    private val sp = EncryptedSharedPreferences.create(
-        context, "fastsync",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val sp = open(context)
+
+    private companion object {
+        const val FILE = "fastsync"
+
+        /** Serialises read-modify-write of the rule list across every Prefs instance. */
+        val rulesLock = Any()
+
+        /** The stored keyset or values fail authentication or parsing: the key is not the one that wrote them. */
+        private fun undecryptable(e: Throwable): Boolean = generateSequence(e) { it.cause }.any {
+            it is javax.crypto.AEADBadTagException || it.javaClass.simpleName == "InvalidProtocolBufferException"
+        }
+
+        /**
+         * Opens the encrypted store. If its contents cannot be decrypted — the Keystore key
+         * that wrapped them is gone, as after a restore onto another phone — the file is
+         * set aside and the app starts unpaired, instead of crashing on every launch.
+         *
+         * Only a decryption failure does that. Failing to reach the Keystore at all (busy
+         * right after boot, a vendor hiccup) is thrown as is: resetting then would throw
+         * away a perfectly good pairing.
+         */
+        fun open(context: Context): SharedPreferences {
+            val key = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+            fun create() = EncryptedSharedPreferences.create(
+                context, FILE, key,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            return try {
+                create()
+            } catch (e: Exception) {
+                if (!undecryptable(e)) throw e
+                // Kept aside, not lost; deleteSharedPreferences (unlike a rename) also drops
+                // the process's cached copy, so create() below really starts empty.
+                val dir = java.io.File(context.applicationInfo.dataDir, "shared_prefs")
+                runCatching { java.io.File(dir, "$FILE.xml").copyTo(java.io.File(dir, "$FILE.undecryptable-${System.currentTimeMillis()}.bak")) }
+                context.deleteSharedPreferences(FILE)
+                // What the journal says was sent went to the pairing just lost.
+                org.discodrive.android.autoupload.UploadJournal.wipe(context)
+                create()
+            }
+        }
+    }
 
     var serverURL: String
         get() = sp.getString("serverURL", "") ?: ""
@@ -88,18 +127,30 @@ class Prefs(context: Context) {
         get() = Rule.listFromJson(sp.getString("autoUploadRules", null))
         set(v) { sp.edit().putString("autoUploadRules", Rule.listToJson(v)).apply() }
 
+    /**
+     * Replaces the rule list with [change] applied to the current one, atomically with
+     * respect to every other rule update: a slow pass (seeding scans folders for seconds)
+     * must not write back a list read before the user added or removed a folder.
+     */
+    fun updateRules(change: (List<Rule>) -> List<Rule>) = synchronized(rulesLock) {
+        // apply() updates the in-memory map before returning, so the next reader under the
+        // lock already sees this list.
+        sp.edit().putString("autoUploadRules", Rule.listToJson(change(rules))).apply()
+    }
+
     /** Adds a folder if it is not already covered; returns whether it was added. */
     fun addRule(rule: Rule): Boolean {
-        val current = rules
         val path = Rule.normalize(rule.sourcePath)
-        if (current.any { it.sourcePath == path }) return false
-        rules = current + rule
-        return true
+        var added = false
+        updateRules { current ->
+            if (current.any { it.sourcePath == path }) current else { added = true; current + rule }
+        }
+        return added
     }
 
     fun removeRule(sourcePath: String) {
         val path = Rule.normalize(sourcePath)
-        rules = rules.filterNot { it.sourcePath == path }
+        updateRules { current -> current.filterNot { it.sourcePath == path } }
     }
 
     var wifiOnly: Boolean

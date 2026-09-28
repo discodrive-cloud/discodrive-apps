@@ -34,6 +34,11 @@ data class JournalCounts(val sent: Int, val skipped: Int, val deferred: Int)
  */
 class UploadJournal(context: Context) {
 
+    companion object {
+        /** Forgets every file: after unpairing, another server has none of them. */
+        fun wipe(context: Context) = context.deleteDatabase("autoupload.db")
+    }
+
     private val helper = object : SQLiteOpenHelper(context, "autoupload.db", null, 1) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
@@ -65,6 +70,17 @@ class UploadJournal(context: Context) {
         "SELECT state FROM sent WHERE path=? AND size=? AND mtime=?",
         arrayOf(key(file), file.length().toString(), file.lastModified().toString()),
     ).use { c -> c.moveToFirst() && c.getString(0) != STATE_DEFERRED }
+
+    /**
+     * Whether a pass may try this file: always while it has failed fewer than [maxAttempts]
+     * times, then once per [retryAfterMs] — a folder missing on the server or a long outage
+     * must not drop a photo for good.
+     */
+    fun mayRetry(file: File, maxAttempts: Int, retryAfterMs: Long): Boolean = helper.readableDatabase.rawQuery(
+        "SELECT attempts, at FROM sent WHERE path=?", arrayOf(key(file)),
+    ).use { c ->
+        !c.moveToFirst() || c.getInt(0) < maxAttempts || System.currentTimeMillis() - c.getLong(1) >= retryAfterMs
+    }
 
     /** How many attempts this file has already cost, for the give-up rule. */
     fun attempts(file: File): Int = helper.readableDatabase.rawQuery(
