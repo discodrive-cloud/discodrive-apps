@@ -64,6 +64,14 @@ type policy struct {
 // current is this platform's policy. A var so tests can set it.
 var current = platformPolicy()
 
+// RestrictForTest applies Android's policy until the test ends, so other packages can
+// exercise localised names on any host.
+func RestrictForTest(t interface{ Cleanup(func()) }) {
+	prev := current
+	current = policy{runes: restricted}
+	t.Cleanup(func() { current = prev })
+}
+
 // platformPolicy returns what this platform needs.
 //
 // Only Android's storage (FUSE with FAT semantics) and Windows reject these characters. APFS,

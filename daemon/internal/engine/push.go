@@ -204,6 +204,11 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) (result error) {
 			}
 			fallthrough
 		case "update":
+			if c.LocalPath != "" && c.LocalPath != c.RelPath {
+				if abs, err = e.abs(c.LocalPath); err != nil {
+					return err
+				}
+			}
 			f, err := os.Open(abs)
 			if err != nil {
 				return err
@@ -216,10 +221,20 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) (result error) {
 			// Stat the open handle rather than the path: same file we are about to send,
 			// and no second lookup that could race a concurrent local edit.
 			var modTime time.Time
-			if fi, serr := f.Stat(); serr == nil {
-				modTime = fi.ModTime()
+			openInfo := statOrNil(f)
+			if openInfo != nil {
+				modTime = openInfo.ModTime()
 			}
 			rn, conflicted, perr := sink.PushFile(ctx, c.RelPath, base, f, modTime)
+			// A file rewritten while it was being sent may have reached the server torn.
+			// The handle is the file on disk (not a buffered copy, which chunked uploads
+			// need), so compare it before and after: if it moved, leave the index dirty
+			// and the next pass sends the file again.
+			changedDuringUpload := false
+			if before, after := openInfo, statOrNil(f); before == nil || after == nil ||
+				before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+				changedDuringUpload = true
+			}
 			f.Close()
 			if perr != nil {
 				return perr
@@ -228,14 +243,19 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) (result error) {
 				// The server version stays as the canonical copy; ours was saved as a
 				// conflict copy and will arrive on the next pull (as `name (conflict...).ext`).
 				// Leave the index untouched — pull will bring the server's main version and
-				// overwrite the local file. No infinite loop as long as the push→pull order is respected.
+				// overwrite the local file, which it may: this exact content is already safe
+				// on the server. No infinite loop as long as the push→pull order is respected.
+				e.markSavedAsConflict(c.LocalPath, c.RelPath, c.Hash)
 				continue
 			}
 			hash := rn.Hash
 			if hash == "" {
 				hash = c.Hash
 			}
-			if err := e.idx.Put(index.Node{NodeID: rn.NodeID, RelPath: c.RelPath, Version: rn.Version, ContentHash: hash, Size: c.Size}); err != nil {
+			if changedDuringUpload {
+				hash = "" // never matches a real hash: DetectLocal reports it as changed
+			}
+			if err := e.idx.Put(index.Node{NodeID: rn.NodeID, RelPath: c.RelPath, LocalPath: c.LocalPath, Version: rn.Version, ContentHash: hash, Size: c.Size}); err != nil {
 				return err
 			}
 		case "move":
@@ -293,6 +313,14 @@ func (e *Engine) PushLocal(ctx context.Context, sink Sink) (result error) {
 		}
 	}
 	return nil
+}
+
+func statOrNil(f *os.File) os.FileInfo {
+	fi, err := f.Stat()
+	if err != nil {
+		return nil
+	}
+	return fi
 }
 
 func depth(rel string) int { return strings.Count(rel, "/") }

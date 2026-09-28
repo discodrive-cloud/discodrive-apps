@@ -34,7 +34,7 @@ func TestConflictTwoSidedEdit(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("local-edit"), 0o644)
 	idx.Put(index.Node{NodeID: "n1", RelPath: "a.txt", Version: 5, ContentHash: hashOf([]byte("base")), Size: 4})
 
-	// PUSH → conflicted; index must NOT change
+	// PUSH → conflicted; index must NOT change. One engine does both, as the syncer does.
 	e := New(nil, idx, root)
 	sink := &conflictSink{}
 	if err := e.PushLocal(context.Background(), sink); err != nil {
@@ -55,7 +55,8 @@ func TestConflictTwoSidedEdit(t *testing.T) {
 		},
 		bodies: map[string][][]byte{"n1": {serverEdit}, "n2": {ourCopy}},
 	}
-	e2 := New(src, idx, root)
+	e.src = src
+	e2 := e
 	if err := e2.PullOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

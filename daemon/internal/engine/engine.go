@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/localname"
@@ -41,6 +42,21 @@ type Engine struct {
 	// setAside is where the first pull moved the folder's previous contents, if it did;
 	// see [Engine.SetAside].
 	setAside string
+
+	// savedAsConflict maps a local path to the hash of the content a push just had
+	// saved on the server as a conflict copy: the pull may replace that file without
+	// keeping another local copy.
+	savedAsConflict map[string]string
+}
+
+func (e *Engine) markSavedAsConflict(localPath, relPath, hash string) {
+	if localPath == "" {
+		localPath = relPath
+	}
+	if e.savedAsConflict == nil {
+		e.savedAsConflict = map[string]string{}
+	}
+	e.savedAsConflict[localPath] = hash
 }
 
 // ObserveChanges installs a diagnostic callback before the engine starts.
@@ -267,6 +283,129 @@ func (e *Engine) ResetForScope(ctx context.Context, epoch int64) error {
 	return e.idx.SetScopeEpoch(epoch)
 }
 
+// removeSynced applies a server-side delete to abs without losing unsynced data: a
+// file goes only if it still matches what the index last synced; inside a folder,
+// files that never synced or were edited since stay, and so do their folders. The
+// index forgets everything under abs, so what stays is uploaded again as new.
+func (e *Engine) removeSynced(abs string) error {
+	all, err := e.idx.All()
+	if err != nil {
+		return err
+	}
+	fi, err := os.Lstat(abs)
+	if os.IsNotExist(err) {
+		return e.forgetUnder(abs, all)
+	}
+	if err != nil {
+		return err
+	}
+	synced := map[string]string{} // local path → last synced hash
+	for _, n := range all {
+		if !n.IsDir {
+			synced[n.LocalPath] = n.ContentHash
+		}
+	}
+	removeFile := func(p string) error {
+		rel, err := filepath.Rel(e.root, p)
+		if err != nil {
+			return err
+		}
+		want, known := synced[filepath.ToSlash(rel)]
+		if !known {
+			return nil
+		}
+		have, _, err := hashFile(p)
+		if err != nil || have != want {
+			return err
+		}
+		return os.Remove(p)
+	}
+	if !fi.IsDir() {
+		if fi.Mode().IsRegular() {
+			if err := removeFile(abs); err != nil {
+				return err
+			}
+		}
+		return e.forgetUnder(abs, all)
+	}
+	var dirs []string
+	err = filepath.WalkDir(abs, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		switch {
+		case d.IsDir():
+			dirs = append(dirs, p)
+		case d.Type().IsRegular():
+			if isOSJunk(d.Name()) || strings.HasPrefix(d.Name(), ".kf-tmp-") {
+				return os.Remove(p)
+			}
+			return removeFile(p)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		os.Remove(dirs[i]) // fails, as it should, while something unsynced remains
+	}
+	return e.forgetUnder(abs, all)
+}
+
+// forgetUnder drops the index entries (from all) for abs and everything below it.
+func (e *Engine) forgetUnder(abs string, all []index.Node) error {
+	rel, err := filepath.Rel(e.root, abs)
+	if err != nil {
+		return err
+	}
+	rel = filepath.ToSlash(rel)
+	for _, n := range all {
+		if n.LocalPath == rel || strings.HasPrefix(n.LocalPath, rel+"/") {
+			if err := e.idx.Delete(n.NodeID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// localConflictTag marks the copies apply keeps of local edits it had to replace.
+const localConflictTag = " (conflict, local, "
+
+// localConflictName returns a free "name (conflict, local, <time>).ext" next to abs.
+func localConflictName(abs string) (string, error) {
+	dir, base := filepath.Split(abs)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	truncate := func(s string, limit int) string {
+		if len(s) <= limit {
+			return s
+		}
+		s = s[:limit]
+		for !utf8.ValidString(s) {
+			s = s[:len(s)-1]
+		}
+		return s
+	}
+	ext = truncate(ext, 64)
+	stamp := time.Now().Format("2006-01-02 15-04-05")
+	for i := 1; i <= 10000; i++ {
+		number := ""
+		if i > 1 {
+			number = fmt.Sprintf(" %d", i)
+		}
+		suffix := localConflictTag + stamp + number + ")" + ext
+		p := filepath.Join(dir, truncate(stem, 255-len(suffix))+suffix)
+		if _, err := os.Lstat(p); os.IsNotExist(err) {
+			return p, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("no free conflict name for %q", abs)
+}
+
 // sweepOrphans deletes any file/dir under root that is not part of the index. The keep set
 // includes every ancestor directory of every indexed node, so directories implicitly
 // created for a file (without their own change entry) are never swept away.
@@ -298,11 +437,27 @@ func (e *Engine) sweepOrphans() error {
 		if rerr != nil {
 			return nil
 		}
+		if strings.Contains(filepath.Base(p), localConflictTag) {
+			// A local edit set aside by a pull (see apply): the user's data, not an
+			// orphan. It and its folders stay; the next push uploads it.
+			for q := rel; q != "." && q != ""; q = filepath.Dir(q) {
+				keep[q] = true
+			}
+			return nil
+		}
 		if !keep[rel] {
 			orphans = append(orphans, p)
 		}
 		return nil
 	})
+	// A folder counted as orphan before a conflict copy inside it was reached stays.
+	kept := orphans[:0]
+	for _, p := range orphans {
+		if rel, err := filepath.Rel(e.root, p); err == nil && !keep[rel] {
+			kept = append(kept, p)
+		}
+	}
+	orphans = kept
 	// Deepest paths first, so a removed subtree never trips up a later removal.
 	sort.Slice(orphans, func(i, j int) bool { return len(orphans[i]) > len(orphans[j]) })
 	for _, p := range orphans {
@@ -352,12 +507,21 @@ func (e *Engine) apply(ctx context.Context, c Change) error {
 	}
 
 	if c.Deleted {
+		// Delete what the index says this node is on disk, not whatever the feed entry
+		// names: a reordered or compacted feed must not remove another node's file.
+		if n, ok, err := e.idx.Get(c.NodeID); err != nil {
+			return err
+		} else if ok {
+			if abs, err = e.abs(n.LocalPath); err != nil {
+				return err
+			}
+		}
 		// Never let an empty / "." / "/" rel_path resolve the delete to the sync root
 		// itself: a malicious server could otherwise RemoveAll the whole synced folder.
 		if abs == filepath.Clean(e.root) {
 			return fmt.Errorf("refusing to delete sync root (rel_path %q)", c.RelPath)
 		}
-		if err := os.RemoveAll(abs); err != nil {
+		if err := e.removeSynced(abs); err != nil {
 			return err
 		}
 		return e.idx.Delete(c.NodeID)
@@ -413,6 +577,43 @@ func (e *Engine) apply(ctx context.Context, c Change) error {
 			return e.idx.Put(index.Node{NodeID: c.NodeID, RelPath: c.RelPath, LocalPath: localPath,
 				Version: c.Version, ContentHash: c.ContentHash, Size: c.Size})
 		}
+	}
+
+	// The feed echoing the version this device itself uploaded: the local file is that
+	// upload or newer. Record the server's hash and keep the file — if the upload was
+	// torn by a concurrent edit, the hashes differ and the next push sends it again.
+	if ok && c.Version > 0 && c.Version == existing.Version && existing.LocalPath == localPath {
+		if _, serr := os.Stat(abs); serr == nil {
+			return e.idx.Put(index.Node{NodeID: c.NodeID, RelPath: c.RelPath, LocalPath: localPath,
+				Version: c.Version, ContentHash: c.ContentHash, Size: c.Size})
+		}
+	}
+
+	// Before replacing a local file, make sure nothing on it would be lost: it must be
+	// what the index last synced, what the server now sends, or content a push already
+	// saved as a conflict copy. Anything else — an edit not pushed yet, a file kept by
+	// a "keep local files" reset — is kept next to it as a local conflict copy.
+	if fi, serr := os.Lstat(abs); serr == nil && fi.Mode().IsRegular() {
+		have, _, herr := hashFile(abs)
+		if herr != nil {
+			return herr
+		}
+		switch {
+		case c.ContentHash != "" && have == c.ContentHash:
+			return e.idx.Put(index.Node{NodeID: c.NodeID, RelPath: c.RelPath, LocalPath: localPath,
+				Version: c.Version, ContentHash: c.ContentHash, Size: c.Size})
+		case ok && have == existing.ContentHash:
+		case e.savedAsConflict[localPath] == have:
+		default:
+			conflict, err := localConflictName(abs)
+			if err != nil {
+				return err
+			}
+			if err := os.Rename(abs, conflict); err != nil {
+				return err
+			}
+		}
+		delete(e.savedAsConflict, localPath)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {

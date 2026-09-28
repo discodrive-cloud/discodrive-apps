@@ -22,9 +22,12 @@ type LocalChange struct {
 	Op         string // create | update | delete | move
 	RelPath    string
 	OldRelPath string // move only: the previous rel path
-	IsDir      bool
-	Hash       string
-	Size       int64
+	// LocalPath is where the file is on disk when it differs from RelPath (a server
+	// name the local filesystem rejects, see internal/localname). Empty means RelPath.
+	LocalPath string
+	IsDir     bool
+	Hash      string
+	Size      int64
 }
 
 // DetectLocal scans root and diffs it against the index: new, modified, and deleted nodes.
@@ -94,7 +97,7 @@ func (e *Engine) DetectLocal() ([]LocalChange, error) {
 		case !ok:
 			out = append(out, LocalChange{Op: "create", RelPath: rel, Hash: h, Size: size})
 		case known.hash != h:
-			out = append(out, LocalChange{Op: "update", RelPath: rel, Hash: h, Size: size})
+			out = append(out, LocalChange{Op: "update", RelPath: rel, LocalPath: local, Hash: h, Size: size})
 		}
 		return nil
 	})
