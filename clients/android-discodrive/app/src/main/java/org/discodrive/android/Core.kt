@@ -13,6 +13,10 @@ object Core {
     fun pairAwait(server: String, deviceCode: String, intervalSec: Long, insecure: Boolean): String =
         Mobile.pairAwait(server, deviceCode, intervalSec, insecure)
 
+    /** Ends this device on the server so its token stops working. */
+    fun revokeDevice(server: String, token: String, insecure: Boolean) =
+        Mobile.revokeDevice(server, token, insecure)
+
     fun newBrowser(server: String, token: String, rootDir: String, indexDBPath: String, insecure: Boolean): Browser =
         Mobile.newBrowser(server, token, rootDir, indexDBPath, insecure)
 

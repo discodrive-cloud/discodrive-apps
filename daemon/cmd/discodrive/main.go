@@ -62,9 +62,9 @@ func cmdPair(args []string) {
 			dirExplicit = true
 		}
 	})
-	oldServer := ""
+	oldServer, oldToken := "", ""
 	if oldCfg, err := config.Load(*cfgPath); err == nil {
-		oldServer = oldCfg.ServerURL
+		oldServer, oldToken = oldCfg.ServerURL, oldCfg.DeviceToken
 	}
 	// Re-pairing to a different server: forget the old index and (unless --dir was
 	// given) sync into a fresh per-server folder, so nothing from the old server
@@ -98,6 +98,13 @@ func cmdPair(args []string) {
 	cfg := config.Config{ServerURL: *server, DeviceToken: token, SyncDir: syncDir}
 	if err := cfg.Save(*cfgPath); err != nil {
 		fatal(fmt.Sprintf(i18n.T("pair_save_error"), err))
+	}
+	// The previous pairing's device is ended on its server: its token stays in no config
+	// any more, but would keep working for anyone holding a copy. Best effort.
+	if oldToken != "" && oldToken != token {
+		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_ = protocol.NewUnscoped(oldServer, oldToken).RevokeDevice(rctx)
+		cancel()
 	}
 	fmt.Printf(i18n.T("pair_done"), *cfgPath, syncDir)
 	fmt.Printf(i18n.T("pair_fresh_folder"), syncDir)

@@ -216,6 +216,28 @@ public actor APIClient {
         let data = try await send("POST", path: "devices/webdav", body: JSONEncoder().encode(["name": name]), contentType: "application/json", ok: [201])
         return try JSONDecoder().decode(DAVCredential.self, from: data)
     }
+    /// Ends this device on the server, so its token stops working. Call on sign-out while
+    /// the token is still known; a device the server already rejects counts as revoked.
+    public func revokeThisDevice() async throws {
+        let session: String
+        do { session = try await token() } catch APIError.notAuthenticated { return }
+        guard let id = Self.deviceID(fromJWT: session) else { throw APIError.badResponse }
+        do { try await send("DELETE", path: "devices/\(id)", ok: [200, 204, 404]) }
+        catch APIError.notAuthenticated { return }
+    }
+
+    /// The device id claim ("did") of our own session token.
+    static func deviceID(fromJWT jwt: String) -> String? {
+        let parts = jwt.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var b64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        b64 += String(repeating: "=", count: (4 - b64.count % 4) % 4)
+        guard let data = Data(base64Encoded: b64),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = claims["did"] as? String, !id.isEmpty else { return nil }
+        return id
+    }
+
     public func revokeDAVPassword(id: String) async throws {
         try await send("DELETE", path: "devices/\(id)", ok: [200, 204, 404])
     }

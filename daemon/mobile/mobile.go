@@ -32,6 +32,17 @@ func setInsecure(insecure bool) {
 	_ = os.Unsetenv("DISCODRIVE_INSECURE_TLS")
 }
 
+// RevokeDevice removes this device from the account on the server, so its token stops
+// working. Call it on unpairing, before the token is forgotten, off the UI thread. A
+// device the server already rejects counts as revoked; other errors mean the server was
+// not reached, and the caller may still finish unpairing locally.
+func RevokeDevice(serverURL, deviceToken string, insecureTLS bool) error {
+	setInsecure(insecureTLS)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return protocol.NewUnscoped(serverURL, deviceToken).RevokeDevice(ctx)
+}
+
 // Pairing carries what the app needs to complete device pairing.
 type Pairing struct {
 	VerificationURL string // absolute URL the app opens in a browser

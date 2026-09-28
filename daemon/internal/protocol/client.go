@@ -125,7 +125,7 @@ func (c *Client) token(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("device token exchange: %s", resp.Status)
+		return "", &StatusError{Op: "device token exchange", Code: resp.StatusCode}
 	}
 	var out struct {
 		Token string `json:"token"`

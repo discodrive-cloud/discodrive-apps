@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 
 	"discodrive.org/daemon/internal/config"
 	"discodrive.org/daemon/internal/desktop"
+	"discodrive.org/daemon/internal/protocol"
 )
 
 // Settings is the desktop client's local preferences, stored as JSON in the profile.
@@ -128,6 +131,13 @@ func (a *App) Unpair() error {
 	profile, err := desktop.ProfileDir()
 	if err != nil {
 		return err
+	}
+	// End the device on the server too, or its token keeps working for anyone holding
+	// a copy. Best effort: offline, unpairing still completes locally.
+	if cfg, cerr := config.Load(desktop.DesktopConfigPath(profile)); cerr == nil && cfg.DeviceToken != "" {
+		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+		_ = protocol.NewUnscoped(cfg.ServerURL, cfg.DeviceToken).RevokeDevice(ctx)
+		cancel()
 	}
 	if a.idx != nil {
 		_ = a.idx.Close() // release index.db so it can be deleted (Windows)

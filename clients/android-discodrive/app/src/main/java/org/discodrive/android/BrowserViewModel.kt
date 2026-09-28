@@ -399,6 +399,14 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    // End the device on the server first, while the token is still known:
+                    // forgotten only here, it kept working for anyone holding a copy.
+                    // Offline, unpairing still completes locally.
+                    val server = prefs.serverURL
+                    val token = prefs.deviceToken
+                    if (server.isNotEmpty() && !token.isNullOrEmpty()) {
+                        runCatching { Core.revokeDevice(server, token, prefs.insecure) }
+                    }
                     SyncHolder.wipe(getApplication())
                     BrowserHolder.wipe(getApplication())
                     // The journal records what went to THIS server; kept, it would stop

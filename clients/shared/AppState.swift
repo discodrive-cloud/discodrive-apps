@@ -108,7 +108,7 @@ final class AppState: ObservableObject {
     func activate(serverURL: URL, token: String) {
         session.invalidate()
         session = AccountSession()
-        fileListLoaded = false; fileListError = nil
+        fileListLoaded = false; fileListError = nil; lastError = nil
         refreshing = false; importing = false; downloadingIDs = []
         let dir = appSupportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -205,6 +205,17 @@ final class AppState: ObservableObject {
                 startLiveUpdates()
                 return
             }
+            // End the device on the server too, now that nothing uses its token: only
+            // forgotten locally, it kept working for anyone holding a copy. Best effort,
+            // and bounded, so signing out offline still completes.
+            if let client {
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { try? await client.revokeThisDevice() }
+                    group.addTask { try? await Task.sleep(for: .seconds(10)) }
+                    await group.next()
+                    group.cancelAll()
+                }
+            }
             finishLogout()
             loggingOut = false
         }
@@ -216,7 +227,9 @@ final class AppState: ObservableObject {
         KeychainToken.delete(service: KeychainToken.tokenService)
         KeychainToken.delete(service: KeychainToken.serverService)
         client = nil; index = nil; local = nil; serverURL = nil
-        statusText = ""
+        // A banner belongs to the session that raised it ("session expired" kept showing
+        // after signing out and pairing again).
+        statusText = ""; lastError = nil
         tree = []; vaultIDs = []; fileToPreview = nil; previewNode = nil; downloadingIDs = []
         paired = false
         syncStatus = .offline
