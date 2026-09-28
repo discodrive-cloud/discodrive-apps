@@ -16,7 +16,14 @@ extension Vault {
         let encName = String(encNameC9r.dropLast(4))
         guard let ct = base64URLDecode(encName) else { throw VaultError.badVaultFile }
         let pt = try AESSIV.decrypt(macKey: macKey, encKey: encKey, ciphertext: ct, aad: Array(parentDirID.utf8))
-        return String(decoding: pt, as: UTF8.self)
+        let name = String(decoding: pt, as: UTF8.self)
+        guard Vault.isValidPlainName(name) else { throw VaultError.invalidName }
+        return name
+    }
+
+    /// A plaintext name must stay one path component wherever it is joined into a URL.
+    public static func isValidPlainName(_ name: String) -> Bool {
+        !(name.isEmpty || name == "." || name == ".." || name.contains("/") || name.contains("\u{0}"))
     }
 
     // .c9s name for a long encrypted name: base64url(sha1(fullEncName)) + ".c9s".

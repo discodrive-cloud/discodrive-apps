@@ -178,7 +178,15 @@ func (c *Controller) openVaultCore(ctx context.Context, vaultRelPath string, unl
 		c.mu.Unlock()
 		return pd, nil
 	}
+	// One open at a time per vault: a second one would find the first one's plaintext
+	// and take it for leftovers of a crash.
+	if c.opening[vaultRelPath] {
+		c.mu.Unlock()
+		return "", fmt.Errorf("vault is being opened")
+	}
+	c.opening[vaultRelPath] = true
 	c.mu.Unlock()
+	defer func() { c.mu.Lock(); delete(c.opening, vaultRelPath); c.mu.Unlock() }()
 
 	vm, vi, tmp, remote, err := c.downloadVaultSnapshot(ctx, vaultRelPath)
 	if err != nil {
@@ -191,10 +199,6 @@ func (c *Controller) openVaultCore(ctx context.Context, vaultRelPath string, unl
 		return "", err
 	}
 
-	if err := vm.TrackChanges(vi); err != nil {
-		os.RemoveAll(tmp)
-		return "", err
-	}
 	// Store the open session so CloseVault can re-encrypt and upload.
 	c.mu.Lock()
 	c.sessions[vaultRelPath] = &vaultSession{vm: vm, vi: vi, tmpDir: tmp, relPath: vaultRelPath, plainDir: plainDir, remote: remote}
@@ -344,7 +348,9 @@ dispatch:
 		os.RemoveAll(tmp)
 		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
-	vi := vaultmgr.VaultInfo{Name: path.Base(vaultRelPath), Dir: tmp}
+	// The ciphertext dir is a fresh temp copy each time; the plaintext folder is keyed
+	// by the profile and the vault's server path instead.
+	vi := vaultmgr.VaultInfo{Name: path.Base(vaultRelPath), Dir: tmp, ID: c.contentDir + "\n" + vaultRelPath}
 	return vm, vi, tmp, remote, nil
 }
 

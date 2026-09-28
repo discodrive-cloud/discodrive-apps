@@ -16,6 +16,9 @@ public final class Vault: Sendable {
         case wrongPassword, badMasterkey, badVaultFile, unsupported(String)
         /// A rename or move onto a name the directory already holds.
         case nameTaken(String)
+        /// A decrypted name that is not a single path component ("", ".", "..", or one
+        /// containing "/" or NUL). Anyone with the vault password can write one.
+        case invalidName
     }
 
     /// The unwrapped keys as 64 bytes (encryption key, then MAC key): what the app hands to

@@ -2,6 +2,7 @@
 package vault
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,11 @@ func (v *Vault) decryptDir(vaultDir, outDir, dirID string) error {
 		if name == "dirid.c9r" {
 			continue
 		}
+		// A sync conflict copy of a ciphertext entry ("<enc> (conflict, …).c9r") is not
+		// an encrypted name; skip it rather than fail the whole vault.
+		if strings.Contains(name, " (conflict, ") {
+			continue
+		}
 
 		if strings.HasSuffix(name, ".c9s") && e.IsDir() {
 			// .c9s shortened name: read name.c9s → full encrypted name
@@ -51,6 +57,9 @@ func (v *Vault) decryptDir(vaultDir, outDir, dirID string) error {
 			fullEnc := string(fullEncBytes)
 
 			plainName, err := v.DecryptName(fullEnc, dirID)
+			if errors.Is(err, ErrInvalidName) {
+				continue // hostile or corrupt entry: never let it name a local path
+			}
 			if err != nil {
 				return fmt.Errorf("vault: decrypting name from name.c9s (%q): %w", fullEnc, err)
 			}
@@ -88,12 +97,21 @@ func (v *Vault) decryptDir(vaultDir, outDir, dirID string) error {
 		if e.IsDir() {
 			// Subdirectory: <encName>.c9r/ contains dir.c9r with plaintext subDirID
 			plainName, err := v.DecryptName(name, dirID)
+			if errors.Is(err, ErrInvalidName) {
+				continue // hostile or corrupt entry: never let it name a local path
+			}
 			if err != nil {
 				return fmt.Errorf("vault: decrypting directory name %q: %w", name, err)
 			}
 
-			// Read subDirID from <entry>/dir.c9r
+			// Read subDirID from <entry>/dir.c9r. A Cryptomator symlink is also a
+			// <name>.c9r folder, holding symlink.c9r instead: it is not materialised.
 			dirCPath := filepath.Join(storagePath, name, "dir.c9r")
+			if _, err := os.Stat(dirCPath); os.IsNotExist(err) {
+				if _, serr := os.Stat(filepath.Join(storagePath, name, "symlink.c9r")); serr == nil {
+					continue
+				}
+			}
 			subDirIDBytes, err := os.ReadFile(dirCPath)
 			if err != nil {
 				return fmt.Errorf("vault: reading dir.c9r for %q: %w", name, err)
@@ -108,6 +126,9 @@ func (v *Vault) decryptDir(vaultDir, outDir, dirID string) error {
 		} else {
 			// Encrypted file: <encName>.c9r
 			plainName, err := v.DecryptName(name, dirID)
+			if errors.Is(err, ErrInvalidName) {
+				continue // hostile or corrupt entry: never let it name a local path
+			}
 			if err != nil {
 				return fmt.Errorf("vault: decrypting file name %q: %w", name, err)
 			}

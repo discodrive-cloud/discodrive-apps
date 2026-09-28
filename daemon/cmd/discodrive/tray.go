@@ -181,7 +181,7 @@ func onReady(ctx context.Context, cancel context.CancelFunc, cfgPath, syncDir st
 
 // vaultLabel returns the menu item title for a vault.
 func vaultLabel(mgr *vaultmgr.Manager, vi vaultmgr.VaultInfo) string {
-	if mgr.IsOpen(vi.Name) {
+	if mgr.IsOpen(vi) {
 		return fmt.Sprintf(i18n.T("tray_vault_close"), vi.Name)
 	}
 	return fmt.Sprintf(i18n.T("tray_vault_open"), vi.Name)
@@ -195,7 +195,7 @@ func wireVaultItem(ctx context.Context, mgr *vaultmgr.Manager, vi vaultmgr.Vault
 			return
 		case <-m.ClickedCh:
 			go func() {
-				if mgr.IsOpen(vi.Name) {
+				if mgr.IsOpen(vi) {
 					if err := mgr.Close(vi); err != nil {
 						notify(i18n.T("tray_vault_notification_title"), fmt.Sprintf(i18n.T("tray_vault_close_error"), err))
 						return

@@ -46,6 +46,7 @@ type Controller struct {
 
 	mu       sync.Mutex
 	sessions map[string]*vaultSession // keyed by vault server relPath
+	opening  map[string]bool          // vaults being downloaded and decrypted right now
 }
 
 // NewController builds a controller. contentDir must already exist (or be creatable
@@ -56,6 +57,7 @@ func NewController(srv ServerAPI, idx *index.Index, contentDir string) *Controll
 		idx:        idx,
 		contentDir: contentDir,
 		sessions:   make(map[string]*vaultSession),
+		opening:    make(map[string]bool),
 	}
 }
 

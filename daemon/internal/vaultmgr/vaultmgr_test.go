@@ -169,11 +169,9 @@ func TestWrongPasswordDoesNotWipePlaintext(t *testing.T) {
 		t.Errorf("expected vault.ErrWrongPassword from Open, got: %v", err)
 	}
 
-	// plainDir must not exist — a failed Open does not create it.
-	// Compute the expected path (CacheRoot/<name>) without calling the internal method.
-	pdExpected := filepath.Join(m.CacheRoot, vi.Name)
-	if _, statErr := os.Stat(pdExpected); !os.IsNotExist(statErr) {
-		t.Errorf("plainDir %q must not exist after a wrong Open: %v", pdExpected, statErr)
+	// No plaintext folder may exist — a failed Open does not create one.
+	if left, _ := os.ReadDir(m.CacheRoot); len(left) != 0 {
+		t.Errorf("CacheRoot must stay empty after a wrong Open, found %v", left)
 	}
 
 	// Close without password must return ErrLocked (no keys in memory)

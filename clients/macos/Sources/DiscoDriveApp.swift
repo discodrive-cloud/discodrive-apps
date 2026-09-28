@@ -99,9 +99,6 @@ struct DiscoDriveApp: App {
                 }
                 appDelegate.beforeQuit = { await fullSync.quit() }
                 fullSync.attach(app)
-                if !app.paired || ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1" {
-                    Task { await VaultDomains.closeAll() }
-                }
                 #if DEBUG
                 if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_REPAIR"] == "1" {
                     // A test re-pair: Finder's copy of the old account goes with the old domain.

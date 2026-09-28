@@ -80,7 +80,7 @@ extension Vault {
 
         if e.name.hasSuffix(".c9s") && e.isDir {
             let fullEnc = String(decoding: try await source.read(entryPath + "/name.c9s"), as: UTF8.self)
-            let plain = try decryptName(fullEnc, parentDirID: dirID)
+            guard let plain = try validName(fullEnc, parentDirID: dirID) else { return nil }
             let children = (try? await source.listDir(entryPath)) ?? []
             if children.contains(where: { $0.name == "dir.c9r" }) {
                 let subID = String(decoding: try await source.read(entryPath + "/dir.c9r"), as: UTF8.self)
@@ -92,13 +92,20 @@ extension Vault {
         }
 
         guard e.name.hasSuffix(".c9r") else { return nil }
-        let plain = try decryptName(e.name, parentDirID: dirID)
+        guard let plain = try validName(e.name, parentDirID: dirID) else { return nil }
         if e.isDir {
             let subID = String(decoding: try await source.read(entryPath + "/dir.c9r"), as: UTF8.self)
             return VaultEntry(name: plain, isDir: true, dirID: subID, contentPath: nil, encPath: entryPath)
         } else {
             return VaultEntry(name: plain, isDir: false, dirID: nil, contentPath: entryPath, encPath: entryPath)
         }
+    }
+
+    /// Decrypts an entry name, returning nil for a hostile or corrupt one so the rest
+    /// of the directory stays readable and the name never reaches a local path.
+    private func validName(_ enc: String, parentDirID: String) throws -> String? {
+        do { return try decryptName(enc, parentDirID: parentDirID) }
+        catch VaultError.invalidName { return nil }
     }
 
     public func decryptFile(at contentPath: String, source: VaultFileSource) async throws -> Data {

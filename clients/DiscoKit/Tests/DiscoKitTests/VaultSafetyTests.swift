@@ -36,6 +36,20 @@ final class VaultSafetyTests: XCTestCase {
         }
     }
 
+    func testHostileDecryptedNamesAreNeverListed() async throws {
+        // Anyone holding the vault password can write entries with any name. Such a
+        // name must never reach a local path (preview files, the Finder extension).
+        let v = Vault(encKey: [UInt8](repeating: 0x11, count: 32), macKey: [UInt8](repeating: 0x22, count: 32))
+        let io = VaultInFinderTests.MemoryVaultIO()
+        try await v.addFile(name: "ok.txt", data: Data("fine".utf8), parentDirID: "", sink: io)
+        for hostile in ["../escaped.txt", "../../Documents/Sync/x", "..", ".", "", "a/b.txt", "nul\u{0}.txt"] {
+            try await v.addFile(name: hostile, data: Data("pwned".utf8), parentDirID: "", sink: io)
+        }
+        let listed = try await v.listEntries(dirID: "", source: io)
+        XCTAssertEqual(listed.map(\.name), ["ok.txt"])
+        XCTAssertThrowsError(try v.decryptName(v.encryptName("../x", parentDirID: ""), parentDirID: ""))
+    }
+
     func testConflictArtifactDoesNotBlockOtherEntries() async throws {
         let v = Vault(encKey: [UInt8](repeating: 0x11, count: 32), macKey: [UInt8](repeating: 0x22, count: 32))
         let io = VaultInFinderTests.MemoryVaultIO()

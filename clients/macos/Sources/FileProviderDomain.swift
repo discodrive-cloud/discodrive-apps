@@ -96,6 +96,8 @@ enum FileProviderDomain {
 // both. Vaults are closed when the app quits, so the keys never outlive it.
 @MainActor
 enum VaultDomains {
+    /// Where the system put edits kept by `closeAll(preservingEdits: true)`.
+    static var preservedEdits: [URL] = []
     private static var pendingOpens: [UUID: Task<Void, Error>] = [:]
     private static var closing = false
     private static var closeTask: Task<Bool, Never>?
@@ -149,8 +151,12 @@ enum VaultDomains {
 
     // True when no vault is open afterwards — asked of the system again, not assumed: a
     // domain that could not be removed still has an extension holding its keys.
+    ///
+    /// `preservingEdits` is for the launch after a crash: edits the extension had not yet
+    /// written back are kept by the system (their folder lands in `preservedEdits`)
+    /// instead of being discarded with the domain.
     @discardableResult
-    static func closeAll() async -> Bool {
+    static func closeAll(preservingEdits: Bool = false) async -> Bool {
         if let closeTask { return await closeTask.value }
         closing = true
         let operation = Task {
@@ -160,7 +166,14 @@ enum VaultDomains {
                 matching: { $0.hasPrefix(VaultCoreDomainPrefix) },
                 list: { try await NSFileProviderManager.domains().map { $0.identifier.rawValue } },
                 remove: { id in
-                    try await NSFileProviderManager.remove(NSFileProviderDomain(identifier: .init(id), displayName: ""))
+                    let domain = NSFileProviderDomain(identifier: .init(id), displayName: "")
+                    if preservingEdits {
+                        if let kept = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData) {
+                            preservedEdits.append(kept)
+                        }
+                    } else {
+                        try await NSFileProviderManager.remove(domain)
+                    }
                 },
                 didRemove: { id in VaultKeyStore.delete(forVault: String(id.dropFirst(VaultCoreDomainPrefix.count))) }
             )

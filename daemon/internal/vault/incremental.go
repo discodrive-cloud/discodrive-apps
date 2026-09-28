@@ -171,6 +171,12 @@ func (s *TreeSnapshot) MatchesPlain(root string) (bool, error) {
 // copied verbatim; directory identities survive ordinary renames/moves. It never
 // mutates the original ciphertext or removes the user's plaintext.
 func (v *Vault) PrepareTree(plain, encrypted string, before *TreeSnapshot) (string, *TreeSnapshot, error) {
+	return v.PrepareTreeIn(plain, encrypted, before, filepath.Dir(encrypted))
+}
+
+// PrepareTreeIn is PrepareTree with the staging tree created under stageParent —
+// needed when encrypted lives inside a synced folder the stage must stay out of.
+func (v *Vault) PrepareTreeIn(plain, encrypted string, before *TreeSnapshot, stageParent string) (string, *TreeSnapshot, error) {
 	now, err := scanPlain(plain)
 	if err != nil {
 		return "", nil, err
@@ -186,7 +192,7 @@ func (v *Vault) PrepareTree(plain, encrypted string, before *TreeSnapshot) (stri
 	if unchanged {
 		return encrypted, before, nil
 	}
-	stage, err := os.MkdirTemp(filepath.Dir(encrypted), "ddvclose-")
+	stage, err := os.MkdirTemp(stageParent, "ddvclose-")
 	if err != nil {
 		return "", nil, err
 	}

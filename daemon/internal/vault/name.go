@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 
 	cmaclib "github.com/aead/cmac/aes"
@@ -169,11 +170,33 @@ func subtleEqual(a, b []byte) bool {
 	return v == 0
 }
 
+// ErrInvalidName marks a plaintext name that cannot be a single path component:
+// empty, "." or "..", or containing a separator or NUL. Names are authenticated, but
+// anyone holding the vault password can write such an entry, so every decrypted name
+// must pass this check before it is joined into a local path.
+var ErrInvalidName = errors.New("vault: invalid entry name")
+
+// CheckPlainName reports ErrInvalidName for names that would not stay a single path
+// component. The backslash is a separator only on Windows; elsewhere it is a legal
+// file-name character.
+func CheckPlainName(name string) error {
+	bad := name == "" || name == "." || name == ".." ||
+		strings.ContainsAny(name, "/\x00") ||
+		(runtime.GOOS == "windows" && strings.Contains(name, `\`))
+	if bad {
+		return fmt.Errorf("%w: %q", ErrInvalidName, name)
+	}
+	return nil
+}
+
 // EncryptName encrypts a file or directory name bound to parentDirID.
 // Result: base64url(ciphertext) + ".c9r" — always the full name.
 // If the result length exceeds 220 characters, the caller must apply .c9s shortening.
 // AES-SIV-CMAC: sivKey = macKey||encKey, AAD = parentDirID.
 func (v *Vault) EncryptName(name, parentDirID string) (string, error) {
+	if err := CheckPlainName(name); err != nil {
+		return "", err
+	}
 	ct, err := sivEncrypt(v.macKey, v.encKey, []byte(name), []byte(parentDirID))
 	if err != nil {
 		return "", fmt.Errorf("vault: SIV encrypt name %q: %w", name, err)
@@ -208,6 +231,9 @@ func (v *Vault) DecryptName(encNameC9r, parentDirID string) (string, error) {
 	pt, err := sivDecrypt(v.macKey, v.encKey, ct, []byte(parentDirID))
 	if err != nil {
 		return "", fmt.Errorf("vault: SIV decrypt name %q: %w", encNameC9r, err)
+	}
+	if err := CheckPlainName(string(pt)); err != nil {
+		return "", err
 	}
 	return string(pt), nil
 }

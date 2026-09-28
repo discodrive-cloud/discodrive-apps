@@ -24,7 +24,7 @@ func (m *Manager) TrackChanges(vi VaultInfo) error {
 	if v == nil {
 		return ErrLocked
 	}
-	s, err := v.SnapshotTree(m.plainDir(vi.Name), vi.Dir)
+	s, err := v.SnapshotTree(m.plainDir(vi), vi.Dir)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func (m *Manager) PrepareClose(vi VaultInfo) (*PreparedClose, error) {
 	if s == nil {
 		return nil, fmt.Errorf("vault: missing opening snapshot")
 	}
-	dir, after, err := v.PrepareTree(m.plainDir(vi.Name), vi.Dir, s)
+	dir, after, err := v.PrepareTree(m.plainDir(vi), vi.Dir, s)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (p *PreparedClose) CleanupStarted() bool { return p.cleanupPath != "" }
 
 func (m *Manager) FinishClose(vi VaultInfo, p *PreparedClose) error {
 	if !p.CleanupStarted() {
-		same, err := p.snapshot.MatchesPlain(m.plainDir(vi.Name))
+		same, err := p.snapshot.MatchesPlain(m.plainDir(vi))
 		if err != nil {
 			return err
 		}
@@ -80,11 +80,17 @@ func (m *Manager) FinishClose(vi VaultInfo, p *PreparedClose) error {
 		if err != nil {
 			return err
 		}
-		if err := os.Rename(m.plainDir(vi.Name), filepath.Join(cleanup, "contents")); err != nil {
+		if err := os.Rename(m.plainDir(vi), filepath.Join(cleanup, "contents")); err != nil {
 			os.Remove(cleanup)
 			return err
 		}
 		p.cleanupPath = cleanup
+		m.mu.Lock()
+		if m.pendingCleanup == nil {
+			m.pendingCleanup = map[string]*PreparedClose{}
+		}
+		m.pendingCleanup[vi.Name] = p
+		m.mu.Unlock()
 	}
 	remove := m.removePlaintext
 	if remove == nil {
@@ -105,5 +111,7 @@ func (m *Manager) FinishClose(vi VaultInfo, p *PreparedClose) error {
 	defer m.mu.Unlock()
 	delete(m.unlocked, vi.Name)
 	delete(m.snapshots, vi.Name)
+	delete(m.liveAtOpen, vi.Name)
+	delete(m.pendingCleanup, vi.Name)
 	return nil
 }

@@ -24,6 +24,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Once per launch (not per window): a vault still open now was left by a crash,
+        // a force-quit or a power loss, and its keys must not outlive the run that
+        // unlocked it. Edits not yet written back are kept by the system, not dropped.
+        Task { @MainActor in
+            await VaultDomains.closeAll(preservingEdits: true)
+            if !VaultDomains.preservedEdits.isEmpty {
+                NSWorkspace.shared.activateFileViewerSelecting(VaultDomains.preservedEdits)
+            }
+        }
         setupStatusItem()
         // The SwiftUI window is created slightly later — attach to it asynchronously.
         DispatchQueue.main.async { [weak self] in self?.attachWindow() }
