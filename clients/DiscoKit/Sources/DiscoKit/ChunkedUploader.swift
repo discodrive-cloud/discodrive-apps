@@ -75,8 +75,19 @@ public struct ChunkedUploader: Sendable {
             }
         }
 
+        // The server's position is only trusted within the file: a negative index crashed
+        // on the seek, a huge one overflowed the offset arithmetic. Either is a bad reply.
+        let chunkCount = (size + Int64(chunkSize) - 1) / Int64(chunkSize)
+        func checked(_ position: Int, in session: APIClient.UploadSession) async throws -> Int {
+            guard position >= 0, Int64(position) <= chunkCount else {
+                try? await api.uploadAbort(uploadID: session.uploadID)
+                throw APIError.badResponse
+            }
+            return position
+        }
+
         var session = try await open()
-        var next = session.nextChunk
+        var next = try await checked(session.nextChunk, in: session)
         var attempts = 0
         var reInited = false
 
@@ -86,20 +97,21 @@ public struct ChunkedUploader: Sendable {
             let data = try handle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
 
+            let reply: Int
             do {
-                next = try await api.uploadChunk(uploadID: session.uploadID, index: next, data: data)
-                attempts = 0
-                progress?(min(offset + Int64(data.count), size), size)
+                reply = try await api.uploadChunk(uploadID: session.uploadID, index: next, data: data)
             } catch APIError.http(404) {
                 // The session expired (the server GCs after an hour) or the server
                 // restarted. Start a fresh one — once; a second loss is not a hiccup.
                 guard !reInited else { throw UploadError.sessionLost }
                 reInited = true
                 session = try await open()
-                next = session.nextChunk
+                next = try await checked(session.nextChunk, in: session)
+                continue
             } catch APIError.http(409) {
                 // We and the server disagree on the position; the server is authoritative.
-                next = try await api.uploadStatus(uploadID: session.uploadID)
+                next = try await checked(try await api.uploadStatus(uploadID: session.uploadID), in: session)
+                continue
             } catch {
                 attempts += 1
                 if attempts >= maxChunkAttempts {
@@ -109,9 +121,14 @@ public struct ChunkedUploader: Sendable {
                 // A dropped body leaves the server's position unchanged, but ask rather
                 // than assume — it also rolls back a partial chunk on its side.
                 if let position = try? await api.uploadStatus(uploadID: session.uploadID) {
-                    next = position
+                    next = try await checked(position, in: session)
                 }
+                continue
             }
+            // Checked outside the do: a nonsensical position is not a transport hiccup to retry.
+            next = try await checked(reply, in: session)
+            attempts = 0
+            progress?(min(offset + Int64(data.count), size), size)
         }
 
         do {

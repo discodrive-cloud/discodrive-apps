@@ -6,22 +6,23 @@ import org.json.JSONObject
  * A pairing waiting for the user to approve it in a browser.
  *
  * Everything needed to resume the wait after the app has been killed: the server it was
- * started against, the device code to poll with, and the user code to keep showing while it
- * is outstanding.
+ * started against and the certificate pin it used, the device code to poll with, and the
+ * user code to keep showing while it is outstanding.
  */
 data class PendingPairing(
     val server: String,
     val deviceCode: String,
     val userCode: String,
     val intervalSeconds: Long,
-    val insecure: Boolean,
+    /** Certificate fingerprint the user trusted for this server; "" = system trust only. */
+    val pin: String,
 ) {
     fun toJson(): String = JSONObject()
         .put("server", server)
         .put("deviceCode", deviceCode)
         .put("userCode", userCode)
         .put("intervalSeconds", intervalSeconds)
-        .put("insecure", insecure)
+        .put("pin", pin)
         .toString()
 
     companion object {
@@ -34,7 +35,8 @@ data class PendingPairing(
                     deviceCode = o.getString("deviceCode"),
                     userCode = o.optString("userCode"),
                     intervalSeconds = o.optLong("intervalSeconds", 2),
-                    insecure = o.optBoolean("insecure"),
+                    // An older pairing's "insecure" flag is ignored: it resumes strict.
+                    pin = o.optString("pin", ""),
                 )
             }.getOrNull()
         }

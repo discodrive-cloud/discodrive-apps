@@ -85,8 +85,9 @@ func Open(profileDir string) (*Controller, *index.Index, error) {
 		idx.Close()
 		return nil, nil, err
 	}
-	srv := protocol.NewUnscoped(cfg.ServerURL, cfg.DeviceToken)
+	srv := protocol.NewUnscopedPinned(cfg.ServerURL, cfg.DeviceToken, cfg.ServerPin)
 	c := NewController(srv, idx, ContentDir(profileDir))
 	c.vaultCacheDir = filepath.Join(profileDir, "vault-cache")
+	c.vaultPlainRoot = vaultPlainRootFor(cfg.ServerURL, profileDir)
 	return c, idx, nil
 }

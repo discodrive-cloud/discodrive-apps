@@ -15,11 +15,9 @@ settings:
     DISCODRIVE_GROUP_SUFFIX: org.discodrive
     DISCODRIVE_URL_SCHEME: discodrive
     DISCODRIVE_DISPLAY_NAME: DiscoDrive
-  configs:
-    Debug:
-      DISCODRIVE_GROUP_SUFFIX: org.discodrive.debug
-      DISCODRIVE_URL_SCHEME: discodrive-debug
-      DISCODRIVE_DISPLAY_NAME: DiscoDrive Debug
+    # One app identity for every configuration. A separate Debug identity (own bundle id,
+    # App Group, URL scheme) installed next to Release claimed the same Finder folder and
+    # took Finder's "Open vault" links, so there is deliberately only one now.
 packages:
   DiscoKit:
     path: ../DiscoKit
@@ -53,9 +51,6 @@ targets:
         # File Provider extension, for notarization and for the App Store.
         CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-      configs:
-        Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.debug
   # The DiscoDrive folder in Finder. Shares the index (App Group) and the token (keychain
   # group) with the app; see FileProviderExt/Info.plist for the two NSExtension keys
   # without which macOS refuses to launch it.
@@ -72,9 +67,6 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: FileProviderExt/FileProviderExt.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-      configs:
-        Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.debug.fileprovider
   FileProviderUIExt:
     type: app-extension
     platform: macOS
@@ -88,9 +80,6 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: FileProviderUI/FileProviderUI.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-      configs:
-        Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.app.debug.fileproviderui
   FileProviderTests:
     type: bundle.unit-test
     platform: macOS

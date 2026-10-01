@@ -6,8 +6,8 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.discodrive.android.autoupload.Rule
 
-class Prefs(context: Context) {
-    private val sp = open(context)
+class Prefs internal constructor(private val sp: SharedPreferences) {
+    constructor(context: Context) : this(open(context))
 
     private companion object {
         const val FILE = "fastsync"
@@ -58,23 +58,34 @@ class Prefs(context: Context) {
     var deviceToken: String?
         get() = sp.getString("deviceToken", null)
         set(v) { sp.edit().putString("deviceToken", v).apply() }
-    var insecure: Boolean
-        get() = sp.getBoolean("insecure", false)
-        set(v) { sp.edit().putBoolean("insecure", v).apply() }
+    /**
+     * SHA-256 fingerprint of the server certificate the user trusted at pairing; "" when the
+     * server has a certificate the system trusts. Passed to every core call.
+     */
+    val serverPin: String
+        get() = sp.getString("server_pin", "") ?: ""
 
     /**
      * Stores everything a pairing produced, in one synchronous write. Call it off the main
      * thread.
      *
-     * The three go together — a token without a server URL does not count as paired — and
+     * They go together — a token without a server URL does not count as paired — and
      * apply() only schedules the write, so a process killed right after pairing (swiped away
      * while the browser still had focus) could lose part of it and come back unpaired.
      */
-    fun saveServer(url: String, token: String, insecureTLS: Boolean) {
+    fun saveServer(url: String, token: String, serverPin: String) {
+        // A new pairing starts a new generation: an auto-upload write begun under an earlier
+        // one is dropped even if that pairing's unpair never ended its generation.
+        org.discodrive.android.autoupload.PairingGeneration.end { saveServerNow(url, token, serverPin) }
+    }
+
+    private fun saveServerNow(url: String, token: String, serverPin: String) {
         val saved = sp.edit()
             .putString("serverURL", url)
             .putString("deviceToken", token)
-            .putBoolean("insecure", insecureTLS)
+            .putString("server_pin", serverPin)
+            // Left by versions that could switch certificate checks off; never read.
+            .remove("insecure")
             .putBoolean("unpairing", false)
             .commit()
         check(saved) { "Could not save the pairing" }

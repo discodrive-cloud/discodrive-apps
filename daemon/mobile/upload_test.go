@@ -141,7 +141,7 @@ func (u *uploadSrv) landed(t *testing.T) []byte {
 
 func newTestBrowser(t *testing.T, serverURL string) *Browser {
 	t.Helper()
-	b, err := NewBrowser(serverURL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), false)
+	b, err := NewBrowser(serverURL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

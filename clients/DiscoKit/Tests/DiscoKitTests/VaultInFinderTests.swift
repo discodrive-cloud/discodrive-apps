@@ -30,6 +30,19 @@ final class VaultInFinderTests: XCTestCase {
         XCTAssertEqual(VaultItemID.encode(.root), ProviderItemInfo.rootIdentifier)
     }
 
+    /// A directory id is whatever dir.c9r holds, and any writer of the vault chooses it; one
+    /// with a ':' cut the identifier at the wrong place and every file under it vanished.
+    func testFileIdentifierSurvivesAColonInTheDirectoryID() {
+        for dirID in ["a:b", ":", "x:y:z", "trailing:", ":leading"] {
+            let id = VaultItemID.file(parentDirID: dirID, nodeID: "3f2c9a1e-0b7d-4c55-9a51-2f7e1d0c8b44")
+            XCTAssertEqual(VaultItemID.decode(VaultItemID.encode(id)), id, dirID)
+        }
+        // Identifiers Finder already holds keep decoding as before.
+        XCTAssertEqual(VaultItemID.decode("file:5f3a:n-2"), .file(parentDirID: "5f3a", nodeID: "n-2"))
+        XCTAssertEqual(VaultItemID.decode("file::n-1"), .file(parentDirID: "", nodeID: "n-1"))
+        XCTAssertNil(VaultItemID.decode("file:no-colon"))
+    }
+
     func testDirectoryMapRemembersParentsAndStorage() throws {
         let store = try IndexStore(dbQueue: DatabaseQueue())
         try store.rememberVaultDir(vault: "v1", dirID: "d1", parentDirID: "", name: "docs", entryNodeID: "n-docs")
@@ -285,5 +298,112 @@ final class VaultInFinderTests: XCTestCase {
         try store.rememberVaultDir(vault: "v", dirID: "d2", parentDirID: "", name: "x", entryNodeID: "n3")
         XCTAssertEqual(try store.vaultDirsGone(vault: "v"), ["d1"])
         XCTAssertEqual(try store.vaultDir(vault: "v", dirID: "d2")?.entryNodeID, "n3")
+    }
+}
+
+/// Renaming or moving a vault file re-encrypts it (Cryptomator names are bound to the
+/// parent directory). Done in memory, a 2 GB video took the File Provider extension down;
+/// against a source and sink that can stream, the contents go file to file instead.
+final class VaultStreamingRenameTests: XCTestCase {
+    /// LocalVaultIO, recording which ciphertext it handed out whole and what it streamed.
+    final class RecordingStreamIO: VaultFileSource, VaultFileSink, VaultFileStreamSource, VaultFileStreamSink,
+                                   @unchecked Sendable {
+        let base: LocalVaultIO
+        var wholeReads: [String] = []
+        var downloads: [String] = []
+        var streamedCreates: [String] = []
+        /// Entries another client wrote that this one has not heard of: absent from listings.
+        var unseen: Set<String> = []
+        init(root: URL) { base = LocalVaultIO(root: root) }
+        func listDir(_ relPath: String) async throws -> [(name: String, isDir: Bool)] {
+            try await base.listDir(relPath).filter { !unseen.contains(relPath + "/" + $0.name) }
+        }
+        func read(_ relPath: String) async throws -> Data { wholeReads.append(relPath); return try await base.read(relPath) }
+        func makeDir(_ relPath: String) async throws { try await base.makeDir(relPath) }
+        func writeFile(_ relPath: String, _ data: Data) async throws { try await base.writeFile(relPath, data) }
+        func createFile(_ relPath: String, _ data: Data) async throws { try await base.createFile(relPath, data) }
+        func remove(_ relPath: String) async throws { try await base.remove(relPath) }
+        func download(_ relPath: String, to destination: URL) async throws {
+            downloads.append(relPath); try await base.download(relPath, to: destination)
+        }
+        func createFile(_ relPath: String, contentsOf file: URL) async throws {
+            streamedCreates.append(relPath); try await base.createFile(relPath, contentsOf: file)
+        }
+    }
+
+    private var root: URL!
+    override func setUp() {
+        super.setUp()
+        root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+    override func tearDown() { try? FileManager.default.removeItem(at: root); super.tearDown() }
+
+    private let big = Data((0..<(3 * Vault.chunkPlainSize + 123)).map { UInt8(($0 * 7) & 0xff) })
+
+    func testRenamingAMultiChunkFileStreamsIt() async throws {
+        let io = RecordingStreamIO(root: root)
+        let v = try await Vault.create(sink: io, password: "pw")
+        try await v.addFile(name: "clip.mov", data: big, parentDirID: "", sink: io)
+        let initial = try await v.listEntries(dirID: "", source: io)
+        let entry = try XCTUnwrap(initial.first { $0.name == "clip.mov" })
+        let oldContent = try XCTUnwrap(entry.contentPath)
+        io.wholeReads = []
+
+        try await v.renameEntry(entry, to: "renamed.mov", parentDirID: "", source: io, sink: io)
+
+        XCTAssertFalse(io.wholeReads.contains(oldContent), "the contents must not be read into memory")
+        XCTAssertEqual(io.downloads, [oldContent])
+        XCTAssertEqual(io.streamedCreates, [v.entryPath(name: "renamed.mov", parentDirID: "")])
+        let listed = try await v.listEntries(dirID: "", source: io)
+        XCTAssertEqual(listed.map(\.name), ["renamed.mov"])
+        let renamedBytes = try await v.decryptFile(at: try XCTUnwrap(listed[0].contentPath), source: io)
+        XCTAssertEqual(renamedBytes, big)
+    }
+
+    func testMovingALongNamedMultiChunkFileStreamsIt() async throws {
+        let io = RecordingStreamIO(root: root)
+        let v = try await Vault.create(sink: io, password: "pw")
+        let docs = try await v.createFolder(name: "docs", parentDirID: "", sink: io)
+        try await v.addFile(name: "a.bin", data: big, parentDirID: "", sink: io)
+        let initial = try await v.listEntries(dirID: "", source: io)
+        let entry = try XCTUnwrap(initial.first { $0.name == "a.bin" })
+        let long = String(repeating: "L", count: 200) + ".bin"   // past the shortening threshold
+
+        try await v.moveEntry(entry, from: "", to: docs, as: long, source: io, sink: io)
+
+        XCTAssertEqual(io.downloads.count, 1)
+        XCTAssertEqual(io.streamedCreates, [v.entryPath(name: long, parentDirID: docs) + "/contents.c9r"])
+        let rootNames = try await v.listEntries(dirID: "", source: io).map(\.name)
+        XCTAssertEqual(rootNames, ["docs"])
+        let moved = try await v.listEntries(dirID: docs, source: io)
+        XCTAssertEqual(moved.map(\.name), [long])
+        let movedBytes = try await v.decryptFile(at: try XCTUnwrap(moved[0].contentPath), source: io)
+        XCTAssertEqual(movedBytes, big)
+    }
+
+    /// The destination is still create-only on the streaming path: a name taken meanwhile
+    /// is refused, and the source stays where it was.
+    func testStreamingRenameOntoATakenNameIsRefused() async throws {
+        let io = RecordingStreamIO(root: root)
+        let v = try await Vault.create(sink: io, password: "pw")
+        try await v.addFile(name: "a.bin", data: big, parentDirID: "", sink: io)
+        // Written behind the vault's back: the ciphertext file for "b.bin" already exists.
+        let theirs = v.entryPath(name: "b.bin", parentDirID: "")
+        try await io.base.writeFile(theirs, Data("theirs".utf8))
+        io.unseen.insert(theirs)
+        let initial = try await v.listEntries(dirID: "", source: io)
+        let entry = try XCTUnwrap(initial.first { $0.name == "a.bin" })
+        do {
+            try await v.renameEntry(entry, to: "b.bin", parentDirID: "", source: io, sink: io)
+            XCTFail("a taken name must be refused")
+        } catch Vault.VaultError.nameTaken(let name) {
+            XCTAssertEqual(name, "b.bin")
+        }
+        XCTAssertEqual(io.downloads.count, 1, "the refusal came from the streamed create itself")
+        let kept = try await v.decryptFile(at: try XCTUnwrap(entry.contentPath), source: io)
+        XCTAssertEqual(kept, big)
+        let untouched = try await io.base.read(theirs)
+        XCTAssertEqual(untouched, Data("theirs".utf8), "what took the name is untouched")
     }
 }

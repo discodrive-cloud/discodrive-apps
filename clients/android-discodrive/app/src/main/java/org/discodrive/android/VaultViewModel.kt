@@ -34,7 +34,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val indexDbPath: String get() = File(getApplication<Application>().filesDir, "vault-index.db").path
     private val tmpDir: String get() = File(getApplication<Application>().cacheDir, "vault").path
 
-    fun open(server: String, token: String, vaultRoot: String, password: String, insecure: Boolean) {
+    fun open(server: String, token: String, vaultRoot: String, password: String, serverPin: String) {
         if (vault != null || _ui.value.loading) return
         viewModelScope.launch {
             _ui.value = VaultState(loading = true)
@@ -42,7 +42,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 val v = withContext(Dispatchers.IO) {
                     val previous = File(tmpDir)
                     check(!previous.exists() || previous.deleteRecursively()) { "Could not clear previous vault previews" }
-                    Core.openVault(server, token, vaultRoot, password, indexDbPath, tmpDir, insecure)
+                    Core.openVault(server, token, vaultRoot, password, indexDbPath, tmpDir, serverPin)
                 }
                 vault = v
                 _ui.value = _ui.value.copy(open = true, loading = false, stack = listOf(VFolder("", getApplication<Application>().getString(R.string.vault_root))))
@@ -128,6 +128,9 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(loading = true, error = null)
             try {
                 val name = displayName(ctx, uri)
+                // The name comes from another app; a separator or ".." in it must not reach
+                // the vault's file layer.
+                require(isValidUploadName(name)) { "Invalid file name" }
                 withContext(Dispatchers.IO) {
                     val tmp = File.createTempFile("vault-upload-", ".tmp", ctx.cacheDir)
                     try {

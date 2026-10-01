@@ -37,9 +37,8 @@ type vaultEntry struct {
 
 // OpenVault opens the Cryptomator vault rooted at vaultRoot within the user's storage.
 // indexDBPath — sqlite index (app-private); tmpDir — app-private dir for decrypted files;
-// insecure — accept self-signed TLS. Wrong password → vault.ErrWrongPassword.
-func OpenVault(serverURL, deviceToken, vaultRoot, password, indexDBPath, tmpDir string, insecure bool) (*Vault, error) {
-	setInsecure(insecure)
+// serverPin — fingerprint saved at pairing, "" for none. Wrong password → vault.ErrWrongPassword.
+func OpenVault(serverURL, deviceToken, vaultRoot, password, indexDBPath, tmpDir, serverPin string) (*Vault, error) {
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -59,10 +58,10 @@ func OpenVault(serverURL, deviceToken, vaultRoot, password, indexDBPath, tmpDir 
 			cancel()
 		}
 	}()
-	sio := serverIO{client: protocol.NewUnscoped(serverURL, deviceToken), idx: idx, root: vaultRoot, ctx: ctx, cache: &vaultMetadata{values: map[string][]byte{}}}
+	sio := serverIO{client: protocol.NewUnscopedPinned(serverURL, deviceToken, serverPin), idx: idx, root: vaultRoot, ctx: ctx, cache: &vaultMetadata{values: map[string][]byte{}}}
 	if err := pullChanges(ctx, sio.client, sio.idx); err != nil {
 		idx.Close()
-		return nil, err
+		return nil, certError(err)
 	}
 	sio.prefetch([]string{"masterkey.cryptomator", "vault.cryptomator"})
 	v, err := vault.OpenWithSource(sio, password)

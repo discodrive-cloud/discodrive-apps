@@ -364,3 +364,32 @@ func TestRejectsPathEscape(t *testing.T) {
 		t.Fatalf("a file outside the root must not be created")
 	}
 }
+
+// A purged node is re-announced as a delete with its ORIGINAL path, after a new folder may
+// have taken that path. The delete goes by id: the old node is no longer indexed, so it is a
+// no-op, and the new folder's files stay on disk and in the index.
+func TestPurgeOfAnOldNodeKeepsTheNewNodeAtItsPath(t *testing.T) {
+	body := []byte("new")
+	src := &fakeSource{
+		changes: []Change{
+			{Seq: 1, NodeID: "A", RelPath: "P", IsDir: true},
+			{Seq: 2, Op: "delete", NodeID: "A", RelPath: "P", IsDir: true, Deleted: true},
+			{Seq: 3, NodeID: "B", RelPath: "P", IsDir: true},
+			{Seq: 4, NodeID: "f", RelPath: "P/f", ContentHash: hashOf(body), Size: 3},
+			{Seq: 5, Op: "delete", NodeID: "A", RelPath: "P", IsDir: true, Deleted: true},
+		},
+		bodies: map[string][][]byte{"f": {body}},
+	}
+	e, root := newEngine(t, src)
+	if err := e.PullOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "P", "f")); err != nil || string(got) != "new" {
+		t.Fatalf("P/f of the new folder must stay: %q %v", got, err)
+	}
+	for _, id := range []string{"B", "f"} {
+		if _, ok, _ := e.idx.Get(id); !ok {
+			t.Errorf("%s must stay in the index", id)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"discodrive.org/daemon/internal/index"
+	"discodrive.org/daemon/internal/protocol"
 	"discodrive.org/daemon/internal/syncer"
 	"encoding/hex"
 	"encoding/json"
@@ -71,7 +72,7 @@ func TestEmbeddedMirrorPullsPushesAndRestarts(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	before, _ := os.Stat(root)
-	cfg := configuration{server.URL + "/", "device", root, filepath.Join(t.TempDir(), "state.db")}
+	cfg := configuration{server.URL + "/", "device", root, filepath.Join(t.TempDir(), "state.db"), ""}
 	if err := start(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestStopCancelsOutstandingRequest(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	if err := start(configuration{server.URL, "device", t.TempDir(), filepath.Join(t.TempDir(), "state.db")}); err != nil {
+	if err := start(configuration{server.URL, "device", t.TempDir(), filepath.Join(t.TempDir(), "state.db"), ""}); err != nil {
 		t.Fatal(err)
 	}
 	defer stop()
@@ -171,7 +172,7 @@ func TestMassDeletionWaitsForHostConfirmation(t *testing.T) {
 		}
 	}
 	idx.Close()
-	if err := start(configuration{server.URL, "device", t.TempDir(), database}); err != nil {
+	if err := start(configuration{server.URL, "device", t.TempDir(), database, ""}); err != nil {
 		t.Fatal(err)
 	}
 	defer stop()
@@ -206,5 +207,38 @@ func TestRootReplacementStopsPass(t *testing.T) {
 	}
 	if err := checkRoot(root, original); err == nil {
 		t.Fatal("replacement root accepted")
+	}
+}
+
+// The app hands over the pin saved at pairing under "Pin"; with it the engine talks to a
+// server whose self-signed certificate the user trusted.
+func TestEmbeddedMirrorUsesThePin(t *testing.T) {
+	reached := make(chan struct{}, 1)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth/device/token" {
+			json.NewEncoder(w).Encode(map[string]string{"token": "jwt"})
+			return
+		}
+		select {
+		case reached <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	var cfg configuration
+	raw := fmt.Sprintf(`{"Server":%q,"Token":"device","Root":%q,"Database":%q,"Pin":%q}`,
+		server.URL, t.TempDir(), filepath.Join(t.TempDir(), "state.db"), protocol.Fingerprint(server.Certificate().Raw))
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := start(cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pinned engine never reached the server")
 	}
 }

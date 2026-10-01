@@ -3,6 +3,8 @@ package org.discodrive.android
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
 import androidx.core.content.FileProvider
@@ -76,11 +78,16 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
             Column {
                 Text(stringResource(R.string.settings_server), style = MaterialTheme.typography.labelLarge)
                 Text(vm.server, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    stringResource(R.string.setup_self_signed) + ": " +
-                        stringResource(if (vm.insecureTLS) R.string.on else R.string.off),
-                    style = MaterialTheme.typography.bodySmall
-                )
+                // Pinned at pairing because the system did not trust it: shown so it can be
+                // compared with the server's again.
+                if (vm.serverPin.isNotEmpty()) {
+                    Text(stringResource(R.string.settings_cert_pinned), style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 8.dp))
+                    SelectionContainer {
+                        Text(CertTrust.fingerprintLines(vm.serverPin), fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
             HorizontalDivider()
             Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onAutoUpload() }.padding(vertical = 8.dp)) {

@@ -30,6 +30,12 @@ fun RecoveryScreen(node: Entry?, onChanged: () -> Unit, onBack: () -> Unit) {
     var confirmation by remember { mutableStateOf<JSONObject?>(null) }
     var emptyConfirm by remember { mutableStateOf(false) }
     var restoreVersion by remember { mutableStateOf<Long?>(null) }
+    // A file the server no longer has has already left the index; the list behind relists.
+    fun describe(e: Exception): String? {
+        if (NodeGone.matches(e.message)) onChanged()
+        if (TrashBlocked.matches(e.message)) return context.getString(R.string.error_trash_blocked)
+        return NodeGone.describe(e.message, context.getString(R.string.error_node_gone))
+    }
     suspend fun load() {
         val json = withContext(Dispatchers.IO) {
             BrowserHolder.use(context) { if (node == null) it.trash() else it.versions(node.id) }
@@ -48,13 +54,19 @@ fun RecoveryScreen(node: Entry?, onChanged: () -> Unit, onBack: () -> Unit) {
             try {
                 withContext(Dispatchers.IO) { BrowserHolder.use(context, block) ?: error("Not paired") }
                 load(); onChanged()
-            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                error = describe(e)
+                // A refused purge may still have removed other items: relist either way.
+                try { load() } catch (x: Exception) { if (x is kotlinx.coroutines.CancellationException) throw x }
+                onChanged()
+            }
             finally { busy = false; mutating = false }
         }
     }
     LaunchedEffect(node?.id) {
         busy = true
-        try { load() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message } finally { busy = false }
+        try { load() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = describe(e) } finally { busy = false }
     }
     BackHandler { if (!mutating) onBack() }
     Scaffold(topBar = {
@@ -63,7 +75,7 @@ fun RecoveryScreen(node: Entry?, onChanged: () -> Unit, onBack: () -> Unit) {
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
+            error?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
             if (node != null) {
                 Text(node.name, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.recovery_version_hint), modifier = Modifier.padding(horizontal = 16.dp))

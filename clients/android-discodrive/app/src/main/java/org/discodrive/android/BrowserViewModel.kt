@@ -18,11 +18,13 @@ import mobile.Browser
 import androidx.work.WorkManager
 import org.discodrive.android.autoupload.AutoUploadWorker
 import org.discodrive.android.autoupload.FolderObservers
+import org.discodrive.android.autoupload.PairingGeneration
 import org.discodrive.android.autoupload.UploadJournal
 import org.discodrive.android.sync.SyncEvents
 import org.discodrive.android.sync.SyncHolder
 import org.discodrive.android.sync.SyncWorker
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 data class Entry(
@@ -39,6 +41,13 @@ data class BrowseState(
     val syncing: Boolean = false,
     val error: String? = null,
     val pendingUserCode: String? = null,
+    /**
+     * The approval link the server sent, shown as text because it did not pass
+     * [UrlPolicy.verificationUrlAllowed] and so was not opened; null otherwise.
+     */
+    val verificationUrl: String? = null,
+    /** A certificate the system rejected, waiting for the user to trust it or not. */
+    val certificate: CertDetails? = null,
     val stack: List<Folder> = listOf(Folder("", "DiscoDrive")),
     val entries: List<Entry> = emptyList(),
 )
@@ -56,7 +65,12 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     val rootDir: File = File(app.filesDir, "browser-cache")
     private val indexDbPath: String get() = File(getApplication<Application>().filesDir, "index.db").path
 
-    init { openIfPaired(); watchRefreshWork() }
+    init {
+        // An unpair that did not finish (a close timed out, the process died) left the app
+        // half-unpaired: token still stored, every holder refusing to open. Finish it.
+        if (prefs.unpairing) finishUnpair() else openIfPaired()
+        watchRefreshWork()
+    }
 
     fun hasStoragePermission(): Boolean = Environment.isExternalStorageManager()
 
@@ -70,6 +84,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
      * duplicated.
      */
     fun openIfPaired() {
+        if (prefs.unpairing) return
         if (!isPaired()) {
             // Not paired yet — but a pairing may be outstanding, approved while the app was
             // away or killed. Picking it up here is what turns a lost pairing into a finished
@@ -160,22 +175,76 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun pair(server: String, insecure: Boolean, openUrl: (String) -> Unit) {
+    /** The server and certificate the trust dialog is showing; only this pin may be used. */
+    private var certOffer: Pair<String, CertDetails>? = null
+
+    fun pair(serverInput: String, openUrl: (String) -> Unit) {
+        val server = serverInput.trim()
+        // The Go client ignores Android's cleartext policy: an http server would get the
+        // device token in the clear.
+        if (!UrlPolicy.serverUrlAllowed(server)) {
+            _ui.value = _ui.value.copy(error = getApplication<Application>().getString(R.string.setup_https_required))
+            return
+        }
+        certOffer = null
+        beginPairing(server, "", openUrl)
+    }
+
+    /** The user trusted the certificate on screen: pair again, accepting exactly that one. */
+    fun trustCertificate(openUrl: (String) -> Unit) {
+        val (server, cert) = certOffer ?: return
+        certOffer = null
+        _ui.value = _ui.value.copy(certificate = null)
+        beginPairing(server, cert.fingerprint, openUrl)
+    }
+
+    fun rejectCertificate() {
+        certOffer = null
+        _ui.value = _ui.value.copy(certificate = null)
+    }
+
+    private fun beginPairing(server: String, pin: String, openUrl: (String) -> Unit) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(loading = true, error = null)
+            _ui.value = _ui.value.copy(loading = true, error = null, verificationUrl = null, certificate = null)
             try {
-                val p = withContext(Dispatchers.IO) { Core.pairBegin(server, Build.MODEL, "android", insecure) }
-                val pending = PendingPairing(server, p.deviceCode, p.userCode, p.intervalSeconds, insecure)
+                val p = try {
+                    withContext(Dispatchers.IO) { Core.pairBegin(server, Build.MODEL, "android", pin) }
+                } catch (e: Exception) {
+                    // Strict pairing failed. If the reason is a certificate the system does not
+                    // trust, offer it; any other failure is reported as it is.
+                    val offer = if (pin.isEmpty()) untrustedCertificate(server) else null
+                    if (offer == null) throw e
+                    certOffer = server to offer
+                    _ui.value = _ui.value.copy(certificate = offer)
+                    return@launch
+                }
+                val pending = PendingPairing(server, p.deviceCode, p.userCode, p.intervalSeconds, pin)
                 withContext(Dispatchers.IO) { prefs.pendingPairing = pending }
                 _ui.value = _ui.value.copy(pendingUserCode = p.userCode)
-                openUrl(p.verificationURL)
+                // The link comes from the server and ACTION_VIEW hands it to whatever app
+                // claims its scheme; anything but a web page on this server is only shown.
+                if (UrlPolicy.verificationUrlAllowed(p.verificationURL, server)) {
+                    openUrl(p.verificationURL)
+                } else {
+                    _ui.value = _ui.value.copy(verificationUrl = p.verificationURL)
+                }
                 awaitApproval(pending)
             } catch (e: Exception) {
-                _ui.value = _ui.value.copy(error = e.message, pendingUserCode = null)
+                _ui.value = _ui.value.copy(error = e.message, pendingUserCode = null, verificationUrl = null)
             } finally {
                 _ui.value = _ui.value.copy(loading = false)
             }
         }
+    }
+
+    private suspend fun untrustedCertificate(server: String): CertDetails? = withContext(Dispatchers.IO) {
+        val fetched = runCatching { Core.fetchCertificate(server) }
+        // The pairing error is what the user sees; why the certificate could not be read
+        // goes to the opt-in diagnostics log.
+        fetched.exceptionOrNull()?.let {
+            Diagnostics.record(getApplication(), JSONObject().put("event", "fetch_certificate").toString(), it.message)
+        }
+        CertTrust.offerFor(fetched.getOrNull())
     }
 
     /**
@@ -187,6 +256,12 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         val pending = prefs.pendingPairing ?: return
         resuming = true
         viewModelScope.launch {
+            // Started by an older version that still accepted http: not finished over it.
+            if (!UrlPolicy.serverUrlAllowed(pending.server)) {
+                withContext(Dispatchers.IO) { prefs.pendingPairing = null }
+                resuming = false
+                return@launch
+            }
             _ui.value = _ui.value.copy(loading = true, error = null, pendingUserCode = pending.userCode)
             try {
                 awaitApproval(pending)
@@ -207,7 +282,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun awaitApproval(pending: PendingPairing) {
         val token = try {
             withContext(Dispatchers.IO) {
-                Core.pairAwait(pending.server, pending.deviceCode, pending.intervalSeconds, pending.insecure)
+                Core.pairAwait(pending.server, pending.deviceCode, pending.intervalSeconds, pending.pin)
             }
         } catch (e: Exception) {
             // A network failure leaves it pending, to be retried; anything else is the server
@@ -220,7 +295,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         withContext(Dispatchers.IO) {
             SyncHolder.close()
             BrowserHolder.close()
-            prefs.saveServer(pending.server, token, pending.insecure)
+            prefs.saveServer(pending.server, token, pending.pin)
             prefs.pendingPairing = null
             DriveDocumentsProvider.notifyRoots(getApplication())
         }
@@ -234,7 +309,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         // Paired, settled by the token the server just issued. Waiting for the first successful
         // pull instead stranded the user on this screen whenever that pull failed — the pairing
         // itself had gone through, so pairing again did nothing.
-        _ui.value = _ui.value.copy(pendingUserCode = null, paired = true)
+        _ui.value = _ui.value.copy(pendingUserCode = null, verificationUrl = null, paired = true)
         openBrowser()
     }
 
@@ -259,7 +334,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
 
     val server: String get() = prefs.serverURL
     val token: String? get() = prefs.deviceToken
-    val insecureTLS: Boolean get() = prefs.insecure
+    val serverPin: String get() = prefs.serverPin
 
     // currentFolderIsVault: the currently-listed folder is a Cryptomator vault.
     fun currentFolderIsVault(): Boolean = _ui.value.entries.any { it.name == "masterkey.cryptomator" }
@@ -311,7 +386,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                 val js = withBrowser { block(it); it.list(currentId()) } ?: return@launch
                 _ui.value = _ui.value.copy(entries = parse(js))
             } catch (e: Exception) {
-                _ui.value = _ui.value.copy(error = e.message)
+                failed(e)
             } finally {
                 _ui.value = _ui.value.copy(loading = false)
             }
@@ -340,11 +415,27 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                 val js = withBrowser { it.list(currentId()) } ?: return@launch
                 _ui.value = _ui.value.copy(entries = parse(js))
             } catch (e: Exception) {
-                _ui.value = _ui.value.copy(error = e.message)
+                failed(e)
             } finally {
                 _ui.value = _ui.value.copy(loading = false)
             }
         }
+    }
+
+    /**
+     * Reports an operation's failure. An item the server no longer has is already out of the
+     * index by now (the core applied the delete it missed): relist, and say so in words
+     * instead of showing the raw 404.
+     */
+    private suspend fun failed(e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        if (NodeGone.matches(e.message)) {
+            runCatching { withBrowser { it.list(currentId()) } }.getOrNull()?.let {
+                _ui.value = _ui.value.copy(entries = parse(it))
+            }
+        }
+        val gone = getApplication<Application>().getString(R.string.error_node_gone)
+        _ui.value = _ui.value.copy(error = NodeGone.describe(e.message, gone))
     }
 
     fun uploadUri(uri: Uri) {
@@ -357,7 +448,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val tmp = withContext(Dispatchers.IO) {
                     val name = displayName(ctx, uri)
-                    require(name.isNotBlank() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')) { "Invalid file name" }
+                    require(isValidUploadName(name)) { "Invalid file name" }
                     val directory = java.nio.file.Files.createTempDirectory(ctx.cacheDir.toPath(), "upload-").toFile()
                     staging = directory
                     File(directory, name).also { file ->
@@ -384,8 +475,17 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
 
     fun unpair() {
         if (_ui.value.loading) return
-        _ui.value = _ui.value.copy(loading = true, error = null)
         prefs.unpairing = true
+        finishUnpair()
+    }
+
+    /**
+     * Everything after the "unpairing" flag is set. Also run at start-up when that flag is
+     * found still set: a previous attempt failed half-way (a holder could not close in time,
+     * the process was killed), and the app must not stay stuck between paired and not.
+     */
+    private fun finishUnpair() {
+        _ui.value = _ui.value.copy(loading = true, error = null)
         // Unpairing must also stop auto-upload: its rules point at a server this device no
         // longer has a token for, and a scheduled pass would keep failing in the background.
         prefs.autoUpload = false
@@ -405,14 +505,18 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                     val server = prefs.serverURL
                     val token = prefs.deviceToken
                     if (server.isNotEmpty() && !token.isNullOrEmpty()) {
-                        runCatching { Core.revokeDevice(server, token, prefs.insecure) }
+                        runCatching { Core.revokeDevice(server, token, prefs.serverPin) }
                     }
                     SyncHolder.wipe(getApplication())
                     BrowserHolder.wipe(getApplication())
                     // The journal records what went to THIS server; kept, it would stop
                     // every one of those photos from ever reaching the next one.
-                    UploadJournal.wipe(getApplication())
-                    prefs.clear()
+                    // Under the pairing generation: a folder scan still running from
+                    // before must not write its journal entries and rule back afterwards.
+                    PairingGeneration.end {
+                        UploadJournal.wipe(getApplication())
+                        prefs.clear()
+                    }
                     DriveDocumentsProvider.notifyRoots(getApplication())
                 }
                 opened = false

@@ -110,4 +110,34 @@ public enum KeychainToken {
 
     public static let tokenService = "org.discodrive.devicetoken"
     public static let serverService = "org.discodrive.serverurl"
+    /// Fingerprint of the self-signed certificate the user trusted at pairing, if any.
+    public static let pinService = "org.discodrive.serverpin"
+    /// DAV credentials are stored per server and account under this prefix plus a hash.
+    public static let davServicePrefix = "org.discodrive.dav."
+
+    /// Deletes every item whose service starts with `prefix` — the DAV credentials, whose
+    /// full service name needs the account id, which a logout does not have to hand.
+    public static func deleteAll(servicePrefix prefix: String) {
+        var groups: [String?] = [KeychainConfig.accessGroup]
+        if KeychainConfig.accessGroup != nil { groups.append(nil) }   // items from before the group
+        for group in groups {
+            var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecReturnAttributes as String: true,
+                                    kSecMatchLimit as String: kSecMatchLimitAll]
+            if let group {
+                q[kSecAttrAccessGroup as String] = group
+                q[kSecUseDataProtectionKeychain as String] = true
+            }
+            var out: CFTypeRef?
+            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+                  let items = out as? [[String: Any]] else { continue }
+            for service in services(in: items, withPrefix: prefix) {
+                SecItemDelete(KeychainConfig.query(service: service, group: group) as CFDictionary)
+            }
+        }
+    }
+
+    static func services(in items: [[String: Any]], withPrefix prefix: String) -> [String] {
+        Array(Set(items.compactMap { $0[kSecAttrService as String] as? String }.filter { $0.hasPrefix(prefix) })).sorted()
+    }
 }

@@ -6,13 +6,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,9 +41,9 @@ func defaultDialer() *net.Dialer {
 	}
 }
 
-// defaultHTTPClient returns the HTTP client used to talk to the server. By default it
-// uses strict system TLS validation. Set DISCODRIVE_INSECURE_TLS=1 to accept ANY
-// certificate — intended for local testing against a self-signed / LAN-IP server only.
+// defaultHTTPClient returns the HTTP client used to talk to the server, with strict system
+// TLS validation. The environment is never consulted: a variable in a launchd plist or a
+// shell profile must not turn certificate checks off in a signed application.
 //
 // Connection setup is bounded here; whole transfers are not. Neither http.Client.Timeout
 // nor Transport.ResponseHeaderTimeout is set, because both would cap a complete exchange:
@@ -51,18 +51,27 @@ func defaultDialer() *net.Dialer {
 // so on a slow mobile link either one would abort healthy work. Calls that are short by
 // nature carry their own deadline instead — see [Client.Changes] and [PairPoll].
 func defaultHTTPClient() *http.Client {
-	tlsConf := &tls.Config{
-		// Restrict key-exchange to classical curves, excluding the post-quantum
-		// X25519MLKEM768 hybrid that Go offers by default since 1.24. Some TLS
-		// terminators / middleboxes choke on the larger ClientHello and abort the
-		// handshake (remote error: tls: handshake failure); leaving it out keeps
-		// pairing/sync working against those servers.
-		CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384, tls.CurveP521},
+	return httpClient("", "")
+}
+
+// Restrict key-exchange to classical curves, excluding the post-quantum X25519MLKEM768
+// hybrid that Go offers by default since 1.24. Some TLS terminators / middleboxes choke on
+// the larger ClientHello and abort the handshake (remote error: tls: handshake failure);
+// leaving it out keeps pairing/sync working against those servers.
+var curvePreferences = []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384, tls.CurveP521}
+
+// httpClient is [defaultHTTPClient] for a server the user may have pinned. pin == "" is
+// strict system validation. With a pin, a chain the system trusts for host is still
+// accepted, and otherwise only the exact pinned certificate — see [pinnedVerifier].
+func httpClient(pin, host string) *http.Client {
+	tlsConf := &tls.Config{CurvePreferences: curvePreferences}
+	if pin != "" {
+		// Go's own check would refuse the self-signed certificate before VerifyConnection
+		// runs; the verifier below does the system check itself and then the pin.
+		tlsConf.InsecureSkipVerify = true //nolint:gosec // replaced by pinnedVerifier
+		tlsConf.VerifyConnection = pinnedVerifier(host, pin)
 	}
-	if v := os.Getenv("DISCODRIVE_INSECURE_TLS"); v == "1" || v == "true" {
-		tlsConf.InsecureSkipVerify = true //nolint:gosec // opt-in via env for local testing
-	}
-	return &http.Client{Transport: &http.Transport{
+	return &http.Client{CheckRedirect: checkServerRedirect, Transport: &http.Transport{
 		TLSClientConfig:       tlsConf,
 		DialContext:           defaultDialer().DialContext,
 		TLSHandshakeTimeout:   15 * time.Second,
@@ -71,12 +80,61 @@ func defaultHTTPClient() *http.Client {
 	}}
 }
 
+// Keep credentials and upload bodies on the original origin, including on 307/308
+// redirects (which replay the body). Checking only the configured URL is insufficient.
+func checkServerRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if len(via) == 0 {
+		return nil
+	}
+	original, next := via[0].URL, req.URL
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		if strings.EqualFold(u.Scheme, "https") {
+			return "443"
+		}
+		return "80"
+	}
+	if next.User != nil || !strings.EqualFold(original.Scheme, next.Scheme) ||
+		!strings.EqualFold(original.Hostname(), next.Hostname()) || port(original) != port(next) {
+		return errors.New("refusing server redirect to a different origin")
+	}
+	return nil
+}
+
+// httpClientFor is [httpClient] for requests to serverURL.
+func httpClientFor(serverURL, pin string) *http.Client {
+	host := ""
+	if u, err := url.Parse(serverURL); err == nil {
+		host = u.Hostname()
+	}
+	return httpClient(pin, host)
+}
+
 // scopeHeader opts this client into the user's configured sync scope. The server applies
 // the scope ONLY to callers that send it — so the daemon (and the future mobile button-app,
 // which runs this same core) sync the chosen folder, while browser/web/WebDAV clients omit
 // the header and keep seeing the whole vault. Always sent: when no scope is configured the
 // server resolves it to the whole vault anyway.
 const scopeHeader = "X-Discodrive-Scope"
+
+// FeaturesHeader declares, on every request, which protocol capabilities this client
+// understands. It lets the server change behavior that depends on client support without
+// breaking older releases still in the field.
+//
+// FeaturesValue: delete-by-id — this client applies change-feed deletes by node id and
+// ignores deletes for ids it does not have indexed (it never falls back to deleting by
+// path). Without this header the server withholds feed deletes of permanently purged
+// nodes, because a released client that deletes by path could wipe a live file that was
+// simply moved.
+const (
+	FeaturesHeader = "X-Discodrive-Features"
+	FeaturesValue  = "delete-by-id"
+)
 
 // Client talks to the server using a device token and caches the session JWT.
 type Client struct {
@@ -89,25 +147,33 @@ type Client struct {
 	jwt string
 }
 
+// New builds a client that syncs the configured scope, with strict TLS validation.
 func New(baseURL, deviceToken string) *Client {
-	return &Client{baseURL: baseURL, deviceToken: deviceToken, hc: defaultHTTPClient(), sendScope: true}
+	return NewPinned(baseURL, deviceToken, "")
 }
 
-// NewStrict is the embedded application's client. Environment variables must not
-// weaken TLS validation in a signed application.
+// NewPinned is [New] for a server whose certificate the user trusted at pairing: besides
+// a system-trusted chain, exactly the certificate with fingerprint pin is accepted.
+// pin == "" is strict validation.
+func NewPinned(baseURL, deviceToken, pin string) *Client {
+	return &Client{baseURL: baseURL, deviceToken: deviceToken, hc: httpClientFor(baseURL, pin), sendScope: true}
+}
+
+// NewStrict is the embedded application's client: strict TLS, and a trailing slash in the
+// configured server URL is tolerated.
 func NewStrict(baseURL, deviceToken string) *Client {
-	c := New(strings.TrimRight(baseURL, "/"), deviceToken)
-	transport := c.hc.Transport.(*http.Transport).Clone()
-	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
-	transport.TLSClientConfig.InsecureSkipVerify = false
-	c.hc.Transport = transport
-	return c
+	return New(strings.TrimRight(baseURL, "/"), deviceToken)
 }
 
 // NewUnscoped is like New but never sends X-Discodrive-Scope, so the server returns the whole
 // vault (used by the file browser, which navigates everything rather than one synced folder).
 func NewUnscoped(baseURL, deviceToken string) *Client {
-	return &Client{baseURL: baseURL, deviceToken: deviceToken, hc: defaultHTTPClient(), sendScope: false}
+	return NewUnscopedPinned(baseURL, deviceToken, "")
+}
+
+// NewUnscopedPinned is [NewUnscoped] with the certificate pin of [NewPinned].
+func NewUnscopedPinned(baseURL, deviceToken, pin string) *Client {
+	return &Client{baseURL: baseURL, deviceToken: deviceToken, hc: httpClientFor(baseURL, pin), sendScope: false}
 }
 
 func (c *Client) token(ctx context.Context) (string, error) {
@@ -119,6 +185,7 @@ func (c *Client) token(ctx context.Context) (string, error) {
 	body, _ := json.Marshal(map[string]string{"device_token": c.deviceToken})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/auth/device/token", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(FeaturesHeader, FeaturesValue)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return "", err
@@ -148,6 +215,7 @@ func (c *Client) do(ctx context.Context, method, path string) (*http.Response, e
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set(FeaturesHeader, FeaturesValue)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
 		}
@@ -225,7 +293,7 @@ func (c *Client) Download(ctx context.Context, nodeID string, w io.Writer) error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return fmt.Errorf("/files/%s/content: %s", nodeID, resp.Status)
+		return statusErr(resp, "/files/"+nodeID+"/content")
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
@@ -322,6 +390,7 @@ func (c *Client) PushFile(ctx context.Context, relPath string, baseVersion *int6
 		// letting a short file reach the server looking complete.
 		req.ContentLength = size
 		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set(FeaturesHeader, FeaturesValue)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
 		}
@@ -371,6 +440,7 @@ func (c *Client) EnsureDir(ctx context.Context, relPath string) (engine.RemoteNo
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/sync/dir", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(FeaturesHeader, FeaturesValue)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
 		}
@@ -470,6 +540,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (*ht
 		req, _ := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(raw))
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(FeaturesHeader, FeaturesValue)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
 		}
@@ -496,6 +567,57 @@ type StatusError struct {
 	Code int
 	Body string // the server's payload, trimmed; carries next_chunk on a 409
 }
+
+// Is makes errors.Is(err, engine.ErrNodeNotFound) true for the server's answer about a
+// node it does not have: 404 with {"error":"not found"}. Other 404 bodies ("upload
+// session not found", "file not found" for a blob missing on disk) and non-JSON pages
+// from a proxy are not about the node's existence.
+func (e *StatusError) Is(target error) bool {
+	if target != engine.ErrNodeNotFound || e.Code != http.StatusNotFound {
+		return false
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	return json.Unmarshal([]byte(e.Body), &body) == nil && body.Error == "not found"
+}
+
+// StatusCode is the HTTP status of a StatusError anywhere in err's chain, 0 if there is none.
+func StatusCode(err error) int {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Code
+	}
+	return 0
+}
+
+// IsNotFound reports whether err is the server saying the addressed node does not exist.
+func IsNotFound(err error) bool { return errors.Is(err, engine.ErrNodeNotFound) }
+
+// The sync engine settles legacy seq ties by asking the server (engine.NodeChecker); without
+// the check it would leave such ties alone on disk. Keep the client a checker.
+var _ engine.NodeChecker = (*Client)(nil)
+
+// NodeExists asks the server whether the caller's node nodeID still exists (GET
+// /files/{id}, owner's nodes only). It settles which node a 404 was about when a request
+// names two, as a move does.
+func (c *Client) NodeExists(ctx context.Context, nodeID string) (bool, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/files/"+url.PathEscape(nodeID))
+	if err != nil {
+		return false, err
+	}
+	if err := okClose(resp, "GET /files"); err != nil {
+		if IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// HTTPStatus is the response status. The sync engine reads it through an interface (it
+// cannot import this package) to tell a refusal from a temporary failure.
+func (e *StatusError) HTTPStatus() int { return e.Code }
 
 func (e *StatusError) Error() string {
 	if e.Body == "" {
@@ -593,6 +715,7 @@ func (c *Client) UploadChunk(ctx context.Context, uploadID string, n int, r io.R
 		req.ContentLength = int64(len(buf))
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set(FeaturesHeader, FeaturesValue)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
 		}
@@ -893,6 +1016,7 @@ func (c *Client) UploadFile(ctx context.Context, parentID, name string, r io.Rea
 		req.ContentLength = overhead + size
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req.Header.Set(FeaturesHeader, FeaturesValue)
 		if c.sendScope {
 			req.Header.Set(scopeHeader, "1")
 		}

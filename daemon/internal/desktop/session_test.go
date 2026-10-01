@@ -1,12 +1,16 @@
 package desktop
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"discodrive.org/daemon/internal/config"
 	"discodrive.org/daemon/internal/index"
+	"discodrive.org/daemon/internal/protocol"
 )
 
 func TestSaveAndOpenProfile(t *testing.T) {
@@ -148,6 +152,37 @@ func TestWipeState(t *testing.T) {
 	for _, f := range []string{"config.json", "settings.json"} {
 		if _, err := os.Stat(filepath.Join(profile, f)); err != nil {
 			t.Fatalf("%s must survive WipeState: %v", f, err)
+		}
+	}
+}
+
+// The browser of a profile paired with a trusted self-signed server uses the saved pin.
+func TestOpenUsesTheProfilePin(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/auth/device/token":
+			_, _ = w.Write([]byte(`{"token":"jwt"}`))
+		default:
+			_, _ = w.Write([]byte(`{"changes":[],"cursor":0,"has_more":false}`))
+		}
+	}))
+	defer server.Close()
+	for _, pin := range []string{protocol.Fingerprint(server.Certificate().Raw), ""} {
+		profile := t.TempDir()
+		if err := SaveConfig(profile, config.Config{ServerURL: server.URL, DeviceToken: "kfd_x", ServerPin: pin}); err != nil {
+			t.Fatal(err)
+		}
+		ctrl, idx, err := Open(profile)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		_, err = ctrl.Refresh(context.Background())
+		idx.Close()
+		if pin != "" && err != nil {
+			t.Fatalf("pinned Refresh: %v", err)
+		}
+		if pin == "" && err == nil {
+			t.Fatal("unpinned Refresh accepted an untrusted certificate")
 		}
 	}
 }

@@ -96,6 +96,19 @@ public enum VaultPasswordStore {
             SecItemDelete(KeychainConfig.query(service: service, account: key, group: nil) as CFDictionary)
         }
     }
+
+    /// Forgets every saved vault password. Called on logout: passwords are keyed by the
+    /// vault's server path, so the next pairing's "/Vault" — another account, another
+    /// server — would otherwise be offered this one's password.
+    public static func deleteAll() {
+        var queries = [KeychainConfig.query(service: service)]
+        if KeychainConfig.accessGroup != nil { queries.append(KeychainConfig.query(service: service, group: nil)) }
+        for q in queries {
+            // Some keychains delete one match per call; repeat until none is left.
+            var rounds = 0
+            while rounds < 1_000, SecItemDelete(q as CFDictionary) == errSecSuccess { rounds += 1 }
+        }
+    }
 }
 
 /// The keys of an unlocked vault, handed from the app to the File Provider extension

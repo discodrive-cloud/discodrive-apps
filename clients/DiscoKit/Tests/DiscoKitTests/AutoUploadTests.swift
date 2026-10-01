@@ -156,6 +156,42 @@ final class UploadJournalTests: XCTestCase {
         XCTAssertEqual(try j.counts().sent, 1)
         XCTAssertEqual(try j.attempts(assetID: "A1"), 0)
     }
+
+    /// Seeding again (auto-upload switched back on after a logout) must not rewrite what
+    /// already happened: a sent photo turned "pre-existing" would be uploaded a second time
+    /// by "upload existing photos", and a deferred one would silently drop out of retry.
+    func testReseedingLeavesSentAndDeferredRowsAlone() throws {
+        let j = try journal()
+        let v = Date(timeIntervalSince1970: 1_000_000)
+        try j.markSent(assetID: "A1", modified: v, bytes: 5, sha: "H", serverName: "a.jpg")
+        try j.markDeferred(assetID: "A2", modified: v, error: "network")
+        try j.seedPreexisting([(id: "A1", modified: v), (id: "A2", modified: v), (id: "A3", modified: v)])
+
+        XCTAssertEqual(try j.recent(limit: 10).first { $0.assetID == "A1" }?.state, .sent)
+        XCTAssertEqual(try j.recent(limit: 10).first { $0.assetID == "A2" }?.state, .deferred)
+        XCTAssertEqual(try j.attempts(assetID: "A2"), 1)
+        let counts = try j.counts()
+        XCTAssertEqual(counts.sent, 1)
+        XCTAssertEqual(counts.deferred, 1)
+        XCTAssertEqual(counts.skipped, 1, "only the photo the journal did not know is seeded")
+        XCTAssertEqual(try j.unseed(), 1, "a sent photo must never come back as work")
+    }
+
+    /// The next pairing may be another account: logout empties the journal.
+    func testWipeEmptiesTheJournal() throws {
+        let j = try journal()
+        let v = Date(timeIntervalSince1970: 1_000_000)
+        try j.markSent(assetID: "A1", modified: v, bytes: 5, sha: "H", serverName: "a.jpg")
+        try j.markDeferred(assetID: "A2", modified: v, error: "network")
+        try j.seedPreexisting([(id: "A3", modified: v)])
+
+        try j.wipe()
+
+        XCTAssertTrue(try j.recent(limit: 10).isEmpty)
+        let counts = try j.counts()
+        XCTAssertEqual(counts.sent + counts.deferred + counts.skipped, 0)
+        XCTAssertFalse(try j.isKnown(assetID: "A1", modified: v))
+    }
 }
 
 /// Uploading the existing library is a deliberate, separate decision — the journal has to

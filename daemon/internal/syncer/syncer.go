@@ -73,10 +73,20 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 	if epoch != last {
 		return s.eng.ResetForScope(ctx, epoch)
 	}
-	if err := s.eng.PushLocal(ctx, s.client); err != nil {
-		return err
+	// Files the server rejected are reported, but they must not keep everyone else's
+	// changes from arriving: the pull still runs. A push that failed as a whole
+	// (connection, credentials, mass-deletion guard) ends the pass as before.
+	pushErr := s.eng.PushLocal(ctx, s.client)
+	var failures *engine.PushFailures
+	if pushErr != nil && !errors.As(pushErr, &failures) {
+		return pushErr
 	}
-	return s.eng.PullOnce(ctx)
+	if pullErr := s.eng.PullOnce(ctx); pullErr != nil {
+		return errors.Join(pushErr, pullErr)
+	}
+	// Returned as it is, so hosts can tell a finished pass with rejected files
+	// (engine.OnlyPushFailures) from one that failed.
+	return pushErr
 }
 
 // Run drives sync on triggers (fsnotify+SSE+ticker) with debounce and backoff. Blocks until ctx is cancelled.
@@ -140,7 +150,10 @@ func (s *Syncer) Run(ctx context.Context) error {
 		case <-debounce.C:
 			pending = false
 			s.writeStatus(Status{State: StateSyncing})
-			if err := s.SyncOnce(ctx); err != nil {
+			err := s.SyncOnce(ctx)
+			// A pass whose only trouble is files the server refused has finished: the
+			// client is not offline, and a retry would be refused the same way.
+			if err != nil && !engine.OnlyPushFailures(err) {
 				log.Printf("discodrive: sync failed: %v (retrying in %s)", err, backoff)
 				kind := ""
 				var bulk *engine.BulkDeleteError
@@ -157,8 +170,12 @@ func (s *Syncer) Run(ctx context.Context) error {
 				}
 				notify()
 			} else {
-				now := time.Now()
-				s.writeStatus(Status{State: StateIdle, LastSync: now})
+				st := Status{State: StateIdle, LastSync: time.Now()}
+				if err != nil {
+					log.Printf("discodrive: sync finished, some files were not uploaded: %v", err)
+					st.LastError = err.Error()
+				}
+				s.writeStatus(st)
 				if aside := s.eng.SetAside(); aside != "" && !announced {
 					log.Print(fmt.Sprintf(i18n.T("run_set_aside"), aside))
 					announced = true

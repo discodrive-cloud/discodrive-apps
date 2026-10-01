@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.discodrive.android.R
+import org.discodrive.android.explainError
 import java.text.DateFormat
 import java.util.Date
 
@@ -67,7 +68,7 @@ fun SyncScreen(vm: SyncViewModel, onBack: () -> Unit) {
                         TextButton(onClick = { confirmDelete = true }) { Text(stringResource(R.string.sync_bulk_confirm)) }
                     }
                 } else {
-                    ui.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    ui.lastError?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
                 HorizontalDivider()
                 Text(stringResource(R.string.activity_title), style = MaterialTheme.typography.titleMedium)
@@ -85,7 +86,7 @@ fun SyncScreen(vm: SyncViewModel, onBack: () -> Unit) {
                     for (i in errors.length() - 1 downTo 0) {
                         val entry = errors.getJSONObject(i)
                         Text(entry.optString("path"), style = MaterialTheme.typography.bodyMedium)
-                        Text(entry.optString("message"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text(explainError(entry.optString("message")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
                 Text(stringResource(R.string.activity_hint), style = MaterialTheme.typography.bodySmall)

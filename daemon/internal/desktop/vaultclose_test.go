@@ -151,10 +151,21 @@ func TestVaultCloseDelta(t *testing.T) {
 
 func openCloseFixture(t *testing.T) (*Controller, *vaultTestServer, string, func() string) {
 	t.Helper()
+	return openCloseFixtureRoot(t, "")
+}
+
+// openCloseFixtureRoot is openCloseFixture with the controller's plaintext root set to
+// plainRoot; "" keeps a throwaway one per test.
+func openCloseFixtureRoot(t *testing.T, plainRoot string) (*Controller, *vaultTestServer, string, func() string) {
+	t.Helper()
 	ctx := context.Background()
 	srv := &vaultTestServer{nodes: map[string][]byte{}}
 	c, _ := newTestController(t, srv)
 	encrypted, source, cache := t.TempDir(), t.TempDir(), t.TempDir()
+	if plainRoot != "" {
+		c.vaultPlainRoot, cache = plainRoot, ""
+	}
+	c.tempRoot = t.TempDir()
 	v, err := vault.Create(encrypted, "pw")
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +189,9 @@ func openCloseFixture(t *testing.T) (*Controller, *vaultTestServer, string, func
 	open := func() string {
 		t.Helper()
 		p, err := c.openVaultCore(ctx, "vault", func(vm *vaultmgr.Manager, vi vaultmgr.VaultInfo) (string, error) {
-			vm.CacheRoot = cache
+			if cache != "" {
+				vm.CacheRoot = cache
+			}
 			return vm.Open(vi, "pw")
 		})
 		if err != nil {

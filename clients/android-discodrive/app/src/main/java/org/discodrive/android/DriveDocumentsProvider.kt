@@ -80,7 +80,11 @@ class DriveDocumentsProvider : DocumentsProvider() {
         return BrowserHolder.use(app) { browser ->
             node(documentId)
             runCatching { browser.refresh() }
-            val file = File(browser.download(id))
+            // An item the server no longer has is already out of the index; to a picker it
+            // is simply not there.
+            val file = try { File(browser.download(id)) } catch (e: Exception) {
+                if (NodeGone.matches(e.message)) throw FileNotFoundException(e.message) else throw e
+            }
             signal?.throwIfCanceled()
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         } ?: throw FileNotFoundException("Not paired")

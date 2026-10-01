@@ -115,6 +115,8 @@ struct VaultBrowserView: View {
             try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
             let url = tmp.appendingPathComponent(e.name)
             try data.write(to: url)
+            // The decrypted name is whatever the vault's writer chose; opened like a download.
+            DownloadQuarantine.mark(url)
             NSWorkspace.shared.open(url)
         } catch { self.error = error.localizedDescription }
         busy = false

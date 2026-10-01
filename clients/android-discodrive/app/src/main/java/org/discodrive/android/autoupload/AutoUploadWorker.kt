@@ -41,6 +41,9 @@ class AutoUploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
 
     override suspend fun doWork(): Result {
         val prefs = Prefs(applicationContext)
+        // Taken before anything is read: if the device is unpaired while this pass runs,
+        // nothing it writes afterwards reaches the journal or the rules (see PairingGate).
+        val gate = PairingGate(prefs)
         if (!prefs.autoUpload || prefs.deviceToken == null) return Result.success()
         if (prefs.rules.none { it.enabled }) return Result.success()
         if (Conditions.check(applicationContext, prefs) != Block.NONE) {
@@ -50,7 +53,7 @@ class AutoUploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
 
         setForegroundSafely(applicationContext.getString(R.string.autoupload_preparing), null)
 
-        val journal = UploadJournal(applicationContext)
+        val journal = UploadJournal(applicationContext, gate)
         return try {
             // Borrowed for the whole pass: re-pairing closes the shared index, and doing that
             // under a running batch surfaced as "sql: database is closed". The close now waits

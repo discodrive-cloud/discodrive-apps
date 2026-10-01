@@ -110,8 +110,12 @@ async function refresh() {
   try { await reload() } finally { busy.value = false }
 }
 
+// Called by App when an operation outside this view (e.g. closing all vaults on tab
+// switch) fails, so the user still sees why.
+function showError(msg) { status.value = msg }
+
 onMounted(reload)
-defineExpose({ reload, dropFiles })
+defineExpose({ reload, dropFiles, showError })
 </script>
 
 <template>

@@ -40,4 +40,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.core:core-ktx:1.13.1")
+    testImplementation("junit:junit:4.13.2")
+    // android.jar's org.json is a stub that throws in unit tests.
+    testImplementation("org.json:json:20240303")
 }

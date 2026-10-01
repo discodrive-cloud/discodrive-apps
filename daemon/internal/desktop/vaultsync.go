@@ -18,15 +18,16 @@ import (
 // vaultSession records the open state of a decrypted vault so CloseVault can
 // re-encrypt the plaintext and upload it back to the server.
 type vaultSession struct {
-	vm        *vaultmgr.Manager
-	vi        vaultmgr.VaultInfo
-	tmpDir    string // local ciphertext dir (downloaded from server; re-encrypted into on Close)
-	relPath   string // server-relative vault folder
-	plainDir  string // decrypted plaintext dir (for idempotent re-open)
-	remote    map[string]index.Node
-	pending   *vaultmgr.PreparedClose
-	finishing *vaultmgr.PreparedClose
-	closing   bool
+	vm           *vaultmgr.Manager
+	vi           vaultmgr.VaultInfo
+	tmpDir       string // local ciphertext dir (downloaded from server; re-encrypted into on Close)
+	relPath      string // server-relative vault folder
+	plainDir     string // decrypted plaintext dir (for idempotent re-open)
+	remote       map[string]index.Node
+	pending      *vaultmgr.PreparedClose
+	finishing    *vaultmgr.PreparedClose
+	recoveryCopy string // locally saved recovery when forced close is awaiting cleanup
+	closing      bool
 }
 
 // VaultRef identifies a vault discovered on the server.
@@ -40,7 +41,7 @@ type VaultRef struct {
 // Returns the vault's recovery phrase (44 words) so the UI can show it to the user —
 // it is the only way back in if the password is lost.
 func (c *Controller) CreateVault(ctx context.Context, parentRelPath, name, password string) (string, error) {
-	tmp, err := os.MkdirTemp("", "ddvault-")
+	tmp, err := os.MkdirTemp(c.tempDir(), "ddvault-")
 	if err != nil {
 		return "", err
 	}
@@ -225,7 +226,7 @@ func (c *Controller) downloadVaultSnapshot(ctx context.Context, vaultRelPath str
 		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
 
-	tmp, err := os.MkdirTemp("", "ddvopen-")
+	tmp, err := os.MkdirTemp(c.tempDir(), "ddvopen-")
 	if err != nil {
 		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
@@ -348,6 +349,9 @@ dispatch:
 		os.RemoveAll(tmp)
 		return nil, vaultmgr.VaultInfo{}, "", nil, err
 	}
+	if c.vaultPlainRoot != "" {
+		vm.CacheRoot = c.vaultPlainRoot
+	}
 	// The ciphertext dir is a fresh temp copy each time; the plaintext folder is keyed
 	// by the profile and the vault's server path instead.
 	vi := vaultmgr.VaultInfo{Name: path.Base(vaultRelPath), Dir: tmp, ID: c.contentDir + "\n" + vaultRelPath}
@@ -376,44 +380,71 @@ func (c *Controller) CloseVault(ctx context.Context, vaultRelPath string) error 
 		return fmt.Errorf("vault is already being saved")
 	}
 	s.closing = true
+	finishing, pending := s.finishing, s.pending
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); s.closing = false; c.mu.Unlock() }()
-	if s.finishing != nil {
+	// s.closing makes this call the session's only writer, but other calls (a re-open,
+	// IsVaultOpen) read it under c.mu from their own goroutines, so every field change
+	// below is made under c.mu too.
+	if finishing != nil {
 		return c.finishVaultClose(vaultRelPath, s)
 	}
-	if s.pending == nil {
-		p, err := s.vm.PrepareClose(s.vi)
+	if pending == nil {
+		p, err := s.vm.PrepareClose(c.sessionInfo(s))
 		if err != nil {
 			return err
 		}
+		c.mu.Lock()
 		s.pending = p
+		c.mu.Unlock()
 	}
 	if err := c.commitVaultDelta(ctx, s); err != nil {
 		return err
 	}
+	c.mu.Lock()
 	old := s.tmpDir
 	p := s.pending
 	s.tmpDir = p.Dir
 	s.vi.Dir = p.Dir
-	s.vm.AcceptClose(s.vi, p)
+	vi := s.vi
 	s.pending = nil
+	c.mu.Unlock()
+	s.vm.AcceptClose(vi, p)
 	if old != p.Dir {
 		_ = os.RemoveAll(old)
 	}
+	c.mu.Lock()
 	s.finishing = p
+	c.mu.Unlock()
 	return c.finishVaultClose(vaultRelPath, s)
 }
 
+// sessionInfo reads the session's vault info under c.mu.
+func (c *Controller) sessionInfo(s *vaultSession) vaultmgr.VaultInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return s.vi
+}
+
 func (c *Controller) finishVaultClose(vaultRelPath string, s *vaultSession) error {
-	if err := s.vm.FinishClose(s.vi, s.finishing); err != nil {
-		if !s.finishing.CleanupStarted() {
+	c.mu.Lock()
+	vi, finishing := s.vi, s.finishing
+	c.mu.Unlock()
+	if err := s.vm.FinishClose(vi, finishing); err != nil {
+		if !finishing.CleanupStarted() {
+			c.mu.Lock()
 			s.finishing = nil
+			c.mu.Unlock()
 		}
 		return err
 	}
 	c.mu.Lock()
 	delete(c.sessions, vaultRelPath)
+	tmp, pending := s.tmpDir, s.pending
 	c.mu.Unlock()
-	_ = os.RemoveAll(s.tmpDir)
+	if pending != nil && pending.Dir != tmp {
+		_ = os.RemoveAll(pending.Dir)
+	}
+	_ = os.RemoveAll(tmp)
 	return nil
 }

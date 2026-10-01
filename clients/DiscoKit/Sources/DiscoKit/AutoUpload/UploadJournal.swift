@@ -133,14 +133,18 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
 
     /// Records what is already in the library without uploading it. This is what makes
     /// "new photos only" hold when the feature is switched on over years of pictures.
+    ///
+    /// Only assets the journal does not know yet are recorded: seeding again (the feature
+    /// switched back on) must not turn a sent photo into a "pre-existing" one — "upload
+    /// existing photos" would then send it a second time — nor drop a deferred one out of
+    /// its retries.
     public func seedPreexisting(_ assets: [(id: String, modified: Date)]) throws {
         try dbQueue.write { db in
             for a in assets {
                 try db.execute(sql: """
                     INSERT INTO uploads(asset_id, modified, bytes, sha, server_name, state, attempts, error, at)
                     VALUES (?, ?, 0, NULL, NULL, ?, 0, NULL, ?)
-                    ON CONFLICT(asset_id) DO UPDATE SET modified = excluded.modified,
-                        state = excluded.state, at = excluded.at
+                    ON CONFLICT(asset_id) DO NOTHING
                 """, arguments: [a.id, Int64(a.modified.timeIntervalSince1970 * 1000),
                                  UploadState.skippedPreexisting.rawValue,
                                  Int64(Date().timeIntervalSince1970 * 1000)])
@@ -160,6 +164,12 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
                            arguments: [UploadState.skippedPreexisting.rawValue])
             return n
         }
+    }
+
+    /// Forgets everything. Called on logout: the next pairing may be another account, and
+    /// what was sent to this one says nothing about what that one has.
+    public func wipe() throws {
+        try dbQueue.write { db in try db.execute(sql: "DELETE FROM uploads") }
     }
 
     public func counts() throws -> JournalCounts {

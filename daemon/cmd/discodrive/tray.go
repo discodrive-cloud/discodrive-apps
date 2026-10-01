@@ -8,9 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -71,10 +69,15 @@ func onReady(ctx context.Context, cancel context.CancelFunc, cfgPath, syncDir st
 		upd := func() {
 			st, err := syncer.ReadStatus(statusFilePath(cfgPath))
 			label := i18n.T("tray_status_starting")
+			tip := i18n.T("tray_status_tooltip")
 			if err == nil {
 				switch st.State {
 				case syncer.StateIdle:
-					label = i18n.T("tray_status_synced")
+					// A finished pass can still have files the server refused.
+					label = withWarning(i18n.T("tray_status_synced"), st.LastError, 60)
+					if st.LastError != "" {
+						tip = withWarning(i18n.T("tray_status_synced"), st.LastError, 0)
+					}
 				case syncer.StateSyncing:
 					label = i18n.T("tray_status_syncing")
 				case syncer.StateOffline:
@@ -82,6 +85,7 @@ func onReady(ctx context.Context, cancel context.CancelFunc, cfgPath, syncDir st
 				}
 			}
 			mStatus.SetTitle(label)
+			mStatus.SetTooltip(tip)
 			if err == nil {
 				indicator.set(st.State)
 			}
@@ -152,19 +156,19 @@ func onReady(ctx context.Context, cancel context.CancelFunc, cfgPath, syncDir st
 						notify(i18n.T("tray_vault_notification_title"), fmt.Sprintf(i18n.T("tray_vault_create_error"), err))
 						return
 					}
-					// Save recovery key next to SyncDir.
-					if v, openErr := vault.Open(newVI.Dir, pw); openErr == nil {
-						home, _ := os.UserHomeDir()
-						recoveryPath := filepath.Join(home, name+"-recovery.txt")
-						phrase := v.RecoveryKey()
-						if writeErr := os.WriteFile(recoveryPath, []byte(phrase+"\n"), 0o600); writeErr == nil {
+					// The recovery phrase is shown once; a copy goes to disk only if the user
+					// asks, outside the synced folder.
+					v, openErr := vault.Open(newVI.Dir, pw)
+					if openErr != nil {
+						notify(i18n.T("tray_vault_notification_title"), fmt.Sprintf(i18n.T("tray_vault_created"), name))
+					} else if phrase := v.RecoveryKey(); showRecoveryPhrase(syncDir, i18n.T("tray_vault_notification_title"),
+						fmt.Sprintf(i18n.T("tray_vault_created_recovery"), name, phrase), phrase) {
+						if recoveryPath, writeErr := saveRecoveryPhrase(syncDir, name, phrase); writeErr == nil {
 							notify(i18n.T("tray_vault_notification_title"), fmt.Sprintf(i18n.T("tray_vault_created_recovery"), name, recoveryPath))
 						} else {
 							log.Printf("vaultmgr: saving recovery key: %v", writeErr)
 							notify(i18n.T("tray_vault_notification_title"), fmt.Sprintf(i18n.T("tray_vault_created_no_recovery"), name, writeErr))
 						}
-					} else {
-						notify(i18n.T("tray_vault_notification_title"), fmt.Sprintf(i18n.T("tray_vault_created"), name))
 					}
 					m := systray.AddMenuItem(vaultLabel(mgr, newVI), "")
 					go wireVaultItem(ctx, mgr, newVI, m)

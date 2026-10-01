@@ -26,6 +26,17 @@ CREATE TABLE IF NOT EXISTS nodes (
     -- See internal/localname.
     local_path   TEXT NOT NULL DEFAULT ''
 );
+-- The nodes as they stood before a reset that keeps the folder (see ClearKeepingSnapshot),
+-- kept until the reset completes so a restart in between still knows what was synced.
+CREATE TABLE IF NOT EXISTS nodes_before_reset (
+    node_id      TEXT PRIMARY KEY,
+    rel_path     TEXT NOT NULL,
+    is_dir       INTEGER NOT NULL,
+    version      INTEGER NOT NULL,
+    content_hash TEXT,
+    size         INTEGER,
+    local_path   TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS local (
     node_id TEXT PRIMARY KEY,
     state   TEXT NOT NULL,
@@ -83,6 +94,13 @@ func Open(path string) (*Index, error) {
 	// the column has to be added separately. Existing rows default to empty, which reads as
 	// "same as rel_path" — true for every node those versions could store.
 	if _, err := db.Exec(`ALTER TABLE nodes ADD COLUMN local_path TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		db.Close()
+		return nil, err
+	}
+	// seq: the feed seq at which the pull last applied the node (see SetSeq); 0 for rows
+	// written before the column existed and for nodes only a push has written so far.
+	if _, err := db.Exec(`ALTER TABLE nodes ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`); err != nil &&
 		!strings.Contains(err.Error(), "duplicate column name") {
 		db.Close()
 		return nil, err
@@ -232,7 +250,7 @@ func (i *Index) BindMirrorPairing(fingerprint string) error {
 	if previous == fingerprint {
 		return tx.Commit()
 	}
-	for _, statement := range []string{"DELETE FROM nodes", "DELETE FROM local", "DELETE FROM meta"} {
+	for _, statement := range []string{"DELETE FROM nodes", "DELETE FROM nodes_before_reset", "DELETE FROM local", "DELETE FROM meta"} {
 		if _, err := tx.Exec(statement); err != nil {
 			return err
 		}
@@ -247,25 +265,60 @@ func (i *Index) BindMirrorPairing(fingerprint string) error {
 
 // Clear drops all known nodes, resets the cursor to 0 and marks the mirror as not yet
 // established, so the next pull rebuilds the tree from scratch and treats the folder as
-// it would after a pairing. Used when the sync scope changes and when a device is
-// re-paired. The scope_epoch is left untouched (the caller sets it after a successful
-// reconcile).
-func (i *Index) Clear() error {
+// it would after a pairing, and drops any pre-reset snapshot. A reset that keeps the
+// folder (scope change, index recovery) uses ClearKeepingSnapshot instead. The
+// scope_epoch is left untouched (the caller sets it after a successful reconcile).
+func (i *Index) Clear() error { return i.clear(false) }
+
+// ClearKeepingSnapshot is Clear for a reset that keeps the folder as the mirror: the node
+// rows move to nodes_before_reset instead of being dropped, so the later sweep can tell
+// synced files from the user's own even across a restart. A snapshot that is already
+// there wins — it is what the folder held before the first attempt; the live rows are a
+// partial re-pull by then — so a repeat only drops them.
+func (i *Index) ClearKeepingSnapshot() error { return i.clear(true) }
+
+func (i *Index) clear(keep bool) error {
 	tx, err := i.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // rolled back only if Commit didn't run
+	if keep {
+		var held int
+		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes_before_reset)").Scan(&held); err != nil {
+			return err
+		}
+		if held == 0 {
+			if _, err := tx.Exec(`INSERT INTO nodes_before_reset
+				(node_id, rel_path, is_dir, version, content_hash, size, local_path)
+				SELECT node_id, rel_path, is_dir, version, content_hash, size, local_path FROM nodes`); err != nil {
+				return err
+			}
+		}
+	} else if _, err := tx.Exec("DELETE FROM nodes_before_reset"); err != nil {
+		return err
+	}
 	if _, err := tx.Exec("DELETE FROM nodes"); err != nil {
 		return err
 	}
-	for _, kv := range [][2]string{{"cursor", "0"}, {"mirror_ready", "0"}} {
+	for _, kv := range [][2]string{{"cursor", "0"}, {"mirror_ready", "0"}, {"pending_names", "null"}} {
 		if _, err := tx.Exec(
 			"INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", kv[0], kv[1]); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// BeforeReset returns the snapshot ClearKeepingSnapshot took, or none if no reset is
+// pending.
+func (i *Index) BeforeReset() ([]Node, error) { return i.nodesFrom("nodes_before_reset") }
+
+// ClearBeforeReset drops the snapshot once the reset it belongs to has completed, or once
+// a completed pull shows the folder was reconciled another way.
+func (i *Index) ClearBeforeReset() error {
+	_, err := i.db.Exec("DELETE FROM nodes_before_reset")
+	return err
 }
 
 func (i *Index) Get(nodeID string) (Node, bool, error) {
@@ -391,8 +444,51 @@ func (i *Index) NodeIDByLocalPath(localPath string) (string, bool, error) {
 }
 
 // All returns all known nodes (for diffing against disk state).
-func (i *Index) All() ([]Node, error) {
-	rows, err := i.db.Query("SELECT node_id, rel_path, is_dir, version, content_hash, size, IIF(local_path = '', rel_path, local_path) FROM nodes")
+func (i *Index) All() ([]Node, error) { return i.nodesFrom("nodes") }
+
+// SetSeq records the feed seq at which a pull last applied nodeID. Put leaves it as it is.
+func (i *Index) SetSeq(nodeID string, seq int64) error {
+	_, err := i.db.Exec("UPDATE nodes SET seq = ? WHERE node_id = ?", seq, nodeID)
+	return err
+}
+
+// Seqs returns the seq recorded by SetSeq for every node, by node id.
+func (i *Index) Seqs() (map[string]int64, error) { return i.seqs("") }
+
+// DirSeqs returns the seq recorded by SetSeq for every folder, by node id. Of two folders
+// indexed at one server path (a ghost and the live folder that took the path since), the
+// one with the higher seq is the live one.
+func (i *Index) DirSeqs() (map[string]int64, error) { return i.seqs(" WHERE is_dir = 1") }
+
+// MaxSeq returns the highest seq recorded by SetSeq, 0 when there is none.
+func (i *Index) MaxSeq() (int64, error) {
+	var m int64
+	err := i.db.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM nodes").Scan(&m)
+	return m, err
+}
+
+// seqs reads node_id → seq; where is a constant filter.
+func (i *Index) seqs(where string) (map[string]int64, error) {
+	rows, err := i.db.Query("SELECT node_id, seq FROM nodes" + where)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var seq int64
+		if err := rows.Scan(&id, &seq); err != nil {
+			return nil, err
+		}
+		out[id] = seq
+	}
+	return out, rows.Err()
+}
+
+// nodesFrom reads every row of a table with the nodes schema; table is a constant.
+func (i *Index) nodesFrom(table string) ([]Node, error) {
+	rows, err := i.db.Query("SELECT node_id, rel_path, is_dir, version, content_hash, size, IIF(local_path = '', rel_path, local_path) FROM " + table)
 	if err != nil {
 		return nil, err
 	}
@@ -421,18 +517,6 @@ func boolToInt(b bool) int {
 
 // --- browse + local-copy support (mobile Browser facade) ---
 
-// escapeLike escapes LIKE wildcards so paths with % or _ match literally.
-func escapeLike(s string) string {
-	var b []rune
-	for _, c := range s {
-		if c == '\\' || c == '%' || c == '_' {
-			b = append(b, '\\')
-		}
-		b = append(b, c)
-	}
-	return string(b)
-}
-
 // Children returns the direct children of the folder at parentRelPath ("" = root). Direct means
 // rel_path is exactly one path segment deeper than parentRelPath.
 func (i *Index) Children(parentRelPath string) ([]Node, error) {
@@ -441,13 +525,15 @@ func (i *Index) Children(parentRelPath string) ([]Node, error) {
 	if parentRelPath == "" {
 		rows, err = i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size,
 			IIF(local_path = '', rel_path, local_path)
-			FROM nodes WHERE rel_path NOT LIKE '%/%' ORDER BY is_dir DESC, rel_path`)
+			FROM nodes WHERE instr(rel_path, '/') = 0 ORDER BY is_dir DESC, rel_path`)
 	} else {
-		p := escapeLike(parentRelPath)
+		// A case-sensitive prefix compare, not LIKE (which ignores ASCII case): the server
+		// allows "Docs" and "docs" as siblings, and each lists only its own children.
 		rows, err = i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size,
 			IIF(local_path = '', rel_path, local_path)
-			FROM nodes WHERE rel_path LIKE ? ESCAPE '\' AND rel_path NOT LIKE ? ESCAPE '\'
-			ORDER BY is_dir DESC, rel_path`, p+"/%", p+"/%/%")
+			FROM nodes WHERE substr(rel_path, 1, length(?1) + 1) = ?1 || '/'
+			  AND instr(substr(rel_path, length(?1) + 2), '/') = 0
+			ORDER BY is_dir DESC, rel_path`, parentRelPath)
 	}
 	if err != nil {
 		return nil, err
@@ -466,6 +552,63 @@ func (i *Index) Children(parentRelPath string) ([]Node, error) {
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+// Subtree returns the node at relPath and every node below it. relPath must not be ""
+// (the root is not a node). The match is case-sensitive: the server allows "Docs" and
+// "docs" as siblings, and SQLite's LIKE ignores ASCII case, so a prefix compare is used
+// instead — forgetting one sibling must never take the other's tree with it.
+func (i *Index) Subtree(relPath string) ([]Node, error) {
+	rows, err := i.db.Query(`SELECT node_id, rel_path, is_dir, version, content_hash, size,
+		IIF(local_path = '', rel_path, local_path)
+		FROM nodes WHERE rel_path = ?1 OR substr(rel_path, 1, length(?1) + 1) = ?1 || '/'`, relPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Node
+	for rows.Next() {
+		var n Node
+		var isDir int
+		var hash sql.NullString
+		if err := rows.Scan(&n.NodeID, &n.RelPath, &isDir, &n.Version, &hash, &n.Size, &n.LocalPath); err != nil {
+			return nil, err
+		}
+		n.IsDir = isDir != 0
+		n.ContentHash = hash.String
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// SubtreeOf returns what to remove when one node goes: the node and, when it is the only
+// node at its path, every node below that path. Paths are not unique — a ghost can still be
+// indexed at a path a live node has taken since — and the index keeps no parent ids, so when
+// another node shares the path the children cannot be told apart and only the node itself is
+// returned. An unknown id returns nothing.
+func (i *Index) SubtreeOf(nodeID string) ([]Node, error) {
+	n, ok, err := i.Get(nodeID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	var others int
+	if err := i.db.QueryRow("SELECT COUNT(*) FROM nodes WHERE rel_path = ? AND node_id != ?",
+		n.RelPath, nodeID).Scan(&others); err != nil {
+		return nil, err
+	}
+	if others > 0 {
+		return []Node{n}, nil
+	}
+	return i.Subtree(n.RelPath)
+}
+
+// LocalPathShared reports whether another node records the same local copy path as nodeID
+// (a ghost and a live file of the same name share one). Such a file is not nodeID's to delete.
+func (i *Index) LocalPathShared(nodeID string) bool {
+	var n int
+	err := i.db.QueryRow(`SELECT COUNT(*) FROM local WHERE node_id != ?1
+		AND path = (SELECT path FROM local WHERE node_id = ?1)`, nodeID).Scan(&n)
+	return err == nil && n > 0
 }
 
 // SetLocal records a downloaded copy (state "cached" or "pinned").

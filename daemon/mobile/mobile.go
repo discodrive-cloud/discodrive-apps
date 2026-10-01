@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,28 +20,71 @@ import (
 	"discodrive.org/daemon/internal/protocol"
 )
 
-// setInsecure opts the whole process into accepting self-signed TLS (dev / LAN-IP). A mobile
-// process serves one server config, so a process-global flag (the same DISCODRIVE_INSECURE_TLS
-// the desktop reads) is acceptable.
-func setInsecure(insecure bool) {
-	if insecure {
-		_ = os.Setenv("DISCODRIVE_INSECURE_TLS", "1")
-		return
+// Every entry point takes the account's certificate pin (the fingerprint the user trusted
+// at pairing, "" for none) and hands it to the protocol constructors it builds. Nothing is
+// stored process-wide: a pinned call must not weaken a later one made without the pin.
+
+// CertificateChangedMarker starts the error text when the server presents a certificate
+// other than the pinned one. gomobile flattens errors to their text, so the apps match on
+// it (as with BulkDeleteMarker); the text goes on to name the expected and actual
+// fingerprints.
+const CertificateChangedMarker = "server certificate changed"
+
+// certError returns a changed-certificate error with its own text, dropping the request
+// and operation prefixes wrapped around it, so the app sees CertificateChangedMarker
+// first. Other errors are returned as they are.
+func certError(err error) error {
+	if !errors.Is(err, protocol.ErrCertificateChanged) {
+		return err
 	}
-	// Clear it too: otherwise once any call enabled insecure TLS the whole process
-	// stayed insecure until restart, even after the user turned the toggle back off.
-	_ = os.Unsetenv("DISCODRIVE_INSECURE_TLS")
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if strings.HasPrefix(e.Error(), CertificateChangedMarker) {
+			return e
+		}
+	}
+	return err
+}
+
+// Certificate is a server's TLS certificate as shown to the user before trusting it.
+type Certificate struct {
+	Host        string
+	Fingerprint string // SHA-256, uppercase hex pairs joined by ':' — the pin to store
+	Subject     string
+	Issuer      string
+	NotAfter    string // RFC 3339
+	SelfSigned  bool
+	Trusted     bool // the system already trusts it; a failed pairing had another cause
+}
+
+// FetchCertificate reads the server's certificate without sending a request. Call it when
+// pairing without a pin failed: if the certificate is not Trusted, show it and, once the
+// user trusts it, pair again with its Fingerprint as the pin. Call off the UI thread.
+func FetchCertificate(serverURL string) (*Certificate, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c, err := protocol.FetchCertificate(ctx, serverURL)
+	if err != nil {
+		return nil, err
+	}
+	return &Certificate{
+		Host:        c.Host,
+		Fingerprint: c.Fingerprint,
+		Subject:     c.Subject,
+		Issuer:      c.Issuer,
+		NotAfter:    c.NotAfter.UTC().Format(time.RFC3339),
+		SelfSigned:  c.SelfSigned,
+		Trusted:     c.Trusted,
+	}, nil
 }
 
 // RevokeDevice removes this device from the account on the server, so its token stops
 // working. Call it on unpairing, before the token is forgotten, off the UI thread. A
 // device the server already rejects counts as revoked; other errors mean the server was
 // not reached, and the caller may still finish unpairing locally.
-func RevokeDevice(serverURL, deviceToken string, insecureTLS bool) error {
-	setInsecure(insecureTLS)
+func RevokeDevice(serverURL, deviceToken, serverPin string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return protocol.NewUnscoped(serverURL, deviceToken).RevokeDevice(ctx)
+	return certError(protocol.NewUnscopedPinned(serverURL, deviceToken, serverPin).RevokeDevice(ctx))
 }
 
 // Pairing carries what the app needs to complete device pairing.
@@ -52,11 +96,11 @@ type Pairing struct {
 }
 
 // PairBegin starts device pairing. deviceKind is "ios" or "android". Call off the UI thread.
-func PairBegin(serverURL, deviceName, deviceKind string, insecureTLS bool) (*Pairing, error) {
-	setInsecure(insecureTLS)
-	p, err := protocol.PairInit(context.Background(), serverURL, deviceName, deviceKind)
+// serverPin is "" for a first attempt, or the Fingerprint of a Certificate the user trusted.
+func PairBegin(serverURL, deviceName, deviceKind, serverPin string) (*Pairing, error) {
+	p, err := protocol.PairInitPinned(context.Background(), serverURL, deviceName, deviceKind, serverPin)
 	if err != nil {
-		return nil, err
+		return nil, certError(err)
 	}
 	return &Pairing{
 		VerificationURL: serverURL + p.VerificationURI,
@@ -67,12 +111,13 @@ func PairBegin(serverURL, deviceName, deviceKind string, insecureTLS bool) (*Pai
 }
 
 // PairAwait blocks until the user approves, returning the device token. Call off the UI thread.
-func PairAwait(serverURL, deviceCode string, intervalSeconds int, insecureTLS bool) (string, error) {
-	setInsecure(insecureTLS)
+// serverPin must be the one PairBegin used.
+func PairAwait(serverURL, deviceCode string, intervalSeconds int, serverPin string) (string, error) {
 	if intervalSeconds <= 0 {
 		intervalSeconds = 2
 	}
-	return protocol.PairPoll(context.Background(), serverURL, deviceCode, time.Duration(intervalSeconds)*time.Second)
+	tok, err := protocol.PairPollPinned(context.Background(), serverURL, deviceCode, time.Duration(intervalSeconds)*time.Second, serverPin)
+	return tok, certError(err)
 }
 
 // Status is a snapshot the app renders. The state machine is driven by SyncOnce.
@@ -111,8 +156,8 @@ type Client struct {
 
 // New builds a sync client. syncDir is the app-sandbox folder to mirror; stateDBPath is a
 // writable path for the local index (sqlite). Both come from the app's sandbox.
-func New(serverURL, deviceToken, syncDir, stateDBPath string, insecureTLS bool) (*Client, error) {
-	setInsecure(insecureTLS)
+// serverPin is the fingerprint saved at pairing, "" for none.
+func New(serverURL, deviceToken, syncDir, stateDBPath, serverPin string) (*Client, error) {
 	if err := os.MkdirAll(syncDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -136,7 +181,7 @@ func New(serverURL, deviceToken, syncDir, stateDBPath string, insecureTLS bool) 
 		idx.Close()
 		return nil, err
 	}
-	client := protocol.New(serverURL, deviceToken)
+	client := protocol.NewPinned(serverURL, deviceToken, serverPin)
 	eng := engine.New(client, idx, syncDir)
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{client: client, eng: eng, idx: idx, ctx: ctx, cancel: cancel, status: Status{State: "idle"}}, nil
@@ -185,22 +230,28 @@ func (c *Client) SyncOnce() error {
 	c.status.State = "syncing"
 	c.mu.Unlock()
 
-	err := c.syncPass(c.ctx)
+	err := certError(c.syncPass(c.ctx))
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if aside := c.eng.SetAside(); aside != "" {
 		c.status.SetAside = aside
 	}
-	if err != nil {
+	if err != nil && !engine.OnlyPushFailures(err) {
 		c.status.State = syncState(err)
 		c.status.LastError = err.Error()
 		return err
 	}
+	// A pass whose only trouble is files the server refused has finished: idle, with the
+	// sync time moved on. The refusal stays in LastError and is still returned so the
+	// host can show it.
 	c.status.State = "idle"
 	c.status.LastError = ""
+	if err != nil {
+		c.status.LastError = err.Error()
+	}
 	c.status.LastSyncUnix = time.Now().Unix()
-	return nil
+	return err
 }
 
 // syncPass mirrors internal/syncer.(*Syncer).SyncOnce. It is duplicated here (instead of
@@ -218,10 +269,20 @@ func (c *Client) syncPass(ctx context.Context) error {
 	if epoch != last {
 		return c.eng.ResetForScope(ctx, epoch)
 	}
-	if err := c.eng.PushLocal(ctx, c.client); err != nil {
-		return err
+	// Files the server rejected are reported, but they must not keep everyone else's
+	// changes from arriving: the pull still runs. A push that failed as a whole
+	// (connection, credentials, mass-deletion guard) ends the pass as before.
+	pushErr := c.eng.PushLocal(ctx, c.client)
+	var failures *engine.PushFailures
+	if pushErr != nil && !errors.As(pushErr, &failures) {
+		return pushErr
 	}
-	return c.eng.PullOnce(ctx)
+	if pullErr := c.eng.PullOnce(ctx); pullErr != nil {
+		return errors.Join(pushErr, pullErr)
+	}
+	// Returned as it is, so hosts can tell a finished pass with rejected files
+	// (engine.OnlyPushFailures) from one that failed.
+	return pushErr
 }
 
 // syncState classifies a failed pass for the UI. A pass that fell over writing to disk — a
@@ -229,6 +290,9 @@ func (c *Client) syncPass(ctx context.Context) error {
 // and calling it "offline" sent people checking their connection while the real reason sat in
 // the error text right below it.
 func syncState(err error) string {
+	if errors.Is(err, protocol.ErrCertificateChanged) {
+		return "error"
+	}
 	var pathErr *os.PathError
 	var linkErr *os.LinkError
 	if errors.As(err, &pathErr) || errors.As(err, &linkErr) {

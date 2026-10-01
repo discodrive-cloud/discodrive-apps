@@ -41,7 +41,7 @@ func TestBrowseRefreshListDownloadPin(t *testing.T) {
 	srv := browseMux(changes, "hello")
 	defer srv.Close()
 	root := t.TempDir()
-	b, err := NewBrowser(srv.URL, "kfd", root, filepath.Join(t.TempDir(), "i.db"), false)
+	b, err := NewBrowser(srv.URL, "kfd", root, filepath.Join(t.TempDir(), "i.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestBrowserExistsWithHash(t *testing.T) {
 	],"cursor":5,"has_more":false}`
 	srv := browseMux(changes, "")
 	defer srv.Close()
-	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), false)
+	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestBrowserExistsWithHash(t *testing.T) {
 func TestBrowserExistsWithHashUnknownParent(t *testing.T) {
 	srv := browseMux(`{"changes":[],"cursor":0,"has_more":false}`, "")
 	defer srv.Close()
-	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), false)
+	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestBrowserRelPath(t *testing.T) {
 	],"cursor":1,"has_more":false}`
 	srv := browseMux(changes, "")
 	defer srv.Close()
-	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), false)
+	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestBrowserRelPath(t *testing.T) {
 }
 
 func TestUnpinPreservesStaleVersion(t *testing.T) {
-	b, err := NewBrowser("http://localhost", "token", t.TempDir(), filepath.Join(t.TempDir(), "index.db"), false)
+	b, err := NewBrowser("http://localhost", "token", t.TempDir(), filepath.Join(t.TempDir(), "index.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestBrowserPairingDoesNotReusePreviousAccountCache(t *testing.T) {
 	srv := browseMux(`{"changes":[{"seq":1,"node_id":"same-id","path":"file.txt","version":1}],"cursor":1}`, "new account bytes")
 	defer srv.Close()
 	root, db := t.TempDir(), filepath.Join(t.TempDir(), "index.db")
-	b, err := NewBrowser(srv.URL, "old-token", root, db, false)
+	b, err := NewBrowser(srv.URL, "old-token", root, db, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestBrowserPairingDoesNotReusePreviousAccountCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.Close()
-	b, err = NewBrowser(srv.URL, "new-token", root, db, false)
+	b, err = NewBrowser(srv.URL, "new-token", root, db, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestBrowserPairingDoesNotReusePreviousAccountCache(t *testing.T) {
 }
 
 func TestRemoveLocalKeepsRecordWhenRemovalFails(t *testing.T) {
-	b, err := NewBrowser("http://localhost", "token", t.TempDir(), filepath.Join(t.TempDir(), "index.db"), false)
+	b, err := NewBrowser("http://localhost", "token", t.TempDir(), filepath.Join(t.TempDir(), "index.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

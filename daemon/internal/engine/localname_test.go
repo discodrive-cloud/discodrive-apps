@@ -83,7 +83,13 @@ func TestSweepOrphansKeepsLocalisedNames(t *testing.T) {
 	if err := e.PullOnce(context.Background()); err != nil {
 		t.Fatalf("PullOnce: %v", err)
 	}
-	if err := e.sweepOrphans(); err != nil {
+	// Even with the pre-reset index naming it (synced, unchanged), a file the fresh
+	// index still holds stays.
+	before, err := e.idx.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.sweepOrphans(before); err != nil {
 		t.Fatalf("sweepOrphans: %v", err)
 	}
 	local := filepath.FromSlash(localname.Localize("notes/worth it?.md"))

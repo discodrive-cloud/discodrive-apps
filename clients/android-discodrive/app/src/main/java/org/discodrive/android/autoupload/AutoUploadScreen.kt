@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.discodrive.android.R
+import org.discodrive.android.explainError
 
 /**
  * The auto-upload screen: which folders go up, under what conditions, and what happened.
@@ -56,6 +57,10 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
                 state.blocked?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                state.error?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(explainError(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 state.running?.let {
                     Spacer(Modifier.height(4.dp))

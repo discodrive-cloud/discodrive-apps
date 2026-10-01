@@ -1,16 +1,16 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../lib/api.js'
-import { t } from '../lib/i18n.js'
+import { t, errorText, isNodeGone } from '../lib/i18n.js'
 const props = defineProps({ node: {type: Object, required: true} })
-const emit = defineEmits(['busy'])
+const emit = defineEmits(['busy', 'changed'])
 const byLink = ref(true), email = ref(''), days = ref(7), shares = ref([]), link = ref(''), createdID = ref('')
 const busy = ref(false), error = ref('')
 async function load() { shares.value = await api.shares(props.node.id) }
 async function run(action) {
   if(busy.value) return
   busy.value = true; emit('busy', true); error.value = ''
-  try { await action() } catch(e) { error.value = String(e) }
+  try { await action() } catch(e) { error.value = errorText(e); if (isNodeGone(e)) emit('changed') }
   finally { busy.value = false; emit('busy', false) }
 }
 async function create() {

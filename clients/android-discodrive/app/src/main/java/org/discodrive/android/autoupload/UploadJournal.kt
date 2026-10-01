@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import org.discodrive.android.Prefs
 import java.io.File
 
 /** What happened to a file the journal knows about. */
@@ -32,7 +33,16 @@ data class JournalCounts(val sent: Int, val skipped: Int, val deferred: Int)
  * Identity is (path, size, mtime): a file edited in place gets a new mtime and is treated
  * as new content, which is what the user means by "I changed this photo".
  */
-class UploadJournal(context: Context) {
+class UploadJournal(
+    context: Context,
+    /**
+     * Every write goes through it: a journal opened before an unpair (a worker pass still
+     * running) must not write the old account's rows after the wipe — into a fresh
+     * autoupload.db, they would stop those files from ever reaching the next server.
+     * A dropped write is a no-op.
+     */
+    val gate: PairingGate = PairingGate(Prefs(context)),
+) {
 
     companion object {
         /** Forgets every file: after unpairing, another server has none of them. */
@@ -92,11 +102,13 @@ class UploadJournal(context: Context) {
      * not today's: a file that changed mid-upload would otherwise be stored under its NEW
      * identity, and the version that changed into would never be sent.
      */
-    fun markSent(file: File, serverName: String, sha: String?, size: Long, mtime: Long) =
-        put(file, serverName, sha, STATE_SENT, error = null, attempts = 0, size = size, mtime = mtime)
+    fun markSent(file: File, serverName: String, sha: String?, size: Long, mtime: Long) {
+        gate.write { put(file, serverName, sha, STATE_SENT, error = null, attempts = 0, size = size, mtime = mtime) }
+    }
 
-    fun markDeferred(file: File, error: String) =
-        put(file, serverName = null, sha = null, state = STATE_DEFERRED, error = error, attempts = attempts(file) + 1)
+    fun markDeferred(file: File, error: String) {
+        gate.write { put(file, serverName = null, sha = null, state = STATE_DEFERRED, error = error, attempts = attempts(file) + 1) }
+    }
 
     /**
      * Records everything currently in the source folder as pre-existing, without uploading
@@ -104,10 +116,20 @@ class UploadJournal(context: Context) {
      * that already holds an archive.
      */
     fun seedPreexisting(files: List<File>) {
+        gate.write { seedPreexistingUnguarded(files) }
+    }
+
+    private fun seedPreexistingUnguarded(files: List<File>) {
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
-            for (f in files) put(f, serverName = null, sha = null, state = STATE_SKIPPED, error = null, attempts = 0, db = db)
+            // Never over a row that is already there: re-adding a folder that was removed
+            // must not turn its sent files into "pre-existing" (which "upload existing files"
+            // would then send again) or drop its deferred ones out of retry.
+            for (f in files) put(
+                f, serverName = null, sha = null, state = STATE_SKIPPED, error = null, attempts = 0, db = db,
+                conflict = SQLiteDatabase.CONFLICT_IGNORE,
+            )
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -121,7 +143,9 @@ class UploadJournal(context: Context) {
      *
      * Returns how many files are now waiting.
      */
-    fun unseed(): Int {
+    fun unseed(): Int = gate.write { unseedUnguarded() } ?: 0
+
+    private fun unseedUnguarded(): Int {
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
@@ -169,6 +193,7 @@ class UploadJournal(context: Context) {
         db: SQLiteDatabase = helper.writableDatabase,
         size: Long = file.length(),
         mtime: Long = file.lastModified(),
+        conflict: Int = SQLiteDatabase.CONFLICT_REPLACE,
     ) {
         val v = ContentValues().apply {
             put("path", key(file))
@@ -181,6 +206,6 @@ class UploadJournal(context: Context) {
             put("error", error)
             put("at", System.currentTimeMillis())
         }
-        db.insertWithOnConflict("sent", null, v, SQLiteDatabase.CONFLICT_REPLACE)
+        db.insertWithOnConflict("sent", null, v, conflict)
     }
 }

@@ -33,5 +33,5 @@ func applyOpenAtLogin(enabled, minimized bool) error {
 	if minimized {
 		flag = hiddenFlag
 	}
-	return os.WriteFile(entry, []byte(linuxDesktopEntry(exe, flag)), 0o644)
+	return os.WriteFile(entry, []byte(linuxDesktopEntry(exe, flag, linuxIconPath())), 0o644)
 }

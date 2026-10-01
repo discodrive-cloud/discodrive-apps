@@ -21,6 +21,10 @@ const markerFile = "vault.cryptomator"
 // ErrLocked is returned when vault keys are not in memory (Open must be called first).
 var ErrLocked = errors.New("vault is not unlocked in memory (open it again)")
 
+// ErrVaultBusy is returned when the vault is already being opened or closed by another
+// call (a double click in the tray menu runs two handlers at once).
+var ErrVaultBusy = errors.New("vault is busy: it is already being opened or closed")
+
 // VaultInfo describes a detected vault.
 type VaultInfo struct {
 	Name string // vault folder name
@@ -41,6 +45,26 @@ type Manager struct {
 	removePlaintext func(string) error          // nil uses os.RemoveAll; injectable for cleanup fault tests
 	unlocked        map[string]*vault.Vault     // vault name → keys (while open)
 	liveAtOpen      map[string]map[string]stamp // vault name → its d/ files when opened
+	busy            map[string]bool             // vault name → an Open or Close is running
+}
+
+// acquire marks the vault busy for one Open or Close, or reports ErrVaultBusy when
+// another one is already running. The returned func releases it.
+func (m *Manager) acquire(name string) (func(), error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.busy[name] {
+		return nil, ErrVaultBusy
+	}
+	if m.busy == nil {
+		m.busy = map[string]bool{}
+	}
+	m.busy[name] = true
+	return func() {
+		m.mu.Lock()
+		delete(m.busy, name)
+		m.mu.Unlock()
+	}, nil
 }
 
 // stamp is what Close compares to tell whether the syncer changed a ciphertext file
@@ -137,8 +161,15 @@ func (m *Manager) IsOpen(vi VaultInfo) bool {
 	return err == nil
 }
 
-// Create creates a new vault named name in SyncDir.
+// Create creates a new vault named name in SyncDir. name is a single folder name: a path
+// ("../x", "a/b") would put the vault outside SyncDir or somewhere the tray never looks.
 func (m *Manager) Create(name, password string) (VaultInfo, error) {
+	if err := vault.CheckPlainName(name); err != nil {
+		return VaultInfo{}, err
+	}
+	if strings.Contains(name, `\`) {
+		return VaultInfo{}, fmt.Errorf("%w: %q", vault.ErrInvalidName, name)
+	}
 	dir := filepath.Join(m.SyncDir, name)
 	if _, err := os.Stat(dir); err == nil {
 		return VaultInfo{}, fmt.Errorf("directory %q already exists", name)
@@ -154,6 +185,11 @@ func (m *Manager) Create(name, password string) (VaultInfo, error) {
 // If the vault is empty (no d/), an empty plainDir is created without calling DecryptTree.
 // On success, keys are stored in memory — Close will not require the password.
 func (m *Manager) Open(vi VaultInfo, password string) (string, error) {
+	release, err := m.acquire(vi.Name)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	v, err := vault.Open(vi.Dir, password)
 	if err != nil {
 		return "", err
@@ -164,6 +200,11 @@ func (m *Manager) Open(vi VaultInfo, password string) (string, error) {
 // OpenWithKeys opens a vault using master keys recovered from a recovery phrase,
 // bypassing the password.
 func (m *Manager) OpenWithKeys(vi VaultInfo, encKey, macKey []byte) (string, error) {
+	release, err := m.acquire(vi.Name)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	v, err := vault.OpenWithKeys(vi.Dir, encKey, macKey)
 	if err != nil {
 		return "", err
@@ -357,9 +398,23 @@ func fileHash(p string) ([sha256.Size]byte, error) {
 // are dropped only after the vault matches the stage.
 // If keys are not in memory (failed Open, crash, new process) — returns ErrLocked; plaintext is untouched.
 func (m *Manager) Close(vi VaultInfo) error {
+	release, err := m.acquire(vi.Name)
+	if err != nil {
+		return err
+	}
+	defer release()
 	m.mu.Lock()
-	v, snap, atOpen := m.unlocked[vi.Name], m.snapshots[vi.Name], m.liveAtOpen[vi.Name]
+	v, snap, live := m.unlocked[vi.Name], m.snapshots[vi.Name], m.liveAtOpen[vi.Name]
 	pending := m.pendingCleanup[vi.Name]
+	// applyStage advances the stamps of what it writes; it works on a copy, stored back
+	// under the lock, so no one else ever sees the map while it changes.
+	var atOpen map[string]stamp
+	if live != nil {
+		atOpen = make(map[string]stamp, len(live))
+		for k, st := range live {
+			atOpen[k] = st
+		}
+	}
 	m.mu.Unlock()
 	if pending != nil {
 		return m.FinishClose(vi, pending)
@@ -380,12 +435,17 @@ func (m *Manager) Close(vi VaultInfo) error {
 	}
 	if stage != vi.Dir {
 		defer os.RemoveAll(stage)
-		if err := applyStage(stage, vi.Dir, atOpen); err != nil {
+		err := applyStage(stage, vi.Dir, atOpen)
+		m.mu.Lock()
+		// Kept even on failure: a retry must recognise the entries this attempt wrote.
+		m.liveAtOpen[vi.Name] = atOpen
+		if err == nil {
+			m.snapshots[vi.Name] = after
+		}
+		m.mu.Unlock()
+		if err != nil {
 			return err
 		}
-		m.mu.Lock()
-		m.snapshots[vi.Name] = after
-		m.mu.Unlock()
 	}
 	return m.FinishClose(vi, &PreparedClose{Dir: vi.Dir, snapshot: after})
 }

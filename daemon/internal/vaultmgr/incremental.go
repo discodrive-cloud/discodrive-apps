@@ -8,6 +8,10 @@ import (
 	"discodrive.org/daemon/internal/vault"
 )
 
+// ErrNoSnapshot: the vault's opening snapshot is missing, so this process cannot tell
+// what changed (and cannot re-encrypt incrementally).
+var ErrNoSnapshot = fmt.Errorf("vault: missing opening snapshot")
+
 // PreparedClose retains both keys and plaintext until the caller commits its
 // encrypted tree to remote storage. The caller owns Dir if it differs from vi.Dir.
 type PreparedClose struct {
@@ -45,7 +49,7 @@ func (m *Manager) PrepareClose(vi VaultInfo) (*PreparedClose, error) {
 		return nil, ErrLocked
 	}
 	if s == nil {
-		return nil, fmt.Errorf("vault: missing opening snapshot")
+		return nil, ErrNoSnapshot
 	}
 	dir, after, err := v.PrepareTree(m.plainDir(vi), vi.Dir, s)
 	if err != nil {

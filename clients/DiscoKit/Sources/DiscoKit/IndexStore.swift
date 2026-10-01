@@ -44,6 +44,12 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
                   PRIMARY KEY(vault_id, dir_id)
                 );
             """)
+            // The feed seq at which a row was last written; 0 for rows from before. Of two
+            // folders at one path (a ghost and the live folder that took the path since),
+            // the one written last is the live one.
+            if try !db.columns(in: "nodes").contains(where: { $0.name == "seq" }) {
+                try db.execute(sql: "ALTER TABLE nodes ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
+            }
             // 0: the directory is there. Otherwise the cursor as of which it was found gone.
             if try !db.columns(in: "vault_dirs").contains(where: { $0.name == "gone_at" }) {
                 try db.execute(sql: "ALTER TABLE vault_dirs ADD COLUMN gone_at INTEGER NOT NULL DEFAULT 0")
@@ -64,44 +70,129 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
             guard let last = changes.map(\.seq).max() else { return }
             try db.execute(sql: "INSERT INTO meta(key,value) VALUES('cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                            arguments: [String(last)])
+            // Rows are applied one by one, in feed order, each with its parent resolved at
+            // once: a delete further down the page then walks the tree as it stands at that
+            // point. Resolving parents only after the whole page left a node moved out of a
+            // folder still hanging from it by its old parent id, and a delete of that folder
+            // later in the page took the live node along.
             for ch in changes {
                 let path = Self.normalize(ch.path)
                 if ch.deleted {
-                    guard !path.isEmpty else {
-                        try db.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [ch.nodeID])
-                        continue
-                    }
-                    // The folder's own subtree only: "a_" must not take "ab/…" with it.
-                    try db.execute(sql: "DELETE FROM nodes WHERE id = ? OR path LIKE ? ESCAPE '\\'",
-                                   arguments: [ch.nodeID, Self.likePrefix(path) + "/%"])
+                    // By id, where the index has the node — never the feed's path: a purged
+                    // node is re-announced with its original path, which a newer node may
+                    // hold by now. An id the index does not have leaves nothing to delete.
+                    try Self.deleteSubtree(db, nodeID: ch.nodeID)
                     continue
                 }
                 let name = (path as NSString).lastPathComponent
-                try db.execute(sql: """
-                    INSERT INTO nodes(id,parent_id,name,is_dir,version,content_hash,size,path)
-                    VALUES(?,?,?,?,?,?,?,?)
-                    ON CONFLICT(id) DO UPDATE SET
-                      name=excluded.name, is_dir=excluded.is_dir, version=excluded.version,
-                      content_hash=excluded.content_hash, size=excluded.size, path=excluded.path
-                """, arguments: [ch.nodeID, nil, name, ch.isDir, ch.version, ch.contentHash, ch.size, path])
-            }
-            // Parents are resolved for the rows this batch touched, and for the children of
-            // any folder it touched — not for the whole table, which held the write lock
-            // for seconds per page on a large tree and starved the other process.
-            for ch in changes where !ch.deleted {
-                let path = Self.normalize(ch.path)
+                // Parents are resolved for the rows this page touches, and for the children of
+                // any folder it touches — not for the whole table, which held the write lock
+                // for seconds per page on a large tree and starved the other process.
                 let parentPath = (path as NSString).deletingLastPathComponent
                 let pid: String? = (parentPath.isEmpty || parentPath == "/")
-                    ? nil : try String.fetchOne(db, sql: "SELECT id FROM nodes WHERE path = ?", arguments: [parentPath])
-                try db.execute(sql: "UPDATE nodes SET parent_id = ? WHERE id = ?", arguments: [pid, ch.nodeID])
+                    ? nil : try String.fetchOne(db, sql: "SELECT id FROM nodes WHERE path = ? AND is_dir = 1 AND id != ? ORDER BY seq DESC LIMIT 1",
+                                                arguments: [parentPath, ch.nodeID])
+                try db.execute(sql: """
+                    INSERT INTO nodes(id,parent_id,name,is_dir,version,content_hash,size,path,seq)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      parent_id=excluded.parent_id,
+                      name=excluded.name, is_dir=excluded.is_dir, version=excluded.version,
+                      content_hash=excluded.content_hash, size=excluded.size, path=excluded.path,
+                      seq=excluded.seq
+                """, arguments: [ch.nodeID, pid, name, ch.isDir, ch.version, ch.contentHash, ch.size, path, ch.seq])
                 if ch.isDir {
                     // Children that arrived before their folder now have a parent to point at.
+                    // Case-sensitive (see underSQL): "docs/b" is not a child of "Docs".
                     try db.execute(sql: """
-                        UPDATE nodes SET parent_id = ? WHERE path LIKE ? ESCAPE '\\' AND path NOT LIKE ? ESCAPE '\\' AND id != ?
-                    """, arguments: [ch.nodeID, Self.likePrefix(path) + "/%", Self.likePrefix(path) + "/%/%", ch.nodeID])
+                        UPDATE nodes SET parent_id = ? WHERE \(Self.underSQL) AND instr(substr(path, length(?) + 2), '/') = 0 AND id != ?
+                    """, arguments: [ch.nodeID, path, path, path, ch.nodeID])
                 }
             }
         }
+    }
+
+    // "path is strictly under the folder bound twice as the next two arguments". A prefix
+    // compare rather than LIKE: LIKE ignores ASCII case, and the server allows "Docs" and
+    // "docs" as siblings, so a LIKE match took the other folder's tree along. It also needs
+    // no escaping of "%" and "_".
+    static let underSQL = "substr(path, 1, length(?) + 1) = ? || '/'"
+
+    // The node and, for a folder, everything under it — found by identity, never by a path
+    // taken from the feed. Paths are not unique: a ghost can still be indexed at a path a live
+    // node has taken since, and parent ids are resolved from paths, so under a shared path
+    // they cannot be trusted (the newer folder adopts every child at that path). In that case
+    // only the node itself is returned; otherwise the subtree is walked through parent ids.
+    // An id the index does not have returns nothing.
+    static func subtreeIDs(_ db: Database, nodeID: String) throws -> [String] {
+        guard let path = try String.fetchOne(db, sql: "SELECT path FROM nodes WHERE id = ?", arguments: [nodeID]) else { return [] }
+        let shared = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM nodes WHERE path = ? AND id != ?", arguments: [path, nodeID]) ?? 0
+        if shared > 0 { return [nodeID] }
+        return try String.fetchAll(db, sql: """
+            WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT c.id FROM nodes c JOIN t ON c.parent_id = t.id)
+            SELECT id FROM t
+        """, arguments: [nodeID])
+    }
+
+    // Applies a delete of one node (see subtreeIDs). Returns the ids removed.
+    @discardableResult
+    static func deleteSubtree(_ db: Database, nodeID: String) throws -> [String] {
+        let ids = try subtreeIDs(db, nodeID: nodeID)
+        for id in ids { try db.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [id]) }
+        return ids
+    }
+
+    // Applies a delete the change feed never delivered — the server answered that the node
+    // does not exist (APIError.nodeNotFound) — the same way `apply` applies a delete event.
+    // The cursor does not move. Returns the ids that left the index; empty for an unknown id.
+    @discardableResult
+    public func forget(nodeID: String) throws -> [String] {
+        try dbQueue.write { db in try Self.deleteSubtree(db, nodeID: nodeID) }
+    }
+
+    // Runs a request about nodeID. When the server answers that the node does not exist, the
+    // node and its subtree are forgotten and APIError.nodeNotFound is rethrown, for the
+    // caller to say so. Any other outcome passes through untouched.
+    // For a request whose 404 can also be about something else it names — a share's
+    // recipient, a version to restore — pass `confirm`: the node is forgotten only when it
+    // answers that the node does not exist; otherwise (or when asking fails) the answer
+    // stays a plain `.http(404)` and nothing is forgotten.
+    public func forgettingIfGone<T>(_ nodeID: String, confirm: ((String) async throws -> Bool)? = nil,
+                                    _ body: () async throws -> T) async throws -> T {
+        do { return try await body() }
+        catch APIError.nodeNotFound {
+            if let confirm, (try? await confirm(nodeID)) != false { throw APIError.http(404) }
+            try forget(nodeID: nodeID)
+            throw APIError.nodeNotFound
+        }
+    }
+
+    // Deletes nodeID on the server through body. A node the server no longer has is already
+    // what was asked for: it is forgotten and the delete succeeds. Returns the ids forgotten
+    // that way (empty after an ordinary delete).
+    @discardableResult
+    public func deleteForgettingGone(nodeID: String, _ body: () async throws -> Void) async throws -> [String] {
+        do {
+            try await body()
+            return []
+        } catch APIError.nodeNotFound {
+            return try forget(nodeID: nodeID)
+        }
+    }
+
+    // After a move answered APIError.nodeNotFound. The server says the same whether the
+    // moved node or the destination folder is missing, so each is asked about through
+    // `exists` and the ones gone are forgotten. A question that fails forgets nothing.
+    // Returns the ids that left the index.
+    @discardableResult
+    public func forgetGoneAfterMove(nodeID: String, parentID: String?,
+                                    exists: (String) async throws -> Bool) async -> [String] {
+        var forgotten: [String] = []
+        for id in [nodeID, parentID].compactMap({ $0 }) {
+            guard let alive = try? await exists(id), !alive else { continue }
+            forgotten += (try? forget(nodeID: id)) ?? []
+        }
+        return forgotten
     }
 
     // The one spelling of a server path the index, the local copies and the import agree
@@ -110,10 +201,6 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
         path.split(separator: "/", omittingEmptySubsequences: true).joined(separator: "/")
     }
 
-    // A path as a LIKE prefix, with the pattern characters it may contain escaped.
-    static func likePrefix(_ path: String) -> String {
-        path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
-    }
 
     public func node(id: String) throws -> Node? {
         try dbQueue.read { db in

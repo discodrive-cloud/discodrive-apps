@@ -45,6 +45,10 @@ final class ChunkedUploadTests: XCTestCase {
         var failOnce: (Int, Int)?
         var failed = false
         var completeStatus = 201
+        /// What init reports as the first chunk to send.
+        var initNextChunk = 0
+        /// A next_chunk every chunk reply reports instead of the real one, or nil.
+        var chunkReplyOverride: Int?
     }
 
     private func install(_ srv: FakeServer) {
@@ -61,7 +65,7 @@ final class ChunkedUploadTests: XCTestCase {
                 srv.inits.append(obj)
                 srv.assembled = Data()
                 srv.nextChunk = 0
-                return json(["upload_id": "u\(srv.inits.count)", "next_chunk": 0], 201)
+                return json(["upload_id": "u\(srv.inits.count)", "next_chunk": srv.initNextChunk], 201)
             }
             if path.contains("/upload/"), path.contains("/chunk/") {
                 srv.chunkCalls += 1
@@ -76,7 +80,7 @@ final class ChunkedUploadTests: XCTestCase {
                 }
                 srv.assembled.append(MockURLProtocol.lastBody ?? Data())
                 srv.nextChunk += 1
-                return json(["next_chunk": srv.nextChunk])
+                return json(["next_chunk": srv.chunkReplyOverride ?? srv.nextChunk])
             }
             if path.hasSuffix("/complete") {
                 if srv.completeStatus != 201 {
@@ -146,6 +150,37 @@ final class ChunkedUploadTests: XCTestCase {
             try await uploader.upload(fileURL: url, parentID: nil, name: "photo.jpg", modifiedAt: nil)
             XCTFail("expected the size mismatch to surface")
         } catch UploadError.fileChangedDuringUpload {
+            // expected
+        }
+    }
+
+    /// A negative position from the server used to reach `UInt64(offset)` and crash the
+    /// app (or the File Provider extension); it is a bad response, nothing more.
+    func testNegativeNextChunkIsAServerError() async throws {
+        let srv = FakeServer(); srv.initNextChunk = -1; install(srv)
+        let url = try file(bytes: 20_000)
+        let api = APIClient(baseURL: URL(string: "https://example.test")!, deviceToken: "dt", session: session)
+        let uploader = ChunkedUploader(api: api, chunkSize: 4_096)
+        do {
+            try await uploader.upload(fileURL: url, parentID: nil, name: "photo.jpg", modifiedAt: nil)
+            XCTFail("a negative next_chunk must be refused")
+        } catch APIError.badResponse {
+            // expected
+        }
+        XCTAssertEqual(srv.chunkCalls, 0, "nothing is sent from a nonsensical position")
+    }
+
+    /// A position past the end of the file would overflow the offset arithmetic; it is
+    /// refused the same way, wherever it comes from.
+    func testNextChunkBeyondTheFileIsAServerError() async throws {
+        let srv = FakeServer(); srv.chunkReplyOverride = Int.max; install(srv)
+        let url = try file(bytes: 20_000)
+        let api = APIClient(baseURL: URL(string: "https://example.test")!, deviceToken: "dt", session: session)
+        let uploader = ChunkedUploader(api: api, chunkSize: 4_096)
+        do {
+            try await uploader.upload(fileURL: url, parentID: nil, name: "photo.jpg", modifiedAt: nil)
+            XCTFail("a next_chunk past the end must be refused")
+        } catch APIError.badResponse {
             // expected
         }
     }

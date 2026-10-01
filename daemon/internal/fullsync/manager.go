@@ -255,7 +255,7 @@ func (m *Manager) start(ctx context.Context) (err error) {
 		idx.Close()
 		return err
 	}
-	client := protocol.NewStrict(m.account.ServerURL, m.account.DeviceToken)
+	client := protocol.NewPinned(strings.TrimRight(m.account.ServerURL, "/"), m.account.DeviceToken, m.account.ServerPin)
 	eng := engine.NewPrepared(client, idx, root)
 	m.statusMu.Lock()
 	m.activityEngine = eng

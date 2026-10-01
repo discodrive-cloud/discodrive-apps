@@ -30,6 +30,14 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// one being sent finishes, the rest are dropped.
     private var passTask: Task<RunResult, Never>?
     private var settingsGeneration = 0
+    /// How a pass waits for the network path to settle. Replaced only by tests, which need
+    /// to hold a pass at this suspension point.
+    var waitForPath: @MainActor () async -> Void = { await Conditions.shared.waitForPath() }
+    /// What stops a pass (network, Wi-Fi, charging). Replaced only by tests.
+    var blockingCondition: @MainActor (AutoUploadSettings) -> UploadBlock = { settings in
+        Conditions.shared.check(wifiOnly: settings.wifiOnly, chargingOnly: settings.chargingOnly,
+                                requireBattery: settings.requireBattery)
+    }
 
     /// Hands the service what it needs from the app: how to reach the server. Called once
     /// the app is paired, and again after re-pairing.
@@ -88,8 +96,16 @@ final class AutoUploadService: NSObject, ObservableObject {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
         stopPass()
         _ = await passTask?.value
+        // A pass still waiting for the network has no task to await yet. It notices the new
+        // generation when it resumes and returns without touching anything; wait for that
+        // (bounded — the path wait itself gives up after five seconds).
+        var waited = 0
+        while running, waited < 80 { try? await Task.sleep(for: .milliseconds(100)); waited += 1 }
         settings.seeded = false
         settings.destID = nil
+        // The next pairing may be another account: what went to this one says nothing
+        // about what that one has, and a re-seed must start from an empty journal.
+        do { try openJournal().wipe() } catch { lastResult = RunResult(error: String(describing: error)) }
     }
 
     // MARK: - Passes
@@ -101,20 +117,25 @@ final class AutoUploadService: NSObject, ObservableObject {
         guard let api = apiProvider?() else {
             return RunResult(error: "not paired")
         }
+        // Claimed before the first suspension point: set after it, a background task and a
+        // library change could both pass the guard above and run two passes side by side,
+        // uploading the same photos twice.
+        running = true
+        defer { running = false; progressText = nil }
+        let generation = settingsGeneration
         // Give the path monitor a moment before believing it: at launch it reports nothing
         // for a beat, and calling that "no network" is how a pass silently did nothing.
-        await Conditions.shared.waitForPath()
-        let blocked = Conditions.shared.check(wifiOnly: settings.wifiOnly,
-                                              chargingOnly: settings.chargingOnly,
-                                              requireBattery: settings.requireBattery)
+        await waitForPath()
+        // Logout or switch-off while waiting: the journal may be wiped and `api` belongs to
+        // the account being left. Seeding or uploading now would undo the logout.
+        guard settings.enabled, settingsGeneration == generation else { return RunResult() }
+        let blocked = blockingCondition(settings)
         guard blocked == .none else {
             var r = RunResult(); r.blocked = blocked
             lastResult = r
             return r
         }
 
-        running = true
-        defer { running = false; progressText = nil }
         do {
             let journal = try openJournal()
             let runner = AutoUploadRunner(api: api, journal: journal, settings: settings)

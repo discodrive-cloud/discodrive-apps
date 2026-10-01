@@ -4,7 +4,7 @@ import DiscoKit
 // VaultFileSource/Sink backed by the server: reads encrypted vault files through the
 // index + APIClient, writes them via PUT/POST. vaultRoot is the server path of the
 // vault folder (e.g. "/testvault").
-struct ServerVaultIO: VaultFileSource, VaultFileSink {
+struct ServerVaultIO: VaultFileSource, VaultFileSink, VaultFileStreamSource, VaultFileStreamSink {
     let vaultRoot: String
     let index: IndexStore
     let client: APIClient
@@ -49,12 +49,17 @@ struct ServerVaultIO: VaultFileSource, VaultFileSink {
     // that is there and files ours beside it as a conflict copy. That copy is removed again
     // — in a vault's storage it is a name nobody can decrypt — and the write fails.
     func createFile(_ relPath: String, _ data: Data) async throws {
-        let parent = (relPath as NSString).deletingLastPathComponent
-        if !parent.isEmpty { try await makeDir(parent) }
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("ddk-vault-\(UUID().uuidString)")
         try data.write(to: tmp)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let outcome = try await client.upload(fileURL: tmp, relPath: full(relPath), modifiedAt: nil,
+        try await createFile(relPath, contentsOf: tmp)
+    }
+
+    // The ciphertext of a renamed or moved file, straight from disk (VaultFileStreamSink).
+    func createFile(_ relPath: String, contentsOf file: URL) async throws {
+        let parent = (relPath as NSString).deletingLastPathComponent
+        if !parent.isEmpty { try await makeDir(parent) }
+        let outcome = try await client.upload(fileURL: file, relPath: full(relPath), modifiedAt: nil,
                                               baseVersion: ContentVersionCodec.unknownBase)
         guard outcome.conflicted else { return }
         if !outcome.nodeID.isEmpty {
@@ -62,6 +67,12 @@ struct ServerVaultIO: VaultFileSource, VaultFileSink {
             try await conflictCleanup.retry { try await client.delete(nodeID: $0) }
         }
         throw Vault.VaultError.nameTaken(full(relPath))
+    }
+
+    // A file's ciphertext to disk, never whole in memory (VaultFileStreamSource).
+    func download(_ relPath: String, to destination: URL) async throws {
+        guard let node = try index.node(atPath: full(relPath)) else { throw CocoaError(.fileNoSuchFile) }
+        try await client.download(nodeID: node.id, to: destination)
     }
 
     func remove(_ relPath: String) async throws {

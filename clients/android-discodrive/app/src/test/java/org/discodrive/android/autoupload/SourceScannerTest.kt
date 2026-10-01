@@ -114,4 +114,34 @@ class SourceScannerTest {
         listOf("a.txt", "b.xmp", "c.aae", "d.pdf", "noextension")
             .forEach { assertFalse(it, SourceScanner.isMedia(it)) }
     }
+
+    // A clock that was wrong when the photo was taken, or a file copied from a device in
+    // another timezone, leaves an mtime in the future. It is not "being written"; waiting for
+    // it to settle would wait forever.
+    @Test
+    fun `a file dated in the future is still picked up`() {
+        file("IMG_future.jpg", ageMs = -3_600_000)
+        file("IMG_old.jpg")
+        val got = SourceScanner.scan(tmp.root, mediaOnly = true, includeSubfolders = false, now = now)
+        assertEquals(setOf("IMG_future.jpg", "IMG_old.jpg"), names(got))
+    }
+
+    // The fallback seed runs on the first pass that is allowed to run, which may be days
+    // after the folder was added (wifi-only, away from wifi). What was taken in between is
+    // new, not pre-existing.
+    @Test
+    fun `seed keeps only files older than the rule`() {
+        val before = file("IMG_before.jpg", ageMs = 86_400_000)
+        val after = file("IMG_after.jpg", ageMs = 60_000)
+        val createdAt = now - 3_600_000
+        val got = SourceScanner.preexisting(listOf(before, after), createdAt)
+        assertEquals(listOf(before), got)
+    }
+
+    @Test
+    fun `seed of a rule with no creation time takes the whole folder`() {
+        val a = file("IMG_a.jpg", ageMs = 86_400_000)
+        val b = file("IMG_b.jpg", ageMs = 60_000)
+        assertEquals(listOf(a, b), SourceScanner.preexisting(listOf(a, b), createdAt = 0L))
+    }
 }

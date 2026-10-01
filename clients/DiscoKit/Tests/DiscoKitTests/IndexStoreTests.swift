@@ -113,4 +113,65 @@ final class IndexStoreTests: XCTestCase {
         try store.setCursor(3)
         XCTAssertEqual(try store.cursor(), 5, "and never backwards")
     }
+
+    // MARK: - A move and a delete in one page
+
+    private func put(_ seq: Int64, _ id: String, _ path: String, dir: Bool = false) -> RemoteChange {
+        RemoteChange(seq: seq, op: "put", nodeID: id, path: path, isDir: dir, version: seq, contentHash: "", size: 0, deleted: false)
+    }
+    private func del(_ seq: Int64, _ id: String, _ path: String, dir: Bool = true) -> RemoteChange {
+        RemoteChange(seq: seq, op: "del", nodeID: id, path: path, isDir: dir, version: seq, contentHash: "", size: 0, deleted: true)
+    }
+    private func seeded() throws -> IndexStore {
+        let store = try makeStore()
+        try store.apply([put(1, "A", "A", dir: true), put(2, "B", "B", dir: true),
+                         put(3, "x", "A/x"), put(4, "keep", "A/keep")])
+        return store
+    }
+
+    // A file moved out of a folder and then the folder deleted, in one page: the delete must
+    // not take the file by the parent id it had before the move.
+    func testAFileMovedOutOfAFolderSurvivesTheFoldersDeleteInTheSamePage() throws {
+        let store = try seeded()
+        try store.apply([put(5, "x", "B/x"), del(6, "A", "A")])
+        XCTAssertEqual(try store.node(id: "x")?.path, "B/x")
+        XCTAssertEqual(try store.node(id: "x")?.parentID, "B")
+        XCTAssertEqual(try store.children(of: "B").map(\.id), ["x"])
+        XCTAssertNil(try store.node(id: "A"))
+        XCTAssertNil(try store.node(id: "keep"), "what stayed in the folder goes with it")
+        XCTAssertEqual(try store.cursor(), 6)
+    }
+
+    // The same two events in the other order: the folder's delete takes the file, and the
+    // move that follows brings it back where it now is.
+    func testAFileMovedOutAfterItsFoldersDeleteInTheSamePageIsThere() throws {
+        let store = try seeded()
+        try store.apply([del(5, "A", "A"), put(6, "x", "B/x")])
+        XCTAssertEqual(try store.node(id: "x")?.path, "B/x")
+        XCTAssertEqual(try store.node(id: "x")?.parentID, "B")
+        XCTAssertNil(try store.node(id: "keep"))
+    }
+
+    // A folder moved out (its descendants re-announced at their new paths, as the server
+    // does) and its old parent deleted, in one page.
+    func testAFolderMovedOutOfAFolderKeepsItsTreeThroughTheOldParentsDelete() throws {
+        let store = try seeded()
+        try store.apply([put(5, "sub", "A/sub", dir: true), put(6, "s1", "A/sub/s1")])
+        try store.apply([put(7, "sub", "B/sub", dir: true), put(8, "s1", "B/sub/s1"), del(9, "A", "A")])
+        XCTAssertEqual(try store.node(id: "sub")?.parentID, "B")
+        XCTAssertEqual(try store.node(id: "s1")?.parentID, "sub")
+        XCTAssertEqual(try store.node(id: "s1")?.path, "B/sub/s1")
+        XCTAssertNil(try store.node(id: "keep"))
+    }
+
+    // Only the folder's own event before the delete (its descendants' come later or in the
+    // next page): the tree still hangs from the folder by id and is not taken.
+    func testAFolderMovedOutKeepsItsTreeWhenTheDescendantsComeAfterTheDelete() throws {
+        let store = try seeded()
+        try store.apply([put(5, "sub", "A/sub", dir: true), put(6, "s1", "A/sub/s1")])
+        try store.apply([put(7, "sub", "B/sub", dir: true), del(8, "A", "A")])
+        XCTAssertNotNil(try store.node(id: "s1"))
+        try store.apply([put(9, "s1", "B/sub/s1")])
+        XCTAssertEqual(try store.node(id: "s1")?.parentID, "sub")
+    }
 }

@@ -52,6 +52,14 @@ object SourceScanner {
         return out
     }
 
+    /**
+     * The part of a seed scan that counts as the folder's archive: files older than the rule.
+     * A rule with no recorded creation time ([createdAt] 0, stored by an older version) keeps
+     * the old behaviour and takes everything.
+     */
+    fun preexisting(files: List<File>, createdAt: Long): List<File> =
+        if (createdAt <= 0L) files else files.filter { it.lastModified() < createdAt }
+
     /** Guards against a symlink loop or a pathologically deep tree in a background pass. */
     private const val MAX_DEPTH = 16
 
@@ -77,7 +85,10 @@ object SourceScanner {
             }
             if (isPartial(name)) continue
             if (f.length() == 0L) continue
-            if (now - f.lastModified() < SETTLE_MS) continue
+            // A future mtime (a wrong clock, a copy from another device) is not "being
+            // written"; skipping it would skip it forever.
+            val age = now - f.lastModified()
+            if (age in 0 until SETTLE_MS) continue
             if (mediaOnly && !isMedia(name)) continue
             out.add(f)
         }

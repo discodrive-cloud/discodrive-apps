@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"discodrive.org/daemon/internal/engine"
 	"discodrive.org/daemon/internal/index"
+	"discodrive.org/daemon/internal/protocol"
 	"discodrive.org/daemon/internal/safepath"
 )
 
@@ -26,7 +28,13 @@ type ServerAPI interface {
 	UploadFile(ctx context.Context, parentID, name string, r io.Reader, modTime time.Time) error
 	EnsureDir(ctx context.Context, relPath string) (engine.RemoteNode, error)
 	PushFile(ctx context.Context, relPath string, baseVersion *int64, r io.Reader, modTime time.Time) (engine.RemoteNode, bool, error)
+	NodeExists(ctx context.Context, nodeID string) (bool, error)
 }
+
+// ErrNodeGone is returned by an operation on a node the server no longer has. The node and
+// its subtree have already been removed from the index by then, so the caller only has to
+// relist and tell the user. The text starts with a stable tag the Wails UI localizes.
+var ErrNodeGone = errors.New("node_gone: the item no longer exists on the server")
 
 // Entry is one row in a directory listing: the indexed node plus its local state.
 type Entry struct {
@@ -43,11 +51,24 @@ type Controller struct {
 	idx           *index.Index
 	contentDir    string
 	vaultCacheDir string // optional profile-owned ciphertext cache, outside contentDir
+	// vaultPlainRoot is where open vaults are decrypted: this profile's own folder for the
+	// server it is paired with (see vaultPlainRootFor). "" keeps vaultmgr's shared default.
+	vaultPlainRoot string
+	// tempRoot holds the ciphertext temp folders (ddvopen-*, ddvault-*, ddvclose-*); ""
+	// is os.TempDir().
+	tempRoot string
 
 	mu       sync.Mutex
 	sessions map[string]*vaultSession // keyed by vault server relPath
 	opening  map[string]bool          // vaults being downloaded and decrypted right now
+
+	fetches sync.WaitGroup // downloads into contentDir in flight (see Wait)
 }
+
+// Wait blocks until every download into the content cache has finished. Call it before
+// wiping the cache, once no new Open/Pin can start, so a fetch does not recreate files in
+// a directory being removed.
+func (c *Controller) Wait() { c.fetches.Wait() }
 
 // NewController builds a controller. contentDir must already exist (or be creatable
 // by the caller before Open/Pin are used).
@@ -79,9 +100,7 @@ func (c *Controller) Refresh(ctx context.Context) (int, error) {
 		}
 		for _, ch := range changes {
 			if ch.Deleted || ch.Op == "delete" {
-				// Remove the cached file from disk too, not just the index record.
-				_ = c.RemoveLocal(ch.NodeID)
-				if err := c.idx.Delete(ch.NodeID); err != nil {
+				if err := c.applyDelete(ch.NodeID); err != nil {
 					return applied, err
 				}
 			} else {
@@ -119,6 +138,60 @@ func (c *Controller) Refresh(ctx context.Context) (int, error) {
 	}
 }
 
+// applyDelete applies a server-side delete of one node: its cached file goes from disk
+// too, not just the index record — unless another node records the same file (a ghost and a
+// live file of the same name), which then keeps it.
+func (c *Controller) applyDelete(nodeID string) error {
+	if c.idx.LocalPathShared(nodeID) {
+		_ = c.idx.DeleteLocal(nodeID)
+	} else {
+		_ = c.RemoveLocal(nodeID)
+	}
+	return c.idx.Delete(nodeID)
+}
+
+// ForgetNode applies a delete the change feed never delivered: nodeID and every node
+// below it leave the index and the content cache, exactly as Refresh applies a delete
+// event. Used when the server answers that the node does not exist.
+func (c *Controller) ForgetNode(nodeID string) error {
+	nodes, err := c.idx.SubtreeOf(nodeID)
+	if err != nil {
+		return err
+	}
+	for _, d := range nodes {
+		if err := c.applyDelete(d.NodeID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForgetIfGone turns the server's "node not found" about nodeID into ErrNodeGone after
+// forgetting the node; any other error is returned as it is.
+func (c *Controller) ForgetIfGone(nodeID string, err error) error {
+	if !protocol.IsNotFound(err) {
+		return err
+	}
+	if ferr := c.ForgetNode(nodeID); ferr != nil {
+		return ferr
+	}
+	return fmt.Errorf("%w (%v)", ErrNodeGone, err)
+}
+
+// ForgetIfConfirmedGone is ForgetIfGone for a request whose 404 can also be about
+// something else it names — a share's recipient, a version to restore. The node is
+// forgotten only when the server confirms it does not exist; otherwise, or when asking
+// fails, err is returned as it is.
+func (c *Controller) ForgetIfConfirmedGone(ctx context.Context, nodeID string, err error) error {
+	if !protocol.IsNotFound(err) {
+		return err
+	}
+	if exists, xerr := c.srv.NodeExists(ctx, nodeID); xerr != nil || exists {
+		return err
+	}
+	return c.ForgetIfGone(nodeID, err)
+}
+
 // List returns the children of the directory at relPath (root is ""), each annotated
 // with its local cache state. The server version drives the stale flag.
 func (c *Controller) List(relPath string) ([]Entry, error) {
@@ -137,6 +210,8 @@ func (c *Controller) List(relPath string) ([]Entry, error) {
 // fetch downloads nodeID's content into contentDir and marks it with state.
 // Returns the local path. Reused by Open (state "cached") and Pin (state "pinned").
 func (c *Controller) fetch(ctx context.Context, nodeID, state string) (string, error) {
+	c.fetches.Add(1)
+	defer c.fetches.Done()
 	n, ok, err := c.idx.Get(nodeID)
 	if err != nil {
 		return "", err
@@ -154,17 +229,25 @@ func (c *Controller) fetch(ctx context.Context, nodeID, state string) (string, e
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return "", err
 	}
-	f, err := os.Create(dest)
+	// Download beside the destination and rename over it only once complete: a failed
+	// download must not truncate what is there — possibly another node's copy under the
+	// same name (a ghost and a live file share a path until the ghost is forgotten).
+	f, err := os.CreateTemp(filepath.Dir(dest), ".download-*")
 	if err != nil {
 		return "", err
 	}
+	defer os.Remove(f.Name()) // no-op once renamed
 	if err := c.srv.Download(ctx, nodeID, f); err != nil {
 		f.Close()
-		return "", err
+		return "", c.ForgetIfGone(nodeID, err)
 	}
 	if err := f.Close(); err != nil {
 		return "", err
 	}
+	if err := os.Rename(f.Name(), dest); err != nil {
+		return "", err
+	}
+	markDownloaded(dest)
 	if err := c.idx.SetLocal(nodeID, state, n.Version, dest); err != nil {
 		return "", err
 	}
@@ -263,19 +346,47 @@ func (c *Controller) CreateFolder(ctx context.Context, parentID, name string) er
 	return c.srv.CreateFolder(ctx, parentID, name)
 }
 
-// Rename renames a node on the server.
+// Rename renames a node on the server. A node the server no longer has is forgotten and
+// reported as ErrNodeGone.
 func (c *Controller) Rename(ctx context.Context, nodeID, newName string) error {
-	return c.srv.RenameNode(ctx, nodeID, newName)
+	return c.ForgetIfGone(nodeID, c.srv.RenameNode(ctx, nodeID, newName))
 }
 
-// Move reparents a node on the server.
+// Move reparents a node on the server. The server answers the same 404 whether the node
+// or the destination folder is missing, so on that answer the controller asks which one
+// is gone and forgets that one (both, if both are) before reporting ErrNodeGone.
 func (c *Controller) Move(ctx context.Context, nodeID, newParentID string) error {
-	return c.srv.MoveNode(ctx, nodeID, newParentID)
+	err := c.srv.MoveNode(ctx, nodeID, newParentID)
+	if !protocol.IsNotFound(err) {
+		return err
+	}
+	forgot := false
+	for _, id := range []string{nodeID, newParentID} {
+		if id == "" {
+			continue
+		}
+		exists, xerr := c.srv.NodeExists(ctx, id)
+		if xerr != nil || exists {
+			continue
+		}
+		if ferr := c.ForgetNode(id); ferr != nil {
+			return ferr
+		}
+		forgot = true
+	}
+	if !forgot {
+		return err
+	}
+	return fmt.Errorf("%w (%v)", ErrNodeGone, err)
 }
 
-// Delete removes a node on the server.
+// Delete removes a node on the server. A node the server no longer has is already what
+// the user asked for: it is forgotten locally and the delete succeeds.
 func (c *Controller) Delete(ctx context.Context, nodeID string) error {
-	return c.srv.DeleteNode(ctx, nodeID)
+	if err := c.ForgetIfGone(nodeID, c.srv.DeleteNode(ctx, nodeID)); err != nil && !errors.Is(err, ErrNodeGone) {
+		return err
+	}
+	return nil
 }
 
 // Upload streams a new file into parentID on the server. modTime is the content's own

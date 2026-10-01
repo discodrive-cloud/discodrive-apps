@@ -119,6 +119,9 @@ func (s *vaultTestServer) Changes(_ context.Context, since int64, limit int) ([]
 func (s *vaultTestServer) CreateFolder(_ context.Context, _, _ string) error { return nil }
 func (s *vaultTestServer) RenameNode(_ context.Context, _, _ string) error   { return nil }
 func (s *vaultTestServer) MoveNode(_ context.Context, _, _ string) error     { return nil }
+func (s *vaultTestServer) NodeExists(_ context.Context, _ string) (bool, error) {
+	return true, nil
+}
 func (s *vaultTestServer) DeleteNode(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

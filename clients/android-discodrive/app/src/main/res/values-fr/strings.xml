@@ -14,11 +14,13 @@
     <string name="perm_grant">Accorder l\'accès</string>
 
     <string name="setup_server_url">URL du serveur</string>
-    <string name="setup_self_signed">Certificat auto-signé</string>
-    <string name="setup_self_signed_warn">Désactive la vérification du certificat TLS — votre jeton et vos fichiers peuvent être interceptés. À utiliser uniquement sur un réseau de confiance.</string>
     <string name="setup_code">Code : %1$s</string>
     <string name="setup_confirm_code">Confirmez ce code dans le navigateur pour appairer.</string>
     <string name="setup_pair">Appairer l\'appareil</string>
+    <string name="setup_https_required">L\'adresse du serveur doit commencer par https://. Le http non chiffré n\'est autorisé que pour localhost.</string>
+    <string name="error_node_gone">Cet élément n’existe plus sur le serveur. La liste a été mise à jour.</string>
+    <string name="error_trash_blocked">Certains éléments n’ont pas pu être supprimés, car un dossier contient encore des fichiers qui ne sont pas dans la corbeille. Restaurez-les ou déplacez-les d’abord.</string>
+    <string name="setup_open_manually">Le serveur a envoyé un lien de confirmation que l\'application n\'ouvrira pas automatiquement. Ouvrez-le vous-même dans un navigateur si vous lui faites confiance :</string>
 
     <string name="menu_new_folder">Nouveau dossier</string>
     <string name="menu_upload">Téléverser</string>
@@ -98,6 +100,7 @@
     <string name="au_blocked_charging">En attente du chargeur</string>
     <string name="au_blocked_battery">Batterie trop faible</string>
     <string name="au_blocked_network">En attente de connexion</string>
+    <string name="au_add_failed">Impossible d\'ajouter le dossier : %1$s</string>
     <string name="au_pick_folder">Choisir un dossier à envoyer</string>
     <string name="au_backfill">Envoyer aussi les fichiers existants</string>
     <string name="au_backfill_ask">%1$d fichiers sont déjà sur ce téléphone et ont été ignorés. Les envoyer maintenant ? Sur une grande archive, c\'est long — de préférence en Wi-Fi et branché.</string>
@@ -122,4 +125,17 @@
     <string name="sync_channel">Synchronisation du dossier</string>
     <string name="sync_notification">Synchronisation du dossier du serveur…</string>
     <string name="sync_live">Les changements sur le serveur arrivent tant que l’application est ouverte ; en arrière-plan, le dossier est vérifié environ toutes les 20 minutes.</string>
+
+    <!-- Server certificate trust -->
+    <string name="cert_title">Certificat non approuvé</string>
+    <string name="cert_self_signed">Auto-signé</string>
+    <string name="cert_host">Serveur</string>
+    <string name="cert_fingerprint">Empreinte SHA-256</string>
+    <string name="cert_subject">Délivré à</string>
+    <string name="cert_issuer">Délivré par</string>
+    <string name="cert_expires">Expire le</string>
+    <string name="cert_hint">Ne faites confiance que si l\'empreinte correspond à celle du certificat de votre serveur.</string>
+    <string name="cert_trust">Faire confiance</string>
+    <string name="cert_changed">Le certificat du serveur n\'est pas celui que vous avez approuvé lors de l\'association. Quelqu\'un intercepte peut-être la connexion. Si le certificat a été remplacé volontairement, dissociez puis associez à nouveau l\'appareil pour approuver le nouveau.</string>
+    <string name="settings_cert_pinned">Certificat approuvé (SHA-256)</string>
 </resources>

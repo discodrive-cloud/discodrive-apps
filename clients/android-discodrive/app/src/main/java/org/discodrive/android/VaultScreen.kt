@@ -65,7 +65,7 @@ fun VaultScreen(vm: VaultViewModel, ui: VaultState) {
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (ui.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
+            ui.error?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(ui.entries, key = { it.fileStoragePath + it.dirID + it.name }) { e ->
                     ListItem(

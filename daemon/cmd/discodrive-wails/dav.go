@@ -61,10 +61,22 @@ func (a *App) GetDAVSetup() (DAVSetup, error) {
 	return out, err
 }
 func (a *App) PrepareDAV(calendars, contacts bool) (DAVSetup, error) {
-	return a.prepareDAV(calendars, contacts, false)
+	return a.rememberDAVURL(a.prepareDAV(calendars, contacts, false))
 }
 func (a *App) PrepareDAVAutomatic(calendars, contacts bool) (DAVSetup, error) {
-	return a.prepareDAV(calendars, contacts, true)
+	return a.rememberDAVURL(a.prepareDAV(calendars, contacts, true))
+}
+
+// rememberDAVURL keeps the profile link of a successful preparation for OpenDAVURL, which
+// opens only that link, never one passed in from the web view.
+func (a *App) rememberDAVURL(out DAVSetup, err error) (DAVSetup, error) {
+	a.urlMu.Lock()
+	defer a.urlMu.Unlock()
+	a.lastDAVURL = ""
+	if err == nil {
+		a.lastDAVURL = out.URL
+	}
+	return out, err
 }
 func (a *App) prepareDAV(calendars, contacts, automatic bool) (DAVSetup, error) {
 	out := DAVSetup{Supported: runtime.GOOS == "darwin"}
@@ -152,5 +164,8 @@ func (a *App) RevokeDAV() error {
 	if err = a.up.RevokeDAVPassword(a.ctx, credential.ID); err != nil {
 		return err
 	}
+	a.urlMu.Lock()
+	a.lastDAVURL = ""
+	a.urlMu.Unlock()
 	return davcredentials.Delete(service)
 }

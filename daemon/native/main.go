@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -43,7 +44,9 @@ func DDFullSyncSetLogPath(path *C.char) *C.char {
 	return nil
 }
 
-type configuration struct{ Server, Token, Root, Database string }
+// configuration is the JSON the app passes to DDFullSyncStart. Pin is the fingerprint of the
+// server certificate the user trusted at pairing, "" for a server the system trusts.
+type configuration struct{ Server, Token, Root, Database, Pin string }
 
 var native struct {
 	sync.Mutex
@@ -98,7 +101,7 @@ func start(cfg configuration) error {
 			return err
 		}
 	}
-	client := protocol.NewStrict(cfg.Server, cfg.Token)
+	client := protocol.NewPinned(strings.TrimRight(cfg.Server, "/"), cfg.Token, cfg.Pin)
 	eng := engine.NewPrepared(client, idx, cfg.Root)
 	eng.ObserveChanges(func(c engine.Change, phase string, elapsed time.Duration, err error) {
 		log.Printf("pull %s seq=%d path=%q bytes=%d elapsed=%s error=%v", phase, c.Seq, c.RelPath, c.Size, elapsed.Round(time.Millisecond), err)

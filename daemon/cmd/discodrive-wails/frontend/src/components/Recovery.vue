@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { RefreshCw, Folder, FileText } from 'lucide-vue-next'
 import { api } from '../lib/api.js'
-import { t } from '../lib/i18n.js'
+import { t, errorText, isNodeGone } from '../lib/i18n.js'
 const props = defineProps({ node: { type: Object, default: null } })
 const emit = defineEmits(['changed', 'busy'])
 const items = ref([]), busy = ref(false), error = ref(''), notice = ref(''), pending = ref(null)
@@ -12,7 +12,7 @@ async function load() {
 async function run(action) {
   if (busy.value) return
   busy.value = true; emit('busy', true); error.value = ''; notice.value = ''
-  try { await action() } catch(e) { error.value = String(e) }
+  try { await action() } catch(e) { error.value = errorText(e); if (isNodeGone(e)) emit('changed') }
   finally { busy.value = false; emit('busy', false) }
 }
 async function restore(item) {
@@ -26,10 +26,18 @@ async function confirm() {
   const action = pending.value
   pending.value = null
   await run(async () => {
-    if (props.node) { await api.restoreVersion(props.node.id, action.version); notice.value = t('recovery.restored') }
-    else if (action.all) await api.emptyTrash()
-    else await api.purge(action.id)
-    await load(); emit('changed')
+    if (props.node) {
+      await api.restoreVersion(props.node.id, action.version); notice.value = t('recovery.restored')
+      await load(); emit('changed')
+      return
+    }
+    // Relist whatever the outcome: a refused purge (409) may still have removed other items.
+    try {
+      if (action.all) await api.emptyTrash()
+      else await api.purge(action.id)
+    } finally {
+      await load().catch(() => {}); emit('changed')
+    }
   })
 }
 onMounted(() => run(load))

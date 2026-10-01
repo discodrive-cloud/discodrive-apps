@@ -4,7 +4,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersion = "0.0.6"
+// Release CI stamps both from the tag (DISCODRIVE_VERSION_NAME / DISCODRIVE_VERSION_CODE);
+// a local build falls back to the values below. A tag that did not bump them used to ship
+// with the old code, and Android refused it as a downgrade.
+val appVersion: String = System.getenv("DISCODRIVE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.0.6"
+val appVersionCode: Int = System.getenv("DISCODRIVE_VERSION_CODE")?.takeIf { it.isNotBlank() }?.let {
+    requireNotNull(it.toIntOrNull()?.takeIf { code -> code > 0 }) {
+        "DISCODRIVE_VERSION_CODE must be a positive integer, got '$it'"
+    }
+} ?: 3
 
 // Names the APK after the product instead of the module. Both Android apps live in a module
 // called "app", so both built an "app-debug.apk" — and the release workflow copies every APK
@@ -20,7 +28,7 @@ android {
         targetSdk = 34
         // Bumped on every release: Android refuses to install a build over one with the
         // same code, so leaving it behind means updating only by reinstalling.
-        versionCode = 3
+        versionCode = appVersionCode
         versionName = appVersion
     }
     // Releases are signed with one long-lived key so updates install over each other.

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +22,8 @@ data class UiState(
     val lastSyncUnix: Long = 0,
     val lastError: String? = null,
     val pendingUserCode: String? = null,
+    /** A certificate the system rejected, waiting for the user to trust it or not. */
+    val certificate: CertDetails? = null,
     // Where the first pass after pairing moved the folder's previous contents, if any.
     val setAside: String? = null,
 )
@@ -35,7 +38,19 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     val syncDir: File = File(Environment.getExternalStorageDirectory(), "DiscoDriveFastSync/Sync")
     private val stateDbPath: String get() = File(getApplication<Application>().filesDir, "state.db").path
 
-    init { refreshAfterPermission(); watchSyncWork() }
+    init { refreshAfterPermission(); watchSyncWork(); showUnpairWipe() }
+
+    /** Busy while an unpair's local wipe runs, including one started by an earlier screen. */
+    private fun showUnpairWipe() {
+        // No isActive check: a wipe that already finished joins at once and still clears the
+        // busy state unpair() set.
+        val wipe = ClientHolder.unpairWipe ?: return
+        _ui.value = _ui.value.copy(working = true)
+        viewModelScope.launch {
+            wipe.join()
+            _ui.value = _ui.value.copy(working = false)
+        }
+    }
 
     fun hasStoragePermission(): Boolean = Environment.isExternalStorageManager()
 
@@ -44,7 +59,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshAfterPermission() {
         val token = prefs.deviceToken
         if (!_ui.value.paired && token != null && prefs.serverURL.isNotEmpty() && hasStoragePermission()) {
-            openClient(prefs.serverURL, token, prefs.insecure)
+            openClient()
             return
         }
         // Not paired yet — but a pairing may be outstanding, approved while the app was away
@@ -53,7 +68,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         if (token == null && !resuming && _ui.value.pendingUserCode == null) resumePendingPairing()
     }
 
-    private fun openClient(server: String, token: String, insecure: Boolean) {
+    private fun openClient() {
         try {
             ClientHolder.get(getApplication()) ?: error("not paired")
             _ui.value = _ui.value.copy(paired = true)
@@ -62,16 +77,47 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** The server and certificate the trust dialog is showing; only this pin may be used. */
+    private var certOffer: Pair<String, CertDetails>? = null
+
     // openUrl is invoked (on the main thread) after PairBegin so the UI can open the browser
     // at the verification URL before PairAwait blocks.
-    fun pair(server: String, insecure: Boolean, openUrl: (String) -> Unit) {
+    fun pair(server: String, openUrl: (String) -> Unit) {
+        certOffer = null
+        beginPairing(server.trim(), "", openUrl)
+    }
+
+    /** The user trusted the certificate on screen: pair again, accepting exactly that one. */
+    fun trustCertificate(openUrl: (String) -> Unit) {
+        val (server, cert) = certOffer ?: return
+        certOffer = null
+        _ui.value = _ui.value.copy(certificate = null)
+        beginPairing(server, cert.fingerprint, openUrl)
+    }
+
+    fun rejectCertificate() {
+        certOffer = null
+        _ui.value = _ui.value.copy(certificate = null)
+    }
+
+    private fun beginPairing(server: String, pin: String, openUrl: (String) -> Unit) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(working = true, lastError = null)
+            _ui.value = _ui.value.copy(working = true, lastError = null, certificate = null)
+            // An unpair still wiping the previous index must finish first, or it wipes this one.
+            ClientHolder.unpairWipe?.join()
             try {
-                val p = withContext(Dispatchers.IO) {
-                    SyncCore.pairBegin(server, Build.MODEL, "android", insecure)
+                val p = try {
+                    withContext(Dispatchers.IO) { SyncCore.pairBegin(server, Build.MODEL, "android", pin) }
+                } catch (e: Exception) {
+                    // Strict pairing failed. If the reason is a certificate the system does not
+                    // trust, offer it; any other failure is reported as it is.
+                    val offer = if (pin.isEmpty()) untrustedCertificate(server) else null
+                    if (offer == null) throw e
+                    certOffer = server to offer
+                    _ui.value = _ui.value.copy(certificate = offer)
+                    return@launch
                 }
-                val pending = PendingPairing(server, p.deviceCode, p.userCode, p.intervalSeconds, insecure)
+                val pending = PendingPairing(server, p.deviceCode, p.userCode, p.intervalSeconds, pin)
                 withContext(Dispatchers.IO) { prefs.pendingPairing = pending }
                 _ui.value = _ui.value.copy(pendingUserCode = p.userCode)
                 openUrl(p.verificationURL)
@@ -82,6 +128,10 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value = _ui.value.copy(working = false, pendingUserCode = null)
             }
         }
+    }
+
+    private suspend fun untrustedCertificate(server: String): CertDetails? = withContext(Dispatchers.IO) {
+        CertTrust.offerFor(runCatching { SyncCore.fetchCertificate(server) }.getOrNull())
     }
 
     /**
@@ -113,7 +163,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun awaitApproval(pending: PendingPairing) {
         val token = try {
             withContext(Dispatchers.IO) {
-                SyncCore.pairAwait(pending.server, pending.deviceCode, pending.intervalSeconds, pending.insecure)
+                SyncCore.pairAwait(pending.server, pending.deviceCode, pending.intervalSeconds, pending.pin)
             }
         } catch (e: Exception) {
             // A network failure leaves it pending, to be retried; anything else is the server
@@ -124,9 +174,9 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         }
         withContext(Dispatchers.IO) {
-            prefs.saveServer(pending.server, token, pending.insecure)
+            prefs.saveServer(pending.server, token, pending.pin)
             prefs.pendingPairing = null
-            openClient(pending.server, token, pending.insecure)
+            openClient()
         }
         SyncWorker.schedule(getApplication())
     }
@@ -211,12 +261,31 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun unpair() {
+        val server = prefs.serverURL
+        val token = prefs.deviceToken
+        val pin = prefs.serverPin
         prefs.clear()
         SyncWorker.cancel(getApplication())
-        _ui.value = UiState()
-        // Off the main thread: closing waits for a pass in flight to finish. The index goes
-        // with it — one that outlives the pairing describes files this device no longer has,
-        // and the next pass would push their absence as deletions on the server.
-        viewModelScope.launch { withContext(Dispatchers.IO) { ClientHolder.wipe(getApplication()) } }
+        // Busy until the wipe is done: a pairing started before it would have its fresh index
+        // wiped. beginPairing waits for the wipe too, from any screen (the job is process-wide).
+        _ui.value = UiState(working = true)
+        val app = getApplication<Application>()
+        // Outside the screen's scope: leaving the screen must not skip the wipe. Off the main
+        // thread: closing waits for a pass in flight to finish. The index goes with it — one that
+        // outlives the pairing describes files this device no longer has, and the next pass
+        // would push their absence as deletions on the server.
+        val wipe = CoroutineScope(Dispatchers.IO).launch { ClientHolder.wipe(app) }
+        ClientHolder.unpairWipe = wipe
+        showUnpairWipe()
+        // End the device on the server too: forgotten only here, the token kept working for
+        // anyone holding a copy. It runs after the wipe with the token captured above and
+        // detached, so offline unpairing completes and never holds up a new pairing. The call
+        // blocks; its own 15 s timeout (mobile.RevokeDevice) is what bounds it.
+        if (server.isNotEmpty() && !token.isNullOrEmpty()) {
+            CoroutineScope(Dispatchers.IO).launch {
+                wipe.join()
+                runCatching { SyncCore.revokeDevice(server, token, pin) }
+            }
+        }
     }
 }

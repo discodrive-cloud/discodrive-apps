@@ -18,12 +18,39 @@ class RuleTest {
         includeSubfolders = true,
         seeded = true,
         destID = "node-9",
+        createdAt = 1_700_000_000_000L,
     )
 
     @Test
     fun `a list survives a round trip`() {
         val back = Rule.listFromJson(Rule.listToJson(listOf(camera, downloads)))
         assertEquals(listOf(camera, downloads), back)
+    }
+
+    @Test
+    fun `creation time survives a round trip`() {
+        val back = Rule.fromJson(downloads.toJson())
+        assertEquals(1_700_000_000_000L, back.createdAt)
+    }
+
+    // Rules stored before the creation time existed must still load, and read as "unknown"
+    // so the fallback seed treats their whole folder as pre-existing, as it always did.
+    @Test
+    fun `a legacy rule without a creation time loads with zero`() {
+        val legacy = org.json.JSONObject(
+            """{"sourcePath":"/storage/emulated/0/DCIM/Camera","dest":["DeviceUploads","Pixel 8"],"seeded":false}"""
+        )
+        val r = Rule.fromJson(legacy)
+        assertEquals(0L, r.createdAt)
+        assertTrue(!r.seeded)
+    }
+
+    @Test
+    fun `a new rule records when it was made`() {
+        val before = System.currentTimeMillis()
+        val r = Rule.of("/tmp/photos", listOf("X"))
+        assertTrue(r.createdAt >= before)
+        assertTrue(r.createdAt <= System.currentTimeMillis())
     }
 
     @Test

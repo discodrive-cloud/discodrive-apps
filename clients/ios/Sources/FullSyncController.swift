@@ -123,8 +123,10 @@ final class FullSyncController: ObservableObject {
                 try FullSyncStorage.prepare(folder: folder, state: state, backups: docs.appendingPathComponent("Sync Backups", isDirectory: true))
             }.value
             guard enabled, app.paired, app.serverURL == server, foreground || backgroundGrant, !Task.isCancelled else { return }
+            // The certificate trusted at pairing ("" = strict), the same the app itself accepts.
+            let pin = try KeychainToken.loadShared(service: KeychainToken.pinService) ?? ""
             let data = try JSONSerialization.data(withJSONObject: ["Server": server.absoluteString, "Token": token,
-                "Root": folder.path, "Database": state.appendingPathComponent("state.db").path])
+                "Root": folder.path, "Database": state.appendingPathComponent("state.db").path, "Pin": pin])
             let error = String(decoding: data, as: UTF8.self).withCString { DDFullSyncStart($0) }
             if let error { DDFullSyncFree(error); throw CocoaError(.fileWriteUnknown) }
             running = true

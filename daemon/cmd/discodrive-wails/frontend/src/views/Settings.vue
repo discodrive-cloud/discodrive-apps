@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { Sun, Moon, FolderOpen, Globe, ChevronDown } from 'lucide-vue-next'
 import { api } from '../lib/api.js'
-import { t, setLocale, languages } from '../lib/i18n.js'
+import { t, setLocale, languages, errorText } from '../lib/i18n.js'
 import { applyTheme } from '../lib/theme.js'
 import Dialog from '../components/Dialog.vue'
 import DAVSetup from '../components/DAVSetup.vue'
@@ -13,6 +13,11 @@ const settings = ref({ theme: 'dark', lang: 'en', openAtLogin: false, startMinim
 const server = ref('')
 const cache = ref('')
 const confirmUnpair = ref(false)
+const unpairError = ref('')
+const confirmUnpairAnyway = ref(false)
+const unpairBusy = ref(false)
+const recovered = ref(null) // { recoveryDir, recovered } after a forced sign-out kept work
+const partialKept = ref(null) // the same, when the forced sign-out stopped part-way
 const sync = ref({ folder: '', enabled: false, state: 'stopped' })
 const syncBusy = ref(false)
 const syncError = ref('')
@@ -82,9 +87,73 @@ function toggleStartMinimized() {
   settings.value.startMinimized = !settings.value.startMinimized
   persist()
 }
+// tr is t() with an English fallback, for messages whose translations are still to come.
+function tr(key, english, params) {
+  const s = t(key, params)
+  if (s !== key) return s
+  let out = english
+  for (const k in params || {}) out = out.replaceAll(`{${k}}`, () => String(params[k]))
+  return out
+}
+function errString(e) {
+  return typeof e === 'string' ? e : (e?.message ?? String(e))
+}
+
+// Unpairing stops, with nothing changed, when an open vault cannot be saved or decrypted
+// files of an earlier session are still on disk: the backend tags that
+// "vault_save_failed:". The user may then sign out anyway, which keeps that work in a
+// recovery folder first.
 async function doChangeServer() {
   confirmUnpair.value = false
-  await api.unpair()
+  unpairError.value = ''
+  try {
+    await api.unpair()
+  } catch (e) {
+    if (errString(e).startsWith('vault_save_failed:')) {
+      unpairError.value = tr('settings.unpairVaultSaveFailed',
+        "Couldn't save an open vault, or decrypted vault files from an earlier session are still on this computer, so this device stays signed in. Close your vaults and try again, or sign out anyway.")
+      confirmUnpairAnyway.value = true
+    } else {
+      unpairError.value = errorText(e)
+    }
+    return
+  }
+  emit('unpaired')
+}
+
+async function doUnpairAnyway() {
+  unpairBusy.value = true
+  unpairError.value = ''
+  partialKept.value = null
+  let res
+  try {
+    res = await api.unpairAnyway()
+  } catch (e) {
+    res = { error: errString(e) }
+  } finally {
+    unpairBusy.value = false
+  }
+  confirmUnpairAnyway.value = false
+  if (res?.error) {
+    // Still signed in. Vaults closed before the failure have their changes in the
+    // recovery folder: say where, or the user would not know they left the vault.
+    unpairError.value = res.error.startsWith('vault_recovery_failed:')
+      ? tr('settings.unpairRecoveryFailed',
+        "Couldn't keep the unsaved vault changes, so this device stays signed in: {error}",
+        { error: res.error.replace(/^vault_recovery_failed:\s*/, '') })
+      : errorText(res.error)
+    if (res.recovered?.length) partialKept.value = res
+    return
+  }
+  if (res?.recovered?.length) {
+    recovered.value = res // shown until the user has read where the work is
+    return
+  }
+  emit('unpaired')
+}
+
+function closeRecovered() {
+  recovered.value = null
   emit('unpaired')
 }
 </script>
@@ -144,6 +213,13 @@ async function doChangeServer() {
           <div class="flex items-center gap-2">
             <input :value="server" readonly class="min-w-0 flex-1 truncate rounded border border-line bg-panel2 px-2 py-1.5 text-sm text-ink outline-none" />
             <button class="btn-ghost shrink-0" @click="confirmUnpair = true">{{ t('settings.changeServer') }}</button>
+          </div>
+          <p v-if="unpairError" role="alert" class="mt-1.5 break-words text-xs text-danger">{{ unpairError }}</p>
+          <div v-if="partialKept" class="mt-1.5 text-xs text-muted">
+            <p>{{ t('settings.unpairPartialKept', { dir: partialKept.recoveryDir }) }}</p>
+            <ul class="mt-1 space-y-1 text-ink">
+              <li v-for="p in partialKept.recovered" :key="p" class="break-all font-mono">{{ p }}</li>
+            </ul>
           </div>
         </div>
 
@@ -227,6 +303,22 @@ async function doChangeServer() {
       </template>
     </Dialog>
 
+    <Dialog :open="confirmUnpairAnyway" :title="tr('settings.unpairAnywayTitle', 'Sign out anyway?')" @close="confirmUnpairAnyway = false">
+      <p class="text-sm text-muted">{{ tr('settings.unpairAnywayBody', "Your open vaults can't be saved to the server. If you sign out anyway, their unsaved changes are kept on this computer, in a recovery folder in your home folder (DiscoDrive Recovery), and not uploaded. Encrypted copies open with the vault's password.") }}</p>
+      <template #footer>
+        <button class="btn-ghost" :disabled="unpairBusy" @click="confirmUnpairAnyway = false">{{ t('common.cancel') }}</button>
+        <button class="btn-accent !bg-danger/15 !text-danger !ring-danger/30" :disabled="unpairBusy" @click="doUnpairAnyway">{{ tr('settings.unpairAnyway', 'Sign out anyway') }}</button>
+      </template>
+    </Dialog>
+    <Dialog :open="!!recovered" :title="tr('settings.unpairRecoveredTitle', 'Signed out')" @close="closeRecovered">
+      <p class="text-sm text-muted">{{ tr('settings.unpairRecoveredBody', 'Unsaved vault changes were kept in {dir}. Folders marked NOT ENCRYPTED hold decrypted files: move them somewhere safe or delete them once you no longer need them.', { dir: recovered?.recoveryDir }) }}</p>
+      <ul class="mt-2 space-y-1 text-xs text-ink">
+        <li v-for="p in recovered?.recovered || []" :key="p" class="break-all font-mono">{{ p }}</li>
+      </ul>
+      <template #footer>
+        <button class="btn-accent" @click="closeRecovered">{{ t('common.close') }}</button>
+      </template>
+    </Dialog>
     <Dialog :open="confirmUnpair" :title="t('settings.changeServerTitle')" @close="confirmUnpair = false">
       <p class="text-sm text-muted">{{ t('settings.changeServerConfirm') }}</p>
       <template #footer>

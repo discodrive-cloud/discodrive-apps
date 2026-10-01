@@ -140,8 +140,7 @@ extension Vault {
         if entry.isDir, let subDirID = entry.dirID {
             try await writeDirWrapper(name: name, subDirID: subDirID, parentDirID: newParentDirID, sink: sink)
         } else if let cp = entry.contentPath {
-            let data = try await decryptFile(at: cp, source: source)
-            try await addFile(name: name, data: data, parentDirID: newParentDirID, sink: sink, createOnly: true)
+            try await reencryptFile(at: cp, as: name, into: newParentDirID, source: source, sink: sink)
         } else {
             return
         }
@@ -186,9 +185,51 @@ extension Vault {
             try await sink.remove(entry.encPath)
         } else if let cp = entry.contentPath {
             // File: re-encrypt under the new name, then remove the old entry.
-            let data = try await decryptFile(at: cp, source: source)
-            try await addFile(name: newName, data: data, parentDirID: parentDirID, sink: sink, createOnly: true)
+            try await reencryptFile(at: cp, as: newName, into: parentDirID, source: source, sink: sink)
             try await sink.remove(entry.encPath)
         }
+    }
+
+    // Writes the file at `contentPath` again as `name` in `parentDirID`, create-only.
+    // Through a streaming source and sink the contents go ciphertext file → plaintext file
+    // → new ciphertext file, memory bounded by one 32 KiB frame; otherwise in memory.
+    private func reencryptFile(at contentPath: String, as name: String, into parentDirID: String,
+                               source: VaultFileSource, sink: VaultFileSink) async throws {
+        guard let streamSource = source as? VaultFileStreamSource,
+              let streamSink = sink as? VaultFileStreamSink else {
+            let data = try await decryptFile(at: contentPath, source: source)
+            try await addFile(name: name, data: data, parentDirID: parentDirID, sink: sink, createOnly: true)
+            return
+        }
+        let fm = FileManager.default
+        let work = fm.temporaryDirectory.appendingPathComponent("vault-reencrypt-\(UUID().uuidString)", isDirectory: true)
+        // The plaintext passes through here: readable by this user only, and always removed.
+        var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+        #if os(iOS)
+        // And encrypted with the device key while the device is locked.
+        attributes[.protectionKey] = FileProtectionType.complete
+        #endif
+        try fm.createDirectory(at: work, withIntermediateDirectories: true, attributes: attributes)
+        defer { try? fm.removeItem(at: work) }
+        let oldCipher = work.appendingPathComponent("old"), plain = work.appendingPathComponent("plain"),
+            newCipher = work.appendingPathComponent("new")
+        try await streamSource.download(contentPath, to: oldCipher)
+        try decryptContent(from: oldCipher, to: plain)
+        try? fm.removeItem(at: oldCipher)
+        try encryptContent(from: plain, to: newCipher)
+        try? fm.removeItem(at: plain)
+
+        let storage = dirIdHash(parentDirID)
+        let encName = encryptName(name, parentDirID: parentDirID)
+        let path: String
+        if encName.count > shorteningThreshold {
+            let base = storage + "/" + shortenedName(encName)
+            try await sink.makeDir(base)
+            try await creating(name) { try await sink.createFile(base + "/name.c9s", Data(encName.utf8)) }
+            path = base + "/contents.c9r"
+        } else {
+            path = storage + "/" + encName
+        }
+        try await creating(name) { try await streamSink.createFile(path, contentsOf: newCipher) }
     }
 }

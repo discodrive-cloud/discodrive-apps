@@ -21,6 +21,34 @@ final class VaultTests: XCTestCase {
     }
 
     // DirIdHash("") must point to the vault's actual root directory on disk.
+    /// The scrypt parameters come from masterkey.cryptomator, which anyone who can write the
+    /// vault folder controls: N = 0 divided by zero inside ROMix, a huge N·r asked for
+    /// gigabytes. Out-of-range values are refused before any derivation.
+    func testHostileScryptParametersAreRefused() throws {
+        let mkURL = cmvaultURL().appendingPathComponent("masterkey.cryptomator")
+        let jwt = try String(contentsOf: cmvaultURL().appendingPathComponent("vault.cryptomator"), encoding: .utf8)
+        let original = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: mkURL)) as? [String: Any])
+        for (n, r) in [(0, 8), (-1, 8), (3, 8), (1 << 21, 8), (32768, 0), (32768, 33), (32768, -8)] {
+            var mk = original
+            mk["scryptCostParam"] = n
+            mk["scryptBlockSize"] = r
+            let data = try JSONSerialization.data(withJSONObject: mk)
+            XCTAssertThrowsError(try Vault.open(masterkeyData: data, vaultJWT: jwt, password: "password123"),
+                                 "n=\(n) r=\(r)") { err in
+                XCTAssertEqual(err as? Vault.VaultError, .invalidScryptParameters(n: n, r: r, p: 1))
+            }
+        }
+    }
+
+    func testScryptParameterBounds() throws {
+        XCTAssertNoThrow(try Vault.validateScryptParameters(n: 1, r: 1, p: 1))
+        XCTAssertNoThrow(try Vault.validateScryptParameters(n: 32768, r: 8, p: 1))
+        XCTAssertNoThrow(try Vault.validateScryptParameters(n: 1 << 20, r: 32, p: 4))
+        XCTAssertThrowsError(try Vault.validateScryptParameters(n: 1 << 21, r: 8, p: 1))
+        XCTAssertThrowsError(try Vault.validateScryptParameters(n: 6, r: 8, p: 1))
+        XCTAssertThrowsError(try Vault.validateScryptParameters(n: 1024, r: 8, p: 0))
+    }
+
     func testDirIdHashRootExists() throws {
         let v = try Vault.open(directory: cmvaultURL(), password: "password123")
         let hash = v.dirIdHash("")

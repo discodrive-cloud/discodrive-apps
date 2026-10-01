@@ -92,7 +92,7 @@ struct SharingView: View {
     private func reload() async {
         guard app.client != nil else { return }
         busy = true; defer { busy = false }
-        do { shares = try await app.performAccountOperation { client in try await client.shares(nodeID: node.id) }; error = nil }
+        do { shares = try await app.performNodeOperation(node.id) { client in try await client.shares(nodeID: node.id) }; error = nil }
         catch { self.error = app.userMessage(for: error) ?? app.t("status.opError") }
     }
     private func create() async {
@@ -101,10 +101,10 @@ struct SharingView: View {
         do {
             let recipient = byLink ? nil : email.trimmingCharacters(in: .whitespacesAndNewlines)
             let seconds = expiry == 0 ? nil : expiry * 86400
-            let result = try await app.performAccountOperation { client in try await client.share(nodeID: node.id, email: recipient, expiresInSeconds: seconds) }
+            let result = try await app.performNodeOperation(node.id, confirmGone: true) { client in try await client.share(nodeID: node.id, email: recipient, expiresInSeconds: seconds) }
             guard app.client === client, app.paired else { return }
             if let token = result.token { link = await client.shareURL(token: token); createdID = result.share_id }
-            shares = try await app.performAccountOperation { client in try await client.shares(nodeID: node.id) }
+            shares = try await app.performNodeOperation(node.id) { client in try await client.shares(nodeID: node.id) }
         } catch { self.error = app.userMessage(for: error) ?? app.t("status.opError") }
     }
     private func revoke(_ share: APIClient.Share) async {
@@ -113,7 +113,7 @@ struct SharingView: View {
         do {
             try await app.performAccountOperation { client in try await client.revokeShare(id: share.id) }
             if createdID == share.id { link = nil; createdID = nil }
-            shares = try await app.performAccountOperation { client in try await client.shares(nodeID: node.id) }
+            shares = try await app.performNodeOperation(node.id) { client in try await client.shares(nodeID: node.id) }
         } catch { self.error = app.userMessage(for: error) ?? app.t("status.opError") }
     }
 }

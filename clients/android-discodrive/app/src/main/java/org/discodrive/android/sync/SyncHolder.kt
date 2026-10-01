@@ -3,7 +3,7 @@ package org.discodrive.android.sync
 import android.content.Context
 import android.os.Environment
 import mobile.Client
-import mobile.Mobile
+import org.discodrive.android.Core
 import org.discodrive.android.Prefs
 import java.io.File
 import java.util.concurrent.locks.ReentrantLock
@@ -46,7 +46,7 @@ object SyncHolder {
         val token = prefs.deviceToken ?: return null
         if (prefs.serverURL.isEmpty()) return null
         syncDir.mkdirs()
-        val c = Mobile.new_(prefs.serverURL, token, syncDir.path, dbFile(context).path, prefs.insecure)
+        val c = Core.newSyncClient(prefs.serverURL, token, syncDir.path, dbFile(context).path, prefs.serverPin)
         client = c
         return c
     }

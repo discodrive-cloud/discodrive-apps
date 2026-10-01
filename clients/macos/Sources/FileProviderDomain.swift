@@ -98,6 +98,8 @@ enum FileProviderDomain {
 enum VaultDomains {
     /// Where the system put edits kept by `closeAll(preservingEdits: true)`.
     static var preservedEdits: [URL] = []
+    /// Called after every open and close, so the app can re-read which vaults are open.
+    static var didChange: (() -> Void)?
     private static var pendingOpens: [UUID: Task<Void, Error>] = [:]
     private static var closing = false
     private static var closeTask: Task<Bool, Never>?
@@ -119,7 +121,7 @@ enum VaultDomains {
         let operationID = UUID()
         let operation = Task { try await NSFileProviderManager.add(d) }
         pendingOpens[operationID] = operation
-        defer { pendingOpens.removeValue(forKey: operationID) }
+        defer { pendingOpens.removeValue(forKey: operationID); didChange?() }
         do {
             try await operation.value
         } catch {
@@ -141,12 +143,26 @@ enum VaultDomains {
     static func close(vaultID: String, name: String) async {
         try? await NSFileProviderManager.remove(domain(vaultID: vaultID, name: name))
         VaultKeyStore.delete(forVault: vaultID)
+        didChange?()
     }
 
     // Every vault domain, for the tray menu and for closing them all on quit.
     static func openVaults() async -> [NSFileProviderDomain] {
         let all = (try? await NSFileProviderManager.domains()) ?? []
         return all.filter { $0.identifier.rawValue.hasPrefix(VaultCoreDomainPrefix) }
+    }
+
+    /// The folder ids of the vaults open right now, as the system lists their domains.
+    static func openVaultIDs() async -> Set<String> {
+        Set(await openVaults().map { String($0.identifier.rawValue.dropFirst(VaultCoreDomainPrefix.count)) })
+    }
+
+    /// Takes Finder to an open vault's location.
+    static func reveal(vaultID: String, name: String) async {
+        if let url = try? await NSFileProviderManager(for: domain(vaultID: vaultID, name: name))?
+            .getUserVisibleURL(for: .rootContainer) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
     }
 
     // True when no vault is open afterwards — asked of the system again, not assumed: a
@@ -181,6 +197,7 @@ enum VaultDomains {
         closeTask = operation
         let closed = await operation.value
         closeTask = nil; closing = false
+        didChange?()
         return closed
     }
 

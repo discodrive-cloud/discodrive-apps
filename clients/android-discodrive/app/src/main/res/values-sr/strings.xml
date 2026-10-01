@@ -14,11 +14,13 @@
     <string name="perm_grant">Дозволи приступ</string>
 
     <string name="setup_server_url">URL сервера</string>
-    <string name="setup_self_signed">Самопотписани сертификат</string>
-    <string name="setup_self_signed_warn">Искључује проверу TLS сертификата — токен и фајлови могу бити пресретнути. Користите само у поузданој мрежи.</string>
     <string name="setup_code">Код: %1$s</string>
     <string name="setup_confirm_code">Потврдите овај код у прегледачу да упарите.</string>
     <string name="setup_pair">Упари уређај</string>
+    <string name="setup_https_required">Адреса сервера мора да почиње са https://. Нешифровани http је дозвољен само за localhost.</string>
+    <string name="error_node_gone">Ова ставка више не постоји на серверу. Листа је освежена.</string>
+    <string name="error_trash_blocked">Неке ставке нису уклоњене јер фасцикла још садржи датотеке које нису у отпаду. Прво их вратите или преместите.</string>
+    <string name="setup_open_manually">Сервер је послао линк за потврду који апликација неће сама отворити. Отворите га ручно у прегледачу ако му верујете:</string>
 
     <string name="menu_new_folder">Нова фасцикла</string>
     <string name="menu_upload">Отпреми</string>
@@ -98,6 +100,7 @@
     <string name="au_blocked_charging">Чека се пуњач</string>
     <string name="au_blocked_battery">Батерија је прениска</string>
     <string name="au_blocked_network">Чека се веза</string>
+    <string name="au_add_failed">Фасцикла није додата: %1$s</string>
     <string name="au_pick_folder">Изаберите фасциклу за отпремање</string>
     <string name="au_backfill">Отпреми и постојеће датотеке</string>
     <string name="au_backfill_ask">%1$d датотека већ је на телефону и прескочене су. Отпремити их сада? Уз велику архиву то траје — најбоље уз Wi-Fi и пуњач.</string>
@@ -122,4 +125,17 @@
     <string name="sync_channel">Синхронизација фасцикле</string>
     <string name="sync_notification">Синхронизација фасцикле сервера…</string>
     <string name="sync_live">Промене на серверу стижу док је апликација отворена; у позадини се фасцикла проверава отприлике на сваких 20 минута.</string>
+
+    <!-- Server certificate trust -->
+    <string name="cert_title">Сертификат сервера није поуздан</string>
+    <string name="cert_self_signed">Самопотписани</string>
+    <string name="cert_host">Сервер</string>
+    <string name="cert_fingerprint">SHA-256 отисак</string>
+    <string name="cert_subject">Издат за</string>
+    <string name="cert_issuer">Издао</string>
+    <string name="cert_expires">Истиче</string>
+    <string name="cert_hint">Верујте само ако се отисак поклапа са отиском сертификата вашег сервера.</string>
+    <string name="cert_trust">Верујем</string>
+    <string name="cert_changed">Сертификат сервера није онај коме сте веровали при упаривању. Неко можда пресреће везу. Ако је сертификат намерно замењен, раскините упаривање и упарите поново да бисте веровали новом.</string>
+    <string name="settings_cert_pinned">Поуздан сертификат (SHA-256)</string>
 </resources>

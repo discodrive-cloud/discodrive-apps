@@ -93,7 +93,7 @@ fun PreviewScreen(names: List<String>, initial: Int, load: suspend (Int) -> Stri
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
+            error?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
             content?.let { preview ->
                 if (preview.pages > 1) Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(enabled = !busy && page > 0, onClick = { page-- }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.preview_previous)) }

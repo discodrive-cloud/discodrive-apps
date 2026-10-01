@@ -5,7 +5,7 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "discodrive-wails"
+    !define INFO_PROJECTNAME "DiscoDrive"
 !endif
 !ifndef INFO_COMPANYNAME
     !define INFO_COMPANYNAME "kosmosoid"
@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "DiscoDrive"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.5.0"
+    !define INFO_PRODUCTVERSION "0.0.6"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026 kosmosoid"

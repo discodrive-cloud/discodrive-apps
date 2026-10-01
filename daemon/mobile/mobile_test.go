@@ -28,7 +28,7 @@ func TestPairRoundTrip(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	p, err := PairBegin(srv.URL, "iPhone", "ios", false)
+	p, err := PairBegin(srv.URL, "iPhone", "ios", "")
 	if err != nil {
 		t.Fatalf("PairBegin: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestPairRoundTrip(t *testing.T) {
 		t.Fatalf("VerificationURL must be absolute: %q", p.VerificationURL)
 	}
 
-	tok, err := PairAwait(srv.URL, p.DeviceCode, 1, false)
+	tok, err := PairAwait(srv.URL, p.DeviceCode, 1, "")
 	if err != nil || tok != "kfd_xyz" {
 		t.Fatalf("PairAwait: tok=%q err=%v", tok, err)
 	}
@@ -76,7 +76,7 @@ func syncMux(changes, fileBody string, pushed *[]string) *httptest.Server {
 func newClient(t *testing.T, serverURL string) (*Client, string) {
 	t.Helper()
 	dir := t.TempDir()
-	c, err := New(serverURL, "kfd_dev", dir, filepath.Join(t.TempDir(), "state.db"), false)
+	c, err := New(serverURL, "kfd_dev", dir, filepath.Join(t.TempDir(), "state.db"), "")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestRePairWithRetainedIndexDoesNotUploadOldFiles(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	root, db := filepath.Join(t.TempDir(), "Sync"), filepath.Join(t.TempDir(), "state.db")
-	old, err := New(srv.URL, "old-pairing", root, db, false)
+	old, err := New(srv.URL, "old-pairing", root, db, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestRePairWithRetainedIndexDoesNotUploadOldFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An ordinary restart with the same pairing must retain the established mirror.
-	restarted, err := New(srv.URL, "old-pairing", root, db, false)
+	restarted, err := New(srv.URL, "old-pairing", root, db, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestRePairWithRetainedIndexDoesNotUploadOldFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	version.Store(2)
-	current, err := New(srv.URL, "new-pairing", root, db, false)
+	current, err := New(srv.URL, "new-pairing", root, db, "")
 	if err != nil {
 		t.Fatal(err)
 	}

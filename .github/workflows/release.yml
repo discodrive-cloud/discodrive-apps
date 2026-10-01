@@ -27,7 +27,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: daemon/go.sum
       - name: Build server daemon (no tray) — Linux and Windows
-        # darwin binaries are built, signed and notarized in the desktop-mac-win job.
+        # darwin binaries are built in desktop-mac-win, signed+notarized in sign-macos.
         run: |
           make daemon OS=linux   ARCH=amd64
           make daemon OS=linux   ARCH=arm64
@@ -44,24 +44,25 @@ jobs:
           name: daemon
           path: dist/*.tar.gz
 
+  # Build only. What this guarantees: no `env:` or step `env:` in this job references
+  # any macOS signing or notarization secret, so the signing key and notary credentials
+  # simply do not exist in this job's environment for third-party build code (npm ci via
+  # wails build, go build, gomobile-adjacent deps) to reach. It does NOT guarantee that a
+  # compromised dependency here cannot tamper with the build output itself — that is what
+  # the allowlist check and the Makefile/scripts tripwire in sign-macos are for; signing a
+  # binary that a compromised build already produced is not something this design can
+  # detect. Produces the unsigned macOS .app + darwin daemon binaries (tarred, to keep
+  # exec bits and file modes — actions/upload-artifact zips and drops them; links are
+  # not carried at all, sign-macos rejects any) for sign-macos,
+  # and the Windows build directly, since it is never signed at all. On workflow_dispatch
+  # (no tag) this job still runs and still uploads macos-unsigned, but sign-macos does
+  # not — a manual run yields only the unsigned tar, never even an ad-hoc-signed .dmg.
   desktop-mac-win:
     runs-on: macos-latest
-    env:
-      # Developer ID certificate (+ key) as a base64 .p12, and an App Store Connect API
-      # key for notarytool — see dev/ops/macos-signing.md for how they are made. The
-      # secrets themselves are handed only to the import step, not to the job's env.
-      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Refuse an unsigned tagged release
-        # The Homebrew cask points at the .dmg by name; an ad-hoc-signed one published
-        # under that name would reach brew users un-notarized.
-        if: startsWith(github.ref, 'refs/tags/') && env.HAS_SIGNING != 'true'
-        run: |
-          echo "::error::MACOS_CERT_P12 is not configured; tagged releases must be signed and notarized"
-          exit 1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -82,15 +83,179 @@ jobs:
           scripts/set-version.sh "$V"
           [ -n "$V" ] || V="$(jq -r '.info.productVersion' daemon/cmd/discodrive-wails/wails.json)"
           echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Build macOS app (universal, unsigned)
+        run: make app-desktop-macos
+      - name: Build Windows .exe + installers (cross-built)
+        run: make desktop-windows
+      - name: Build darwin daemon (both flavours × amd64+arm64, unsigned)
+        run: make daemon-macos-build-all
+      - name: Collect Windows artifacts (unsigned — never signed at all)
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p out-windows
+          for a in amd64 arm64; do
+            cp "dist/windows/DiscoDrive-$a.exe"            "out-windows/DiscoDrive-$VER-windows-$a-unsigned.exe"
+            cp "dist/windows/DiscoDrive-$a-installer.exe"  "out-windows/DiscoDrive-$VER-windows-$a-installer-unsigned.exe"
+          done
+          ls -la out-windows
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-windows
+          path: out-windows/*
+          if-no-files-found: error
+      - name: Tar the unsigned macOS build for sign-macos
+        # tar (not upload-artifact's own zip) so the exec bits and file modes of the app
+        # and the daemon binaries survive the hop to the next job (symlinks are rejected
+        # by sign-macos; the real bundle has none). Absolute
+        # /usr/bin/tar, not whatever "tar" resolves to on PATH: the previous step put
+        # $(go env GOPATH)/bin at the front of PATH, so a compromised go install could
+        # otherwise shadow tar here. Defense in depth only — sign-macos does not trust
+        # this step; it independently allowlists every path in the archive before
+        # extracting anything. COPYFILE_DISABLE=1: without it, macOS tar adds an
+        # AppleDouble ._<name> sidecar file per entry with extended attributes, which
+        # would otherwise fail sign-macos's allowlist check for no real reason.
+        run: |
+          COPYFILE_DISABLE=1 /usr/bin/tar -cf unsigned-macos.tar \
+            dist/darwin-amd64/discodrive dist/darwin-arm64/discodrive \
+            dist/darwin-amd64-tray/discodrive dist/darwin-arm64-tray/discodrive \
+            daemon/cmd/discodrive-wails/build/bin/DiscoDrive.app
+          ls -la unsigned-macos.tar
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-unsigned
+          path: unsigned-macos.tar
+          if-no-files-found: error
+
+  # Signing only, tag builds only. What this guarantees: the build job never has the
+  # signing secrets (see desktop-mac-win); this job never installs a toolchain and never
+  # runs npm/go/wails or any make target that builds — it downloads the artifact from
+  # desktop-mac-win and hands it to scripts/verify-unsigned-macos-tar.py, which validates
+  # and extracts it using Python's tarfile module ONLY (bsdtar is never invoked on this
+  # archive, for listing or extraction — see that script's docstring for why: a verifier/
+  # extractor parser mismatch there is exactly what let a corrupted-then-resynced archive
+  # smuggle a hidden .git/config entry past an earlier version of this job). A second,
+  # independent tripwire then verifies via git — with core.fsmonitor and core.hooksPath
+  # neutralized, so a hostile .git/config can't turn the check itself into code execution
+  # — that nothing changed under Makefile, scripts/, or .git/, and that the working tree
+  # has no changes anywhere outside the two already-gitignored directories the extraction
+  # is allowed to write to. Only after both pass does this job run xcrun/hdiutil/codesign/
+  # zip/tar (all preinstalled on macos-latest, nothing installed by this job; that `tar`
+  # is inside scripts/macos-release-daemon.sh's own re-tarring of already-verified files,
+  # not on the untrusted archive) through the two packaging Makefile targets. What this
+  # does NOT guarantee: if desktop-mac-win's build itself is compromised and produces a
+  # malicious (but correctly-pathed, correctly-typed) DiscoDrive.app or daemon binary,
+  # this design signs it anyway — an allowlist on paths and types says nothing about the
+  # contents of an allowlisted file, and no job in this workflow re-verifies build output
+  # against source.
+  sign-macos:
+    needs: [desktop-mac-win]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    env:
+      # Developer ID certificate (+ key) as a base64 .p12, and an App Store Connect API
+      # key for notarytool — see dev/ops/macos-signing.md for how they are made. The
+      # secrets themselves are handed only to the import step, not to the rest of the job.
+      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Refuse an unsigned tagged release
+        # The Homebrew cask points at the .dmg by name; an ad-hoc-signed one published
+        # under that name would reach brew users un-notarized.
+        if: env.HAS_SIGNING != 'true'
+        run: |
+          echo "::error::MACOS_CERT_P12 is not configured; tagged releases must be signed and notarized"
+          exit 1
+      - name: Download unsigned macOS build
+        # Into $RUNNER_TEMP, not the checkout (`.`): the archive is untrusted until the
+        # next step allowlists it, so it never lands inside the working tree unverified.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: macos-unsigned
+          path: ${{ runner.temp }}/unsigned
+      - name: Snapshot git internals before extracting anything
+        # .git/config and .git/hooks/* are never something the archive is allowed to
+        # touch (they aren't inside dist/darwin-*/discodrive or DiscoDrive.app/, so the
+        # allowlist in verify-unsigned-macos-tar.py already rejects any tar entry that
+        # names them) — this hashes them now so the tripwire below can independently
+        # prove they didn't change, without trusting that reasoning alone.
+        run: |
+          { shasum -a 256 .git/config 2>/dev/null || echo none; } > "$RUNNER_TEMP/gitconfig.before"
+          { find .git/hooks -type f -exec shasum -a 256 {} \; 2>/dev/null | sort; } > "$RUNNER_TEMP/githooks.before"
+      - name: Verify and extract unsigned build
+        # desktop-mac-win's build ran with no signing secrets, but it still ran
+        # third-party code (npm/go); a compromised dependency there could have put
+        # Makefile, scripts/macos-sign.sh, an extra dist/*.dmg, a path-traversal/symlink
+        # entry, or a hidden entry after a deliberately corrupted header into
+        # unsigned-macos.tar. scripts/verify-unsigned-macos-tar.py rejects all of that —
+        # see its module docstring for exactly why bsdtar must never touch this archive
+        # (verifying with tarfile and then extracting with bsdtar is its own
+        # vulnerability: they parse a damaged archive differently) — and it is also the
+        # only thing that extracts this archive: one parser for both steps, one
+        # destination (the checkout root), nothing shelled out to `tar` at any point.
+        # python3 ships on macos-latest already; this job installs nothing to run it.
+        run: python3 scripts/verify-unsigned-macos-tar.py "$RUNNER_TEMP/unsigned/unsigned-macos.tar" .
+      - name: Verify repo-tracked scripts and git internals are unmodified
+        # Independent of the allowlist in verify-unsigned-macos-tar.py (belt +
+        # suspenders, not the same check): confirms extraction did not modify any
+        # git-tracked file under Makefile or scripts/, did not add an untracked one
+        # there, did not touch .git/config or .git/hooks, and — checked on the whole
+        # tree, not just those two paths — did not create anything anywhere outside the
+        # two directories (dist/, daemon/cmd/discodrive-wails/build/bin/) that are
+        # already gitignored, which are the only places this extraction is allowed to
+        # write. `-c core.fsmonitor=false -c core.hooksPath=/dev/null` on every git
+        # invocation here: if a hostile .git/config nonetheless existed at this point,
+        # its core.fsmonitor or core.hooksPath settings could make plain `git status`/
+        # `git diff` execute attacker-controlled commands — this is what stops that from
+        # being turned against the very check meant to catch it. Runs before the
+        # certificate import — if this ever fails, the signing key is never touched.
+        run: |
+          set -euo pipefail
+          GITOPTS=(-c core.fsmonitor=false -c core.hooksPath=/dev/null)
+          git "${GITOPTS[@]}" diff --exit-code -- Makefile scripts
+          if [ -n "$(git "${GITOPTS[@]}" status --porcelain -- Makefile scripts)" ]; then
+            echo "::error::Makefile or scripts/ has untracked changes after extracting the build artifact" >&2
+            git "${GITOPTS[@]}" status --porcelain -- Makefile scripts >&2
+            exit 1
+          fi
+          # Whole-tree check: dist/ and daemon/cmd/discodrive-wails/build/bin/ are the
+          # only gitignored paths this extraction ever writes to, so a clean checkout's
+          # status stays empty through a legitimate extraction — anything this reports
+          # landed somewhere it should not have.
+          LEFTOVER="$(git "${GITOPTS[@]}" status --porcelain)"
+          if [ -n "$LEFTOVER" ]; then
+            echo "::error::unexpected working-tree changes outside the extracted build output" >&2
+            echo "$LEFTOVER" >&2
+            exit 1
+          fi
+          GITCONFIG_AFTER="$({ shasum -a 256 .git/config 2>/dev/null || echo none; })"
+          GITHOOKS_AFTER="$({ find .git/hooks -type f -exec shasum -a 256 {} \; 2>/dev/null | sort; })"
+          if [ "$GITCONFIG_AFTER" != "$(cat "$RUNNER_TEMP/gitconfig.before")" ]; then
+            echo "::error::.git/config changed while extracting the build artifact" >&2
+            exit 1
+          fi
+          if [ "$GITHOOKS_AFTER" != "$(cat "$RUNNER_TEMP/githooks.before")" ]; then
+            echo "::error::.git/hooks changed while extracting the build artifact" >&2
+            exit 1
+          fi
+      - name: Validate tag version
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$VER' is not an x.y.z[-pre] version" >&2
+            exit 1
+          fi
+          echo "VER=$VER" >> "$GITHUB_ENV"
       - name: Import Developer ID certificate + notarization key
         if: env.HAS_SIGNING == 'true'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
-        # After the toolchain installs: go install, brew and setup-node run before any key
-        # exists. The build steps below (wails runs npm ci) still run with the keychain
-        # unlocked; moving signing into its own job is the complete fix.
         run: |
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
@@ -109,38 +274,41 @@ jobs:
           echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
           # From here on an unsigned or un-notarized artefact is a failure, not a notice.
           echo "SIGN_REQUIRED=1" >> "$GITHUB_ENV"
-      - name: Build macOS .dmg (universal, signed + notarized)
-        env:
-          VER: ${{ steps.ver.outputs.version }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: make dmg-desktop-macos VERSION="$VER"
-      - name: Build Windows .exe + installers (cross-built)
-        run: make desktop-windows
-      - name: Build darwin daemon (both flavours × amd64+arm64, signed + notarized)
+      - name: Package macOS .dmg (sign + notarize)
         env:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: make daemon-macos-release
+        run: make dmg-desktop-macos-package VERSION="$VER"
+      - name: Sign + notarize darwin daemon
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: make daemon-macos-package
       - name: Remove the signing keychain
         if: always() && env.SIGNING_KEYCHAIN != ''
         run: security delete-keychain "$SIGNING_KEYCHAIN"; rm -f "$NOTARY_KEY_PATH"
-      - name: Collect artifacts (macOS signed, Windows unsigned)
-        env:
-          VER: ${{ steps.ver.outputs.version }}
+      - name: Collect signed artifacts
+        # Exact filenames, no globs: package-macos-dmg.sh always names the dmg
+        # DiscoDrive-$VERSION-macos.dmg, and macos-release-daemon.sh always tars exactly
+        # these four darwin-* dirs (the ones extracted above) as discodrive-daemon-<dir>
+        # .tar.gz. A glob here (dist/*.dmg, dist/discodrive-daemon-*.tar.gz) would also
+        # pick up anything else a compromised build step managed to leave in dist/ —
+        # the allowlist check earlier stops that from being an extracted file, but
+        # naming exactly what we expect is a second, independent reason nothing else
+        # from dist/ can reach the published release.
         run: |
           mkdir -p out
-          cp dist/*.dmg out/
-          for a in amd64 arm64; do
-            cp "dist/windows/DiscoDrive-$a.exe"                 "out/DiscoDrive-$VER-windows-$a-unsigned.exe"
-            cp "dist/windows/DiscoDrive-$a-installer.exe" "out/DiscoDrive-$VER-windows-$a-installer-unsigned.exe"
-          done
-          cp dist/discodrive-daemon-*.tar.gz out/
+          cp "dist/DiscoDrive-$VER-macos.dmg" out/
+          cp dist/discodrive-daemon-darwin-amd64.tar.gz      out/
+          cp dist/discodrive-daemon-darwin-arm64.tar.gz      out/
+          cp dist/discodrive-daemon-darwin-amd64-tray.tar.gz out/
+          cp dist/discodrive-daemon-darwin-arm64-tray.tar.gz out/
           ls -la out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: desktop-mac-win
+          name: macos-signed
           path: out/*
+          if-no-files-found: error
 
   desktop-linux:
     runs-on: ubuntu-latest
@@ -195,6 +363,38 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260611195102-4dd8f1dbf5d2
           go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260611195102-4dd8f1dbf5d2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Resolve version from tag
+        # CI provides DISCODRIVE_VERSION_NAME (string) and DISCODRIVE_VERSION_CODE (int)
+        # via the environment for the Gradle build to read; what it does with them is
+        # that build's own concern. On a tag push both are set here (exported via
+        # GITHUB_ENV, so every later step in this job sees them) and versionCode is
+        # derived from the tag so it only ever increases; a malformed tag fails the job
+        # instead of silently shipping under the wrong name. workflow_dispatch (no tag)
+        # leaves both unset.
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              V="${GITHUB_REF_NAME#v}"
+              if ! [[ "$V" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$ ]]; then
+                echo "::error::'$V' is not an x.y.z[-pre] version" >&2
+                exit 1
+              fi
+              MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
+              # 10# forces base-10 (a component like "08" would otherwise be read as an
+              # invalid octal literal and abort the job); minor/patch must stay under
+              # 1000 or they collide with the next field in the versionCode formula.
+              if [ "$((10#$MINOR))" -ge 1000 ] || [ "$((10#$PATCH))" -ge 1000 ]; then
+                echo "::error::'$V': minor and patch must each be < 1000 (versionCode is major*1000000 + minor*1000 + patch)" >&2
+                exit 1
+              fi
+              CODE=$(( 10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH ))
+              echo "DISCODRIVE_VERSION_NAME=$V" >> "$GITHUB_ENV"
+              echo "DISCODRIVE_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "not a tag push — DISCODRIVE_VERSION_NAME/CODE left unset"
+              ;;
+          esac
       - name: Build Android bindings + app (release, signed)
         # Only a release build signed with the long-lived key is published: a debug build
         # is debuggable (adb run-as reads the app's files and token) and every CI runner
@@ -207,6 +407,10 @@ jobs:
         run: |
           make bind-android
           if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "::error::ANDROID_KEYSTORE_B64 is not configured; a tagged release must ship a signed APK"
+              exit 1
+            fi
             echo "::warning::ANDROID_KEYSTORE_B64 is not configured; no APK is published"
             exit 0
           fi
@@ -214,8 +418,9 @@ jobs:
           echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$DISCODRIVE_KEYSTORE"
           trap 'rm -f "$DISCODRIVE_KEYSTORE"' EXIT
           # Folder sync lives inside the full client now; the separate Fast Sync app is no
-          # longer released for Android.
-          (cd clients/android-discodrive && gradle assembleRelease)
+          # longer released for Android. Wrapper committed under clients/android-discodrive
+          # (see gradle/wrapper) — a pinned version, not whatever ubuntu-latest ships.
+          (cd clients/android-discodrive && ./gradlew assembleRelease)
       - name: Collect apks
         run: |
           mkdir -p out
@@ -225,25 +430,41 @@ jobs:
         with:
           name: android
           path: out/*.apk
-          if-no-files-found: warn
+          # A tag build with no APK is already a hard failure above (exit 1); a
+          # workflow_dispatch run without ANDROID_KEYSTORE_B64 configured stays green.
+          if-no-files-found: ${{ startsWith(github.ref, 'refs/tags/') && 'error' || 'warn' }}
 
   release:
-    needs: [daemon, desktop-mac-win, desktop-linux, android]
+    needs: [daemon, sign-macos, desktop-linux, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    # Gate publishing behind an environment: GitHub creates it on first use; add
+    # required reviewers to it in repo Settings > Environments to get an approval gate
+    # before a release is published (not configured by this workflow — see the report).
+    environment: release
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Validate tag version
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$VER' is not an x.y.z[-pre] version" >&2
+            exit 1
+          fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
       - name: Flatten
+        # macos-unsigned is the intermediate handoff from desktop-mac-win to sign-macos
+        # (the unsigned .app + daemon binaries, tarred) — not a release asset; excluded
+        # so it never reaches the published release.
         run: |
           mkdir -p release
-          find artifacts -type f -exec cp -n {} release/ \;
+          find artifacts -type f -not -path 'artifacts/macos-unsigned/*' -exec cp -n {} release/ \;
           ls -la release
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -264,7 +485,7 @@ jobs:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: release/*
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           body_path: notes.md
           generate_release_notes: true
 
@@ -272,10 +493,19 @@ jobs:
     needs: [release]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    # Same approval gate as the release job — see the comment there.
+    environment: release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Validate tag version
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$VER' is not an x.y.z[-pre] version" >&2
+            exit 1
+          fi
       - name: Update tap formula
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

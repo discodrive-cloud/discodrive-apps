@@ -11,7 +11,7 @@ public struct VaultConflictCleanup: Sendable {
     public func retry(delete: (String) async throws -> Void) async throws {
         for nodeID in try index.pendingVaultConflictRemovals() {
             do { try await delete(nodeID) }
-            catch APIError.http(404) { /* already removed */ }
+            catch APIError.http(404), APIError.nodeNotFound { /* already removed */ }
             catch { continue }
             try index.finishVaultConflictRemoval(nodeID: nodeID)
         }

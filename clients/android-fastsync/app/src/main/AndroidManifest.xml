@@ -10,7 +10,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- No backup, no device transfer: the pairing is encrypted with a Keystore key that stays
+         on this phone, and restoring it elsewhere crashed every launch. -->
     <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="FastSync"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.FastSync">

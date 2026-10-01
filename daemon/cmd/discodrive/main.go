@@ -62,16 +62,16 @@ func cmdPair(args []string) {
 			dirExplicit = true
 		}
 	})
-	oldServer, oldToken := "", ""
+	oldServer, oldToken, oldPin := "", "", ""
 	if oldCfg, err := config.Load(*cfgPath); err == nil {
-		oldServer, oldToken = oldCfg.ServerURL, oldCfg.DeviceToken
+		oldServer, oldToken, oldPin = oldCfg.ServerURL, oldCfg.DeviceToken, oldCfg.ServerPin
 	}
 	// Re-pairing to a different server: forget the old index and (unless --dir was
 	// given) sync into a fresh per-server folder, so nothing from the old server
 	// leaks into — or gets uploaded to — the new one.
 	syncDir := resolvePairDir(*dir, dirExplicit, oldServer, *server, defaultSyncDir())
 	ctx := context.Background()
-	p, err := protocol.PairInit(ctx, *server, *name, "desktop")
+	p, pin, err := pairInitTrusting(ctx, *server, *name, os.Stdin, os.Stdout, stdinIsTerminal())
 	if err != nil {
 		fatal(fmt.Sprintf(i18n.T("pair_init_error"), err))
 	}
@@ -82,7 +82,7 @@ func cmdPair(args []string) {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	token, err := protocol.PairPoll(ctx, *server, p.DeviceCode, interval)
+	token, err := protocol.PairPollPinned(ctx, *server, p.DeviceCode, interval, pin)
 	if err != nil {
 		fatal(fmt.Sprintf(i18n.T("pair_wait_error"), err))
 	}
@@ -95,7 +95,7 @@ func cmdPair(args []string) {
 	if oldServer != "" && oldServer != *server {
 		fmt.Printf(i18n.T("pair_server_changed"), syncDir)
 	}
-	cfg := config.Config{ServerURL: *server, DeviceToken: token, SyncDir: syncDir}
+	cfg := config.Config{ServerURL: *server, DeviceToken: token, SyncDir: syncDir, ServerPin: pin}
 	if err := cfg.Save(*cfgPath); err != nil {
 		fatal(fmt.Sprintf(i18n.T("pair_save_error"), err))
 	}
@@ -103,7 +103,7 @@ func cmdPair(args []string) {
 	// any more, but would keep working for anyone holding a copy. Best effort.
 	if oldToken != "" && oldToken != token {
 		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_ = protocol.NewUnscoped(oldServer, oldToken).RevokeDevice(rctx)
+		_ = protocol.NewUnscopedPinned(oldServer, oldToken, oldPin).RevokeDevice(rctx)
 		cancel()
 	}
 	fmt.Printf(i18n.T("pair_done"), *cfgPath, syncDir)
@@ -151,7 +151,7 @@ func buildSyncer(cfgPath string) (*syncer.Syncer, func(), config.Config, error) 
 	}
 
 	// Fetch language from server and set it for all subsequent output.
-	client := protocol.New(cfg.ServerURL, cfg.DeviceToken)
+	client := protocol.NewPinned(cfg.ServerURL, cfg.DeviceToken, cfg.ServerPin)
 	if lang, langErr := client.Language(context.Background()); langErr == nil {
 		i18n.SetLanguage(lang)
 	}
@@ -241,12 +241,11 @@ func cmdStatus(args []string) {
 
 	switch st.State {
 	case syncer.StateIdle:
-		if st.LastSync.IsZero() {
-			fmt.Println(i18n.T("status_synced_never"))
-		} else {
-			fmt.Printf(i18n.T("status_synced")+"\n",
-				st.LastSync.Local().Format("2006-01-02 15:04:05"))
+		line := i18n.T("status_synced_never")
+		if !st.LastSync.IsZero() {
+			line = fmt.Sprintf(i18n.T("status_synced"), st.LastSync.Local().Format("2006-01-02 15:04:05"))
 		}
+		fmt.Println(withWarning(line, st.LastError, 0))
 	case syncer.StateSyncing:
 		fmt.Println(i18n.T("status_syncing"))
 	case syncer.StateOffline:
@@ -289,4 +288,17 @@ func cmdUninstall(args []string) {
 func fatal(msg string) {
 	fmt.Fprintln(os.Stderr, i18n.T("error_prefix")+msg)
 	os.Exit(1)
+}
+
+// withWarning appends what a finished pass still reported — files the server refused —
+// to an idle status line; an idle pass with nothing to report shows the line alone.
+// max > 0 shortens the error text to that many runes (a tray menu title).
+func withWarning(line, lastErr string, max int) string {
+	if lastErr == "" {
+		return line
+	}
+	if r := []rune(lastErr); max > 0 && len(r) > max {
+		lastErr = string(r[:max]) + "…"
+	}
+	return line + " — " + lastErr
 }

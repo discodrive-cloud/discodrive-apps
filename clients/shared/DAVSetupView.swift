@@ -99,7 +99,7 @@ struct DAVSetupView: View {
             guard let server = app.serverURL else { return }
             let hash = SHA256.hash(data: Data((server.absoluteString + "\n" + account.id).utf8))
                 .map { String(format: "%02x", $0) }.joined()
-            let key = "org.discodrive.dav." + hash
+            let key = KeychainToken.davServicePrefix + hash
             service = key
             self.access = access
             calendars = access.caldav; contacts = access.carddav

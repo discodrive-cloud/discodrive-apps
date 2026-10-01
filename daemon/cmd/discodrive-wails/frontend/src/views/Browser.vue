@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RefreshCw, FolderPlus, FolderOpen, Upload, FolderUp } from 'lucide-vue-next'
 import { api } from '../lib/api.js'
-import { t } from '../lib/i18n.js'
+import { t, errorText, isNodeGone } from '../lib/i18n.js'
 import { sortEntries } from '../lib/format.js'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
 import FileRow from '../components/FileRow.vue'
@@ -23,7 +23,14 @@ const status = ref('')
 const current = () => stack.value[stack.value.length - 1]
 
 async function reload() {
-  const nodes = await api.list(current().relPath)
+  const target = current()
+  const targetId = target.id
+  const targetRelPath = target.relPath
+  const nodes = await api.list(targetRelPath)
+  // Drop stale responses: the user may have navigated to a different folder while this
+  // listing was in flight.
+  const now = current()
+  if (now.id !== targetId || now.relPath !== targetRelPath) return
   entries.value = sortEntries(nodes)
 }
 
@@ -57,7 +64,7 @@ async function refresh() {
     status.value = ''
   } catch (e) {
     loadError.value = true
-    status.value = String(e)
+    status.value = errorText(e)
   } finally {
     initializing.value = false
     busy.value = false
@@ -77,7 +84,8 @@ async function rowOp(n, fn) {
     await fn()
     await reload()
   } catch (e) {
-    status.value = String(e)
+    status.value = errorText(e)
+    if (isNodeGone(e)) await reload().catch(() => {})
   } finally {
     busyIds.value.delete(n.id)
   }
@@ -91,10 +99,17 @@ const onReveal = (n) => rowOp(n, () => api.reveal(n.id))
 const dialog = ref(null)   // {kind:'newFolder'|'rename'|'delete', node?, name}
 const moveNode = ref(null) // node being moved, or null
 
-// After a mutation: reload now, then pull from the server and reload again.
-async function afterMutation() {
-  await reload()
-  api.refresh().then(reload).catch(() => {})
+// After a mutation: reload, then pull from the server and reload again. Debounced
+// (trailing, 300ms, single pending timer) so a burst of mutations or upload:done events
+// collapses into one refresh instead of firing a request per event.
+let afterMutationTimer = null
+function afterMutation() {
+  clearTimeout(afterMutationTimer)
+  afterMutationTimer = setTimeout(() => {
+    afterMutationTimer = null
+    reload()
+    api.refresh().then(reload).catch(() => {})
+  }, 300)
 }
 
 function openNewFolder() { dialog.value = { kind: 'newFolder', name: '' } }
@@ -111,7 +126,8 @@ async function confirmDialog() {
     dialog.value = null
     await afterMutation()
   } catch (e) {
-    status.value = String(e)
+    status.value = errorText(e)
+    if (isNodeGone(e)) { dialog.value = null; await reload().catch(() => {}) }
   }
 }
 
@@ -121,7 +137,8 @@ async function confirmMove(parentId) {
     moveNode.value = null
     await afterMutation()
   } catch (e) {
-    status.value = String(e)
+    status.value = errorText(e)
+    if (isNodeGone(e)) { moveNode.value = null; await reload().catch(() => {}) }
   }
 }
 
@@ -154,7 +171,10 @@ onMounted(() => {
   }))
   unsubs.push(api.onEvent('upload:error', (e) => { uploads.value[e.id] = { ...e, state: 'error' } }))
 })
-onUnmounted(() => unsubs.forEach((u) => u && u()))
+onUnmounted(() => {
+  unsubs.forEach((u) => u && u())
+  clearTimeout(afterMutationTimer)
+})
 
 // Called by App when files are dropped while the Files view is active.
 function dropFiles(paths) {
@@ -240,7 +260,7 @@ defineExpose({ refresh, reload, current, dropFiles })
       <Recovery v-if="historyNode" :key="historyNode.id" :node="historyNode" @busy="resourceBusy = $event" @changed="refresh" />
     </Dialog>
     <Dialog :open="!!shareNode" :title="t('share.title')" @close="!resourceBusy && (shareNode = null)">
-      <Sharing v-if="shareNode" :key="shareNode.id" :node="shareNode" @busy="resourceBusy = $event" />
+      <Sharing v-if="shareNode" :key="shareNode.id" :node="shareNode" @busy="resourceBusy = $event" @changed="refresh" />
     </Dialog>
     <Dialog :open="!!dialog && dialog.kind === 'newFolder'" :title="t('dialog.newFolder')" @close="dialog = null">
       <input

@@ -68,19 +68,31 @@ class AutoUploadRunner(
          */
         const val MAX_ATTEMPTS = 5
         const val RETRY_AFTER_MS = 24 * 60 * 60 * 1000L
+
+        /**
+         * What [rule]'s folder holds right now, all of it pre-existing for a rule being
+         * created (see [RuleSeeding.add]). Blocking, so call it off the main thread.
+         */
+        fun scanForSeed(rule: Rule): List<File> =
+            SourceScanner.scan(rule.source, rule.mediaOnly, rule.includeSubfolders, now = Long.MAX_VALUE)
     }
 
     /**
-     * Records the current contents of any not-yet-seeded rule as pre-existing, so switching
-     * a folder on does not push its archive over mobile data. Returns how many files were
-     * marked. Runs once per rule.
+     * Fallback for rules stored by an older version, which seeded on the first pass instead of
+     * when the rule was made (new rules arrive already seeded, see [RuleSeeding.add]). Records the folder's
+     * contents as pre-existing so switching it on does not push its archive over mobile data.
+     * Returns how many files were marked. Runs once per rule.
+     *
+     * When the rule knows when it was made, only files older than that count: this pass can
+     * run days after the rule was created, and what was taken in between is new.
      */
     fun seedIfNeeded(): Int {
         var marked = 0
         val seeded = HashSet<String>()
         for (rule in prefs.rules.filterNot { it.seeded }) {
-            val existing = SourceScanner.scan(
-                rule.source, rule.mediaOnly, rule.includeSubfolders, now = Long.MAX_VALUE,
+            val existing = SourceScanner.preexisting(
+                SourceScanner.scan(rule.source, rule.mediaOnly, rule.includeSubfolders, now = Long.MAX_VALUE),
+                rule.createdAt,
             )
             journal.seedPreexisting(existing)
             marked += existing.size
@@ -89,7 +101,7 @@ class AutoUploadRunner(
         // Only the flag is written back, onto the list as it is now: the scan can take
         // seconds, and a folder added or removed meanwhile must stay added or removed.
         if (seeded.isNotEmpty()) {
-            prefs.updateRules { current -> current.map { if (it.sourcePath in seeded) it.copy(seeded = true) else it } }
+            journal.gate.write { prefs.updateRules { current -> current.map { if (it.sourcePath in seeded) it.copy(seeded = true) else it } } }
         }
         return marked
     }
@@ -214,7 +226,7 @@ class AutoUploadRunner(
     }
 
     private fun forgetDestination(destID: String) {
-        prefs.updateRules { current -> current.map { if (it.destID == destID) it.copy(destID = null) else it } }
+        journal.gate.write { prefs.updateRules { current -> current.map { if (it.destID == destID) it.copy(destID = null) else it } } }
     }
 
     /** Resolves (creating on first use) the rule's destination, caching the node id. */
@@ -224,7 +236,7 @@ class AutoUploadRunner(
         for (segment in rule.destSegments) {
             parent = Core.ensureFolder(browser, parent, segment)
         }
-        prefs.updateRules { current -> current.map { if (it.sourcePath == rule.sourcePath) it.copy(destID = parent) else it } }
+        journal.gate.write { prefs.updateRules { current -> current.map { if (it.sourcePath == rule.sourcePath) it.copy(destID = parent) else it } } }
         return parent
     }
 

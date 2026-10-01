@@ -8,7 +8,7 @@ app = pathlib.Path(sys.argv[1])
 with (app / 'Contents/Info.plist').open('rb') as stream:
     info = plistlib.load(stream)
 if info.get('CFBundleIdentifier') != 'org.discodrive.app':
-    sys.exit('FAIL: not the Release account identity (Debug uses a separate pairing).')
+    sys.exit('FAIL: not the DiscoDrive app identity (org.discodrive.app).')
 extensions = sorted((app / 'Contents/PlugIns').glob('*.appex'))
 identifiers = set()
 for extension in extensions:

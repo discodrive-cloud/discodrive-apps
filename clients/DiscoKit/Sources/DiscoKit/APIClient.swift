@@ -1,8 +1,36 @@
 import Foundation
 
-public enum APIError: Error { case http(Int), notAuthenticated, badResponse }
+public enum APIError: Error {
+    case http(Int), notAuthenticated, badResponse
+    /// The server has no such node: purged, in the trash, or never there. Only a request
+    /// addressed to a node by id reports it, and only for the server's own 404
+    /// {"error":"not found"} — an expired upload session, a blob missing on disk or a
+    /// proxy's page stay `.http(404)`.
+    case nodeNotFound
+    /// Purge / empty trash kept a trashed folder that still holds an item not in the trash
+    /// (the server's 409). Everything else asked for was removed.
+    case trashBlocked
+
+    static func isNodeNotFound(status: Int, body: Data) -> Bool {
+        guard status == 404,
+              let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return false }
+        return obj["error"] as? String == "not found"
+    }
+}
 
 public actor APIClient {
+    /// Declares, on every request, which protocol capabilities this client understands —
+    /// so the server can change behavior that depends on client support without breaking
+    /// older releases still in the field.
+    ///
+    /// "delete-by-id": this client applies change-feed deletes by node id and ignores
+    /// deletes for ids it does not have indexed (never falls back to deleting by path).
+    /// Without this header the server withholds feed deletes of permanently purged nodes,
+    /// because a released client that deletes by path could wipe a live file that was
+    /// simply moved.
+    public static let featuresHeaderField = "X-Discodrive-Features"
+    public static let featuresHeaderValue = "delete-by-id"
+
     private let baseURL: URL
     private let deviceToken: String
     private let session: URLSession
@@ -19,6 +47,7 @@ public actor APIClient {
         var req = URLRequest(url: baseURL.appendingPathComponent("auth/device/token"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
         req.httpBody = try JSONEncoder().encode(["device_token": deviceToken])
         let (data, resp) = try await session.data(for: req)
         guard let code = (resp as? HTTPURLResponse)?.statusCode else { throw APIError.badResponse }
@@ -35,7 +64,9 @@ public actor APIClient {
     // Drop the cached JWT (after a 401 on the SSE stream).
     public func resetAuth() { jwt = nil }
 
-    private func get(path: String, query: [URLQueryItem] = []) async throws -> Data {
+    // node: the path addresses one node by id, so the server's "not found" means the node
+    // is gone (APIError.nodeNotFound).
+    private func get(path: String, query: [URLQueryItem] = [], node: Bool = false) async throws -> Data {
         for attempt in 0..<2 {
             let tok = try await token()
             var comps = URLComponents(url: baseURL.appendingPathComponent(path),
@@ -43,9 +74,11 @@ public actor APIClient {
             if !query.isEmpty { comps.queryItems = query }
             var req = URLRequest(url: comps.url!)
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
             let (data, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; continue }
+            if node && APIError.isNodeNotFound(status: code, body: data) { throw APIError.nodeNotFound }
             guard code == 200 || code == 206 else { throw APIError.http(code) }
             return data
         }
@@ -78,12 +111,14 @@ public actor APIClient {
             let tok = try await token()
             var req = URLRequest(url: url)
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
             let (tmp, resp) = try await session.download(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; try? FileManager.default.removeItem(at: tmp); continue }
             guard code == 200 || code == 206 else {
+                let gone = code == 404 && APIError.isNodeNotFound(status: code, body: (try? Data(contentsOf: tmp)) ?? Data())
                 try? FileManager.default.removeItem(at: tmp)
-                throw APIError.http(code)
+                throw gone ? APIError.nodeNotFound : APIError.http(code)
             }
             if FileManager.default.fileExists(atPath: dst.path) { try FileManager.default.removeItem(at: dst) }
             try FileManager.default.moveItem(at: tmp, to: dst)
@@ -94,7 +129,7 @@ public actor APIClient {
 
     // Download content into memory (used when decrypting a vault).
     public func downloadData(nodeID: String) async throws -> Data {
-        try await get(path: "files/\(nodeID)/content")
+        try await get(path: "files/\(nodeID)/content", node: true)
     }
 
     // The user's UI language (stored on the server).
@@ -112,6 +147,7 @@ public actor APIClient {
             req.httpMethod = "PUT"
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
             req.httpBody = body
             let (_, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -146,20 +182,22 @@ public actor APIClient {
     }
 
     public func purge(id: String) async throws {
-        try await send("DELETE", path: "files/\(id)/purge", ok: [204])
+        do { try await send("DELETE", path: "files/\(id)/purge", ok: [204]) }
+        catch APIError.http(409) { throw APIError.trashBlocked }
     }
 
     public func emptyTrash() async throws {
-        try await send("DELETE", path: "files/trash", ok: [204])
+        do { try await send("DELETE", path: "files/trash", ok: [204]) }
+        catch APIError.http(409) { throw APIError.trashBlocked }
     }
 
     public func versions(nodeID: String) async throws -> [FileVersion] {
-        try JSONDecoder().decode([FileVersion].self, from: await get(path: "files/\(nodeID)/versions"))
+        try JSONDecoder().decode([FileVersion].self, from: await get(path: "files/\(nodeID)/versions", node: true))
     }
 
     public func restoreVersion(nodeID: String, version: Int64) async throws {
         try await send("POST", path: "files/\(nodeID)/restore",
-                       body: JSONEncoder().encode(["version": version]), contentType: "application/json", ok: [200])
+                       body: JSONEncoder().encode(["version": version]), contentType: "application/json", ok: [200], node: true)
     }
 
     public struct Share: Decodable, Identifiable, Sendable {
@@ -177,14 +215,14 @@ public actor APIClient {
     }
 
     public func shares(nodeID: String) async throws -> [Share] {
-        try JSONDecoder().decode([Share].self, from: await get(path: "files/\(nodeID)/shares"))
+        try JSONDecoder().decode([Share].self, from: await get(path: "files/\(nodeID)/shares", node: true))
     }
 
     public func share(nodeID: String, email: String?, expiresInSeconds: Int?) async throws -> ShareResult {
         var payload: [String: Any] = ["access": "read"]
         if let email { payload["email"] = email } else { payload["link"] = true }
         if let expiresInSeconds { payload["expires_in_seconds"] = expiresInSeconds }
-        let data = try await send("POST", path: "files/\(nodeID)/share", body: JSONSerialization.data(withJSONObject: payload), contentType: "application/json", ok: [201])
+        let data = try await send("POST", path: "files/\(nodeID)/share", body: JSONSerialization.data(withJSONObject: payload), contentType: "application/json", ok: [201], node: true)
         return try JSONDecoder().decode(ShareResult.self, from: data)
     }
 
@@ -286,7 +324,7 @@ public actor APIClient {
     @discardableResult
     private func send(_ method: String, path: String, query: [URLQueryItem] = [],
                       body: Data? = nil, contentType: String? = nil,
-                      extraHeaders: [String: String] = [:], ok: Set<Int>) async throws -> Data {
+                      extraHeaders: [String: String] = [:], ok: Set<Int>, node: Bool = false) async throws -> Data {
         for attempt in 0..<2 {
             let tok = try await token()
             var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
@@ -294,12 +332,14 @@ public actor APIClient {
             var req = URLRequest(url: comps.url!)
             req.httpMethod = method
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
             if let contentType { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             for (k, v) in extraHeaders { req.setValue(v, forHTTPHeaderField: k) }
             req.httpBody = body
             let (data, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; continue }
+            if node && APIError.isNodeNotFound(status: code, body: data) { throw APIError.nodeNotFound }
             guard ok.contains(code) else { throw APIError.http(code) }
             return data
         }
@@ -346,6 +386,7 @@ public actor APIClient {
             req.httpMethod = "PUT"
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
             for (k, v) in Self.modifiedAtHeader(modifiedAt) { req.setValue(v, forHTTPHeaderField: k) }
             if let baseVersion { req.setValue(String(baseVersion), forHTTPHeaderField: "X-Base-Version") }
             // Re-reads the file from disk on the retry, so the 401 path stays whole-body.
@@ -559,18 +600,25 @@ public actor APIClient {
 
     // Delete a node (file or folder) — moves it to the trash.
     public func delete(nodeID: String) async throws {
-        try await send("DELETE", path: "files/\(nodeID)", ok: [204, 200])
+        try await send("DELETE", path: "files/\(nodeID)", ok: [204, 200], node: true)
     }
 
     // Move a node under another folder (nil = the storage root).
     public func move(nodeID: String, newParentID: String?) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["parent_id": newParentID as Any? ?? NSNull()])
-        try await send("PATCH", path: "files/\(nodeID)/move", body: body, contentType: "application/json", ok: [200])
+        try await send("PATCH", path: "files/\(nodeID)/move", body: body, contentType: "application/json", ok: [200], node: true)
+    }
+
+    // Whether the caller's node still exists (GET /files/{id}, owner's nodes only). Settles
+    // which node a move's "not found" was about: the moved node or the destination.
+    public func nodeExists(nodeID: String) async throws -> Bool {
+        do { _ = try await get(path: "files/\(nodeID)", node: true); return true }
+        catch APIError.nodeNotFound { return false }
     }
 
     // Rename a node.
     public func rename(nodeID: String, newName: String) async throws {
         let body = try JSONEncoder().encode(["name": newName])
-        try await send("PATCH", path: "files/\(nodeID)/rename", body: body, contentType: "application/json", ok: [200])
+        try await send("PATCH", path: "files/\(nodeID)/rename", body: body, contentType: "application/json", ok: [200], node: true)
     }
 }

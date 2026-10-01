@@ -15,10 +15,15 @@ final class AppModel: ObservableObject {
     @Published var pendingUserCode: String?
     // Where the first pass after pairing moved the folder's previous contents, if any.
     @Published var setAside: String?
+    /// The server's certificate, offered for trust after a strict pairing attempt failed on it.
+    @Published var pendingCertificate: MobileCertificate?
+    /// The server `pendingCertificate` was read from: a trusted pin is only used for it.
+    private(set) var certificateServer: String?
 
     private var client: MobileClient?
     private(set) var serverURL = ""
-    private(set) var insecure = false
+    // Fingerprint of the certificate trusted at pairing; "" = strict system validation.
+    private(set) var pin = ""
 
     static let deviceName = UIDevice.current.name
 
@@ -36,45 +41,56 @@ final class AppModel: ObservableObject {
 
     init() {
         serverURL = Keychain.get("serverURL") ?? ""
-        insecure = Keychain.get("insecure") == "1"
+        pin = Keychain.get("serverPin") ?? ""
+        // The old switch that turned certificate checks off is gone; so is its setting.
+        Keychain.set(nil, for: "insecure")
         try? FileManager.default.createDirectory(at: syncDirURL, withIntermediateDirectories: true)
         if let token = Keychain.get("deviceToken"), !serverURL.isEmpty {
-            openClient(server: serverURL, token: token, insecure: insecure)
+            openClient(server: serverURL, token: token, pin: pin)
         }
     }
 
-    private func openClient(server: String, token: String, insecure: Bool) {
+    private func openClient(server: String, token: String, pin: String) {
         do {
             client = try SyncCore.newClient(server: server, token: token,
-                                            syncDir: syncDirURL.path, dbPath: stateDBPath, insecure: insecure)
+                                            syncDir: syncDirURL.path, dbPath: stateDBPath, pin: pin)
             paired = true
-        } catch { lastError = error.localizedDescription }
+        } catch { lastError = Self.message(error.localizedDescription) }
     }
 
-    func startPairing(server: String, insecure: Bool) async -> MobilePairing? {
+    /// `pin` is "" for the strict first attempt, else the fingerprint of the certificate just
+    /// fetched from `server` and trusted by the user. A strict attempt that fails on an
+    /// untrusted certificate sets `pendingCertificate` instead of an error.
+    func startPairing(server: String, pin: String = "") async -> MobilePairing? {
         working = true; lastError = nil
         do {
-            let p = try await runOff { try SyncCore.pairBegin(server: server, name: Self.deviceName, kind: "ios", insecure: insecure) }
+            let p = try await runOff { try SyncCore.pairBegin(server: server, name: Self.deviceName, kind: "ios", pin: pin) }
             pendingUserCode = p.userCode
             return p
         } catch {
-            lastError = error.localizedDescription; working = false; return nil
+            if pin.isEmpty, let cert = try? await runOff({ try SyncCore.fetchCertificate(server: server) }), !cert.trusted {
+                certificateServer = server
+                pendingCertificate = cert
+            } else {
+                lastError = Self.message(error.localizedDescription)
+            }
+            working = false; return nil
         }
     }
 
-    func finishPairing(server: String, pairing: MobilePairing, insecure: Bool) async {
+    func finishPairing(server: String, pairing: MobilePairing, pin: String = "") async {
         do {
             let token = try await runOff {
                 try SyncCore.pairAwait(server: server, deviceCode: pairing.deviceCode,
-                                       intervalSec: pairing.intervalSeconds, insecure: insecure)
+                                       intervalSec: pairing.intervalSeconds, pin: pin)
             }
             Keychain.set(server, for: "serverURL")
-            Keychain.set(insecure ? "1" : "0", for: "insecure")
+            Keychain.set(pin.isEmpty ? nil : pin, for: "serverPin")
             Keychain.set(token, for: "deviceToken")
-            serverURL = server; self.insecure = insecure
-            openClient(server: server, token: token, insecure: insecure)
+            serverURL = server; self.pin = pin
+            openClient(server: server, token: token, pin: pin)
         } catch {
-            lastError = error.localizedDescription
+            lastError = Self.message(error.localizedDescription)
         }
         pendingUserCode = nil
         working = false
@@ -86,12 +102,12 @@ final class AppModel: ObservableObject {
         do {
             try await runOff { try client.syncOnce() }
         } catch {
-            lastError = error.localizedDescription
+            lastError = Self.message(error.localizedDescription)
         }
         if let st = client.status() {
             stateText = st.state
             lastSyncUnix = st.lastSyncUnix
-            if !st.lastError.isEmpty { lastError = st.lastError }
+            if !st.lastError.isEmpty { lastError = Self.message(st.lastError) }
             if !st.setAside.isEmpty { setAside = st.setAside }
         }
         working = false
@@ -110,8 +126,15 @@ final class AppModel: ObservableObject {
         }
         Keychain.set(nil, for: "deviceToken")
         Keychain.set(nil, for: "serverURL")
-        Keychain.set(nil, for: "insecure")
+        Keychain.set(nil, for: "serverPin")
+        pin = ""
         paired = false; stateText = "idle"; lastSyncUnix = 0; lastError = nil
+    }
+
+    /// Error text for the screen; a changed certificate is explained before the details.
+    static func message(_ text: String) -> String {
+        guard text.contains(MobileCertificateChangedMarker) else { return text }
+        return "The server certificate changed. If you did not replace it, someone may be intercepting the connection. Pair again to trust the new certificate. (\(text))"
     }
 
     private func runOff<T>(_ body: @escaping () throws -> T) async throws -> T {

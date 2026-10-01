@@ -28,6 +28,8 @@ object BrowserHolder {
     private var browser: Browser? = null
     private var inUse = 0
     private var closing = false
+    /** A close timed out while work was running; the last borrower finishes it. */
+    private var abandoned = false
 
     /**
      * Opens the browser from the saved profile, or returns null when not paired yet.
@@ -47,7 +49,7 @@ object BrowserHolder {
         val rootDir = File(context.filesDir, "browser-cache")
         val b = Core.newBrowser(
             prefs.serverURL, token, rootDir.path,
-            File(context.filesDir, "index.db").path, prefs.insecure,
+            File(context.filesDir, "index.db").path, prefs.serverPin,
         )
         browser = b
         return b
@@ -71,7 +73,17 @@ object BrowserHolder {
         } finally {
             lock.withLock {
                 inUse--
-                if (inUse == 0) idle.signalAll()
+                if (inUse == 0) {
+                    idle.signalAll()
+                    // Without this a timed-out close left the browser refusing every borrower
+                    // until the process died — and an unpair that hit it stuck half-done.
+                    if (abandoned) {
+                        runCatching { browser?.close() }
+                        browser = null
+                        abandoned = false
+                        closing = false
+                    }
+                }
             }
         }
     }
@@ -84,16 +96,21 @@ object BrowserHolder {
      * — after re-pairing, one carrying the new device token.
      *
      * Blocks for up to [timeoutMs] waiting for work in flight, so call it off the main thread.
-     * A timeout leaves the handle blocked for new borrowers. A later close can finish
-     * draining it; it must never close SQLite underneath an active operation.
+     * On a timeout it throws and leaves the handle blocked for new borrowers; the last
+     * borrower to finish then closes it, and a later close (a retried unpair) waits again.
+     * It must never close SQLite underneath an active operation.
      */
     fun close(timeoutMs: Long = 30_000) = lock.withLock {
         closing = true
         var remaining = timeoutMs * 1_000_000
         while (inUse > 0 && remaining > 0) remaining = idle.awaitNanos(remaining)
-        check(inUse == 0) { "Account operations are still finishing. Please try again." }
+        if (inUse > 0) {
+            abandoned = true
+            error("Account operations are still finishing. Please try again.")
+        }
         browser?.close()
         browser = null
+        abandoned = false
         closing = false
     }
 

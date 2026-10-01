@@ -49,5 +49,16 @@
     </array>
     <key>NSExtensionFileProviderEnabledByDefault</key><true/>
   </dict>
+  <!-- ATS is off so a self-signed server reached by a DNS name can be used: ATS runs its own
+  system-trust check and refuses the certificate the user trusted at pairing. DiscoKit's
+  URLSession delegate still accepts only a system-trusted chain or that exact certificate
+  fingerprint (DiscoNet), and http:// is refused in code except for loopback (URLPolicy).
+  NSAllowsLocalNetworking must not be added back: when present, ATS ignores this key. -->
+  <!-- Off so a server with a self-signed certificate can be used: the URLSession delegate still requires system trust or the certificate fingerprint the user confirmed at pairing, and URLPolicy.isAllowedServer refuses plain http (except localhost) before any request. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+  </dict>
 </dict>
 </plist>

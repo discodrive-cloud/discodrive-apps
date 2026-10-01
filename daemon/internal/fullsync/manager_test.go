@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"discodrive.org/daemon/internal/config"
+	"discodrive.org/daemon/internal/protocol"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -315,4 +316,39 @@ func TestDeletionRequiresConfirmation(t *testing.T) {
 	}
 	m.ConfirmDeletion()
 	wait(t, func() bool { return deleted.Load() == 10 })
+}
+
+// Folder sync reaches a server whose certificate the user trusted at pairing: the pin
+// travels in the account config.
+func TestSyncUsesTheAccountPin(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth/device/token" {
+			json.NewEncoder(w).Encode(map[string]string{"token": "jwt"})
+			return
+		}
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	m := New(t.TempDir())
+	defer m.Close()
+	pin := protocol.Fingerprint(server.Certificate().Raw)
+	if err := m.Attach(context.Background(), config.Config{ServerURL: server.URL + "/", DeviceToken: "test", ServerPin: pin}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Choose(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Enable(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pinned folder sync never reached the server")
+	}
 }

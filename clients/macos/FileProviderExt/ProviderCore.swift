@@ -33,16 +33,18 @@ final class ProviderCore: @unchecked Sendable {
             Self.log.error("Shared container unavailable")
             throw NSFileProviderError(.cannotSynchronize)
         }
-        let token: String?, urlStr: String?
+        let token: String?, urlStr: String?, pin: String?
         do {
             token = try KeychainToken.loadShared(service: KeychainToken.tokenService)
             urlStr = try KeychainToken.loadShared(service: KeychainToken.serverService)
+            pin = try KeychainToken.loadShared(service: KeychainToken.pinService)
         } catch {
             Self.log.error("Shared credentials unavailable: OSStatus \((error as NSError).code)")
             throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error])
         }
         guard let token, let urlStr else { throw NSFileProviderError(.notAuthenticated) }
-        guard let url = URL(string: urlStr), ["https", "http"].contains(url.scheme), url.host != nil else {
+        // https, or http to this machine only: the extension has ATS off, like the app.
+        guard let url = URL(string: urlStr), URLPolicy.isAllowedServer(url) else {
             Self.log.error("Invalid stored server URL")
             throw NSFileProviderError(.cannotSynchronize)
         }
@@ -53,6 +55,8 @@ final class ProviderCore: @unchecked Sendable {
             throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error])
         }
         self.index = index
+        // The certificate the user trusted at pairing; set before the client's first request.
+        DiscoNet.pin = pin
         self.client = APIClient(baseURL: url, deviceToken: token)
     }
 
@@ -144,13 +148,32 @@ final class ProviderCore: @unchecked Sendable {
                                                      modifiedAt: APIClient.contentModificationDate(of: fileURL),
                                                      baseVersion: baseVersion) }
     }
-    func rename(nodeID: String, to name: String) async throws { try await mapErrors { try await client.rename(nodeID: nodeID, newName: name) } }
-    func move(nodeID: String, toParent parent: String?) async throws { try await mapErrors { try await client.move(nodeID: nodeID, newParentID: parent) } }
-    func delete(nodeID: String) async throws { try await mapErrors { try await client.delete(nodeID: nodeID) } }
+    // A node the server answers "not found" about was deleted there while its delete event
+    // never arrived: the index forgets it and its subtree, and Finder is told .noSuchItem,
+    // which drops the item on its side too.
+    func rename(nodeID: String, to name: String) async throws {
+        try await mapErrors { try await index.forgettingIfGone(nodeID) { try await client.rename(nodeID: nodeID, newName: name) } }
+    }
+    func move(nodeID: String, toParent parent: String?) async throws {
+        try await mapErrors {
+            do { try await client.move(nodeID: nodeID, newParentID: parent) }
+            catch APIError.nodeNotFound {
+                let client = self.client
+                let gone = await index.forgetGoneAfterMove(nodeID: nodeID, parentID: parent) { try await client.nodeExists(nodeID: $0) }
+                Self.log.notice("move of \(nodeID, privacy: .public): not found on the server; forgot \(gone.count) node(s)")
+                throw APIError.nodeNotFound
+            }
+        }
+    }
+    // A node the server no longer has is already deleted: that is the outcome asked for.
+    func delete(nodeID: String) async throws {
+        let gone = try await mapErrors { try await index.deleteForgettingGone(nodeID: nodeID) { try await client.delete(nodeID: nodeID) } }
+        if !gone.isEmpty { Self.log.notice("delete of \(nodeID, privacy: .public): already gone on the server; forgot \(gone.count) node(s)") }
+    }
 
     func download(nodeID: String) async throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try await mapErrors { try await client.download(nodeID: nodeID, to: tmp) }
+        try await mapErrors { try await index.forgettingIfGone(nodeID) { try await client.download(nodeID: nodeID, to: tmp) } }
         return tmp
     }
 
@@ -158,6 +181,9 @@ final class ProviderCore: @unchecked Sendable {
     func mapErrors<T>(_ body: () async throws -> T) async throws -> T {
         do { return try await body() }
         catch let e as URLError {
+            if let changed = DiscoNet.explain(e) as? CertificateChangedError {
+                NSLog("DiscoDrive FP: %@", changed.localizedDescription)
+            }
             NSLog("DiscoDrive FP: transport failure %ld %@", e.code.rawValue, e.localizedDescription)
             throw NSFileProviderError(.serverUnreachable, userInfo: [NSUnderlyingErrorKey: e])
         } catch APIError.notAuthenticated {
@@ -167,6 +193,8 @@ final class ProviderCore: @unchecked Sendable {
         } catch APIError.http(let code) where code == 429 || code >= 500 {
             throw NSFileProviderError(.serverUnreachable)
         } catch APIError.http(let code) where code == 404 {
+            throw NSFileProviderError(.noSuchItem)
+        } catch APIError.nodeNotFound {
             throw NSFileProviderError(.noSuchItem)
         } catch {
             NSLog("DiscoDrive FP: %@", String(describing: error))

@@ -17,6 +17,22 @@ public protocol VaultFileSink: Sendable {
     func remove(_ relPath: String) async throws
 }
 
+// A source that can hand over a ciphertext file without holding it in memory. Renames and
+// moves re-encrypt a file's contents; with this they go file to file, so a multi-gigabyte
+// video does not have to fit in the File Provider extension's memory.
+public protocol VaultFileStreamSource: VaultFileSource {
+    /// Writes the ciphertext at `relPath` to the local file `destination`.
+    func download(_ relPath: String, to destination: URL) async throws
+}
+
+// The streaming counterpart of `createFile`: the same create-only rule, the ciphertext
+// taken from a local file.
+public protocol VaultFileStreamSink: VaultFileSink {
+    /// Creates `relPath` from the ciphertext in `file`; throws `Vault.VaultError.nameTaken`
+    /// without touching what is there when the name is taken.
+    func createFile(_ relPath: String, contentsOf file: URL) async throws
+}
+
 // A decrypted entry inside the vault (plaintext name + location of its content or subdirectory).
 public struct VaultEntry: Sendable {
     public let name: String
@@ -114,7 +130,7 @@ extension Vault {
 }
 
 // Local FileManager-based source/sink (for tests and on-disk vaults).
-public struct LocalVaultIO: VaultFileSource, VaultFileSink {
+public struct LocalVaultIO: VaultFileSource, VaultFileSink, VaultFileStreamSource, VaultFileStreamSink {
     let root: URL
     public init(root: URL) { self.root = root }
 
@@ -146,5 +162,15 @@ public struct LocalVaultIO: VaultFileSource, VaultFileSink {
     }
     public func remove(_ relPath: String) async throws {
         try FileManager.default.removeItem(at: root.appendingPathComponent(relPath))
+    }
+    public func download(_ relPath: String, to destination: URL) async throws {
+        try FileManager.default.copyItem(at: root.appendingPathComponent(relPath), to: destination)
+    }
+    public func createFile(_ relPath: String, contentsOf file: URL) async throws {
+        let url = root.appendingPathComponent(relPath)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // copyItem never replaces an existing destination.
+        do { try FileManager.default.copyItem(at: file, to: url) }
+        catch CocoaError.fileWriteFileExists { throw Vault.VaultError.nameTaken(relPath) }
     }
 }

@@ -44,7 +44,7 @@ func TestBrowserMutations(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	b, _ := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), false)
+	b, _ := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
 	defer b.Close()
 
 	if err := b.Mkdir("", "newdir"); err != nil || hits["folder"] != "newdir" {
@@ -101,7 +101,7 @@ func TestBrowserEnsureFolder(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	b, _ := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), false)
+	b, _ := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
 	defer b.Close()
 	if err := b.Refresh(); err != nil {
 		t.Fatal(err)

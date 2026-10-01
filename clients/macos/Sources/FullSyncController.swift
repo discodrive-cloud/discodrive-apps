@@ -158,8 +158,11 @@ final class FullSyncController: ObservableObject {
                 statusKey = "fullSync.stopped"
                 return
             }
+            // The certificate trusted at pairing ("" = strict), the same the app itself accepts.
+            let pin = try KeychainToken.loadShared(service: KeychainToken.pinService) ?? ""
             let config = try JSONSerialization.data(withJSONObject: [
                 "Server": server.absoluteString, "Token": token, "Root": folder.path, "Database": database.path,
+                "Pin": pin,
             ])
             let message = String(decoding: config, as: UTF8.self).withCString { DDFullSyncStart($0) }
             if let message { DDFullSyncFree(message); throw CocoaError(.fileWriteUnknown) }

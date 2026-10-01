@@ -93,25 +93,45 @@ final class AppState: ObservableObject {
         let env = ProcessInfo.processInfo.environment
         if let urlStr = env["DISCODRIVE_TEST_SERVER"], let token = env["DISCODRIVE_TEST_TOKEN"],
            let url = URL(string: urlStr) {
+            // DISCODRIVE_TEST_PIN: fingerprint of a local server's self-signed certificate.
+            let pin = env["DISCODRIVE_TEST_PIN"].flatMap { $0.isEmpty ? nil : $0 }
             KeychainToken.save(token, service: KeychainToken.tokenService)
             KeychainToken.save(urlStr, service: KeychainToken.serverService)
-            activate(serverURL: url, token: token)
+            savePin(pin)
+            activate(serverURL: url, token: token, pin: pin)
             return
         }
         #endif
         guard let token = KeychainToken.load(service: KeychainToken.tokenService),
               let urlStr = KeychainToken.load(service: KeychainToken.serverService),
               let url = URL(string: urlStr) else { paired = false; return }
-        activate(serverURL: url, token: token)
+        activate(serverURL: url, token: token, pin: KeychainToken.load(service: KeychainToken.pinService))
     }
 
-    func activate(serverURL: URL, token: String) {
+    // The trusted certificate goes and comes with the pairing it belongs to.
+    private func savePin(_ pin: String?) {
+        if let pin, !pin.isEmpty { KeychainToken.save(pin, service: KeychainToken.pinService) }
+        else { KeychainToken.delete(service: KeychainToken.pinService) }
+    }
+
+    func activate(serverURL: URL, token: String, pin: String?) {
+        // A stored address from before the https rule (or edited by hand) is not used: ATS
+        // is off in the app, so this check is what keeps the token off plain http.
+        guard URLPolicy.isAllowedServer(serverURL) else {
+            Self.log.error("refusing insecure server address \(serverURL.absoluteString, privacy: .public)")
+            paired = false
+            lastError = t("pairing.httpsRequired")
+            return
+        }
+        // Before the client below makes its first request.
+        DiscoNet.pin = pin
         session.invalidate()
         session = AccountSession()
         fileListLoaded = false; fileListError = nil; lastError = nil
         refreshing = false; importing = false; downloadingIDs = []
         let dir = appSupportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        SetAsideDownloads.prune(in: dir.appendingPathComponent("local", isDirectory: true), olderThan: SetAsideDownloads.maxAge)
         try? FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
         self.serverURL = serverURL
         self.client = APIClient(baseURL: serverURL, deviceToken: token)
@@ -137,6 +157,7 @@ final class AppState: ObservableObject {
                     let jwt = try await client.authToken()
                     var req = URLRequest(url: serverURL.appendingPathComponent("sync/events"))
                     req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+                    req.setValue(APIClient.featuresHeaderValue, forHTTPHeaderField: APIClient.featuresHeaderField)
                     req.timeoutInterval = 600
                     let (bytes, resp) = try await DiscoNet.session.bytes(for: req)
                     let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -161,6 +182,28 @@ final class AppState: ObservableObject {
     func performAccountOperation<T: Sendable>(_ operation: @escaping @Sendable (APIClient) async throws -> T) async throws -> T {
         guard let client, paired, !loggingOut else { throw CancellationError() }
         return try await session.perform { try await operation(client) }
+    }
+
+    // A request about one node from the index. When the server answers that the node does
+    // not exist (deleted there, the delete never reached this device), the index forgets it
+    // and its subtree and the file list is redrawn; APIError.nodeNotFound is rethrown for
+    // the caller to say so.
+    // confirmGone: the request's 404 can also be about something else it names (a share's
+    // recipient, a version), so the server is asked whether the node exists before it is
+    // forgotten.
+    func performNodeOperation<T: Sendable>(_ nodeID: String, confirmGone: Bool = false,
+                                           _ operation: @escaping @Sendable (APIClient) async throws -> T) async throws -> T {
+        let index = self.index
+        do {
+            return try await performAccountOperation { client in
+                guard let index else { return try await operation(client) }
+                let confirm: ((String) async throws -> Bool)? = confirmGone ? { try await client.nodeExists(nodeID: $0) } : nil
+                return try await index.forgettingIfGone(nodeID, confirm: confirm) { try await operation(client) }
+            }
+        } catch APIError.nodeNotFound {
+            await refresh()
+            throw APIError.nodeNotFound
+        }
     }
 
     func loadLanguage() async {
@@ -226,6 +269,13 @@ final class AppState: ObservableObject {
         stopLiveUpdates()
         KeychainToken.delete(service: KeychainToken.tokenService)
         KeychainToken.delete(service: KeychainToken.serverService)
+        KeychainToken.delete(service: KeychainToken.pinService)
+        DiscoNet.pin = nil
+        // What else the keychain holds for this pairing: vault passwords are keyed by server
+        // path, so the next pairing's "/Vault" would be handed this one's password; the DAV
+        // credentials belong to this server and account.
+        VaultPasswordStore.deleteAll()
+        KeychainToken.deleteAll(servicePrefix: KeychainToken.davServicePrefix)
         client = nil; index = nil; local = nil; serverURL = nil
         // A banner belongs to the session that raised it ("session expired" kept showing
         // after signing out and pairing again).
@@ -240,16 +290,19 @@ final class AppState: ObservableObject {
     // bookkeeping go, and the downloaded files are set aside under a dated name rather
     // than kept where the next pairing would mistake them for its own.
     private func forgetLocalState() {
+        openVaultIDs = []
         let fm = FileManager.default
         for suffix in ["", "-wal", "-shm"] {
             try? fm.removeItem(at: indexDir.appendingPathComponent("index.sqlite" + suffix))
         }
         let local = appSupportDir.appendingPathComponent("local", isDirectory: true)
         try? fm.removeItem(at: local.appendingPathComponent("local.sqlite"))
+        // Earlier logouts' set-aside downloads go now; this one's is kept for a while and
+        // removed at a later launch once it is a week old (or at the next logout).
+        SetAsideDownloads.prune(in: local, olderThan: 0)
         let content = local.appendingPathComponent("content", isDirectory: true)
         if fm.fileExists(atPath: content.path) {
-            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            try? fm.moveItem(at: content, to: local.appendingPathComponent("content.old-" + stamp, isDirectory: true))
+            try? fm.moveItem(at: content, to: local.appendingPathComponent(SetAsideDownloads.name(for: Date()), isDirectory: true))
         }
         Self.log.notice("local state forgotten after logout")
     }
@@ -268,17 +321,19 @@ final class AppState: ObservableObject {
     }
 
     // Pairing: returns PairingInfo (with verification_uri), then call confirm(deviceCode:).
-    func startPairing(serverURL: URL) async throws -> PairingInfo {
+    // `pin` is nil for the first, strict attempt; after the user trusted the certificate
+    // `untrustedCertificate` returned, it is that certificate's fingerprint.
+    func startPairing(serverURL: URL, pin: String? = nil) async throws -> PairingInfo {
         #if os(macOS)
         let deviceName = Host.current().localizedName ?? "Mac"
         #else
         let deviceName = UIDevice.current.name
         #endif
-        return try await Pairing(baseURL: serverURL).start(deviceName: deviceName)
+        return try await Pairing(baseURL: serverURL, pin: pin).start(deviceName: deviceName)
     }
 
-    func confirmPairing(serverURL: URL, info: PairingInfo) async throws {
-        let token = try await Pairing(baseURL: serverURL)
+    func confirmPairing(serverURL: URL, info: PairingInfo, pin: String? = nil) async throws {
+        let token = try await Pairing(baseURL: serverURL, pin: pin)
             .poll(deviceCode: info.deviceCode, interval: .seconds(max(1, info.interval)))
         // A new pairing starts from a clean slate: forget any previously-paired server's
         // index and downloaded files, so old content is never shown or pushed to the new server.
@@ -286,7 +341,25 @@ final class AppState: ObservableObject {
         resetLocalState()
         KeychainToken.save(token, service: KeychainToken.tokenService)
         KeychainToken.save(serverURL.absoluteString, service: KeychainToken.serverService)
-        activate(serverURL: serverURL, token: token)
+        savePin(pin)
+        activate(serverURL: serverURL, token: token, pin: pin)
+    }
+
+    /// After a strict pairing attempt failed: the server's certificate when the system does
+    /// not trust it (the user may choose to), nil when the failure was something else.
+    func untrustedCertificate(for serverURL: URL) async -> CertificateInfo? {
+        guard serverURL.scheme?.lowercased() == "https",
+              let certificate = try? await DiscoNet.fetchCertificate(serverURL),
+              !certificate.trusted else { return nil }
+        return certificate
+    }
+
+    /// Text for a failed pairing; a changed certificate is explained, with both fingerprints.
+    func pairingMessage(for error: Error, serverURL: URL) -> String {
+        if error is InsecureServerURLError { return t("pairing.httpsRequired") }
+        let explained = DiscoNet.explain(error, for: serverURL)
+        if explained is CertificateChangedError { return "\(t("pairing.certChanged")) (\(explained.localizedDescription))" }
+        return error.localizedDescription
     }
 
     // Wipe all locally-cached state from a previous pairing: the file-tree index and the
@@ -366,16 +439,18 @@ final class AppState: ObservableObject {
             switch Self.kind(of: error) {
             case .sessionExpired:
                 statusText = t("status.sessionExpired"); lastError = statusText; syncStatus = .offline
+            case .certificateChanged:
+                statusText = userMessage(for: error) ?? t("pairing.certChanged"); lastError = statusText; syncStatus = .offline
             case .offline, .serverError:
                 statusText = t("status.offline"); syncStatus = .offline
-            case .rejected, .unexplained:
+            case .rejected, .nodeGone, .unexplained:
                 syncStatus = .idle
             }
             return false
         }
     }
 
-    enum FailureKind { case sessionExpired, offline, serverError, rejected, unexplained }
+    enum FailureKind { case sessionExpired, certificateChanged, offline, serverError, rejected, nodeGone, unexplained }
 
     // What a failure means to the person at the window, if anything.
     static func kind(of error: Error) -> FailureKind {
@@ -383,6 +458,8 @@ final class AppState: ObservableObject {
         case APIError.notAuthenticated, APIError.http(401), APIError.http(403): return .sessionExpired
         case APIError.http(let code) where code >= 500: return .serverError
         case APIError.http: return .rejected
+        case APIError.nodeNotFound: return .nodeGone
+        case _ where DiscoNet.isCertificateChanged(error): return .certificateChanged
         case is URLError: return .offline
         default: return .unexplained
         }
@@ -392,11 +469,14 @@ final class AppState: ObservableObject {
     func userMessage(for error: Error) -> String? {
         switch Self.kind(of: error) {
         case .sessionExpired: return t("status.sessionExpired")
+        case .certificateChanged:
+            return "\(t("pairing.certChanged")) (\(DiscoNet.explain(error).localizedDescription))"
         case .offline: return t("status.offline")
         case .serverError: return t("status.serverError")
         case .rejected:
             if case APIError.http(let code) = error { return "\(t("status.rejected")) (\(code))" }
             return t("status.rejected")
+        case .nodeGone: return t("status.nodeGone")
         case .unexplained: return nil
         }
     }
@@ -478,6 +558,9 @@ final class AppState: ObservableObject {
     private func fail(_ key: String, _ error: Error) {
         guard session.isActive, !(error is CancellationError) else { return }
         Self.log.error("\(key, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        // A node the server no longer has is not a failure to explain: the index has already
+        // dropped it, and the message says only that.
+        if case .nodeGone = Self.kind(of: error) { statusText = t("status.nodeGone"); lastError = statusText; return }
         statusText = userMessage(for: error).map { "\(t(key)): \($0)" } ?? t(key)
         lastError = statusText
     }
@@ -491,20 +574,28 @@ final class AppState: ObservableObject {
     }
 
     func deleteNode(_ node: Node) async {
-        guard let client, let local, session.isActive else { return }
+        guard let client, let index, let local, session.isActive else { return }
         let session = self.session
         do {
-            try await session.perform { try await client.delete(nodeID: node.id) }
+            // A node the server no longer has is already deleted: the index forgets it and
+            // its subtree (the delete event that never arrived) and nothing is reported.
+            let forgotten = try await session.perform {
+                try await index.deleteForgettingGone(nodeID: node.id) { try await client.delete(nodeID: node.id) }
+            }
+            if !forgotten.isEmpty { Self.log.notice("delete: \(node.id, privacy: .public) was already gone on the server; forgot \(forgotten.count) node(s)") }
             try session.check()
             try local.remove(nodeID: node.id)
+            // A forgotten ghost folder takes the local copies of everything under it too,
+            // as the delete of a live folder would.
+            for id in forgotten where id != node.id { try local.remove(nodeID: id) }
         } catch { if session.isActive { fail("status.opError", error) } }
         if session.isActive { await refresh() }
     }
 
     func renameNode(_ node: Node, to newName: String) async {
-        guard let client, session.isActive, !newName.isEmpty, newName != node.name else { return }
+        guard let client, let index, session.isActive, !newName.isEmpty, newName != node.name else { return }
         let session = self.session
-        do { try await session.perform { try await client.rename(nodeID: node.id, newName: newName) } }
+        do { try await session.perform { try await index.forgettingIfGone(node.id) { try await client.rename(nodeID: node.id, newName: newName) } } }
         catch { if session.isActive { fail("status.opError", error) } }
         if session.isActive { await refresh() }
     }
@@ -529,6 +620,12 @@ final class AppState: ObservableObject {
     // A folder is a Cryptomator vault if it contains masterkey.cryptomator + vault.cryptomator;
     // answered from the tree built at the last refresh, not from the database.
     func isVault(_ folder: Node) -> Bool { folder.isDir && vaultIDs.contains(folder.id) }
+
+    // macOS: the vaults open right now as Finder locations, by folder id. Filled from the
+    // system's list of domains (see VaultDomains), so a vault closed from Finder's menu
+    // drops out too. Always empty on iOS, where an open vault is the in-app browser.
+    @Published var openVaultIDs: Set<String> = []
+    func isVaultOpen(_ folder: Node) -> Bool { openVaultIDs.contains(folder.id) }
 
     func openVault(_ folder: Node, password: String, remember: Bool = false) async {
         guard session.isActive, !vaultUnlocking else { return }
@@ -657,7 +754,7 @@ final class AppState: ObservableObject {
     // Ensures a fresh local copy is available (downloads if missing or stale). Returns the URL.
     @discardableResult
     func ensureDownloaded(_ node: Node, pin: Bool = false) async -> URL? {
-        guard let client, let local, session.isActive else { return nil }
+        guard let client, let index, let local, session.isActive else { return nil }
         let session = self.session
         let st = (try? local.status(nodeID: node.id, serverVersion: node.version)) ?? .none
         let needsDownload = (st == .none || st == .stale)
@@ -667,7 +764,7 @@ final class AppState: ObservableObject {
                 defer { if session.isActive { downloadingIDs.remove(node.id) } }
                 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 defer { try? FileManager.default.removeItem(at: tmp) }
-                try await session.perform { try await client.download(nodeID: node.id, to: tmp) }
+                try await session.perform { try await index.forgettingIfGone(node.id) { try await client.download(nodeID: node.id, to: tmp) } }
                 try session.check()
                 try local.store(nodeID: node.id, version: node.version, from: tmp, pinned: pin, relPath: node.path)
             } else if pin {
@@ -678,13 +775,14 @@ final class AppState: ObservableObject {
         } catch {
             guard session.isActive, !(error is CancellationError) else { return nil }
             fail("status.downloadError", error)
+            if case .nodeGone = Self.kind(of: error) { await refresh() }
             return nil
         }
     }
 
     // Exports own their temporary directory and never register a downloaded copy in LocalStore.
     func prepareExport(_ node: Node, in directory: URL) async -> URL? {
-        guard let client, let local, session.isActive else { return nil }
+        guard let client, let index, let local, session.isActive else { return nil }
         let session = self.session
         let url = directory.appendingPathComponent(node.name)
         do {
@@ -695,14 +793,16 @@ final class AppState: ObservableObject {
             } else {
                 downloadingIDs.insert(node.id)
                 defer { if session.isActive { downloadingIDs.remove(node.id) } }
-                try await session.perform { try await client.download(nodeID: node.id, to: url) }
+                try await session.perform { try await index.forgettingIfGone(node.id) { try await client.download(nodeID: node.id, to: url) } }
             }
+            DownloadQuarantine.mark(url)   // server-named bytes: Gatekeeper decides, not the name (macOS)
             try session.check()
             return url
         } catch {
             try? FileManager.default.removeItem(at: directory)
             guard session.isActive, !(error is CancellationError) else { return nil }
             fail("status.downloadError", error)
+            if case .nodeGone = Self.kind(of: error) { await refresh() }
             return nil
         }
     }

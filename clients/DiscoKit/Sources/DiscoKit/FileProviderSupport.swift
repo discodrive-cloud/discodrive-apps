@@ -142,8 +142,10 @@ public enum VaultItemID: Equatable, Sendable {
         if raw == ProviderItemInfo.rootIdentifier { return .root }
         if raw.hasPrefix("dir:") { return .dir(dirID: String(raw.dropFirst(4))) }
         if raw.hasPrefix("file:") {
+            // Split at the LAST colon: the node id is a server UUID, while the directory id
+            // is whatever the vault's dir.c9r holds and may itself contain colons.
             let rest = raw.dropFirst(5)
-            guard let colon = rest.firstIndex(of: ":") else { return nil }
+            guard let colon = rest.lastIndex(of: ":") else { return nil }
             return .file(parentDirID: String(rest[rest.startIndex..<colon]), nodeID: String(rest[rest.index(after: colon)...]))
         }
         return nil

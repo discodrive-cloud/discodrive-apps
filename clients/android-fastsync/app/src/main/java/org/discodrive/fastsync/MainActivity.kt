@@ -12,12 +12,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.text.DateFormat
@@ -77,7 +81,7 @@ fun PermissionGate(onGrant: () -> Unit) {
 fun SetupScreen(vm: SyncViewModel, ui: UiState) {
     val ctx = LocalContext.current
     var server by remember { mutableStateOf("https://") }
-    var insecure by remember { mutableStateOf(false) }
+    val openUrl: (String) -> Unit = { url -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Screen {
         Spacer(Modifier.height(60.dp))
         Text("DiscoDrive Fast Sync", style = MaterialTheme.typography.titleLarge)
@@ -87,30 +91,20 @@ fun SetupScreen(vm: SyncViewModel, ui: UiState) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth()
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = insecure, onCheckedChange = { insecure = it })
-            Spacer(Modifier.width(8.dp)); Text("Self-signed certificate")
-        }
-        if (insecure) {
-            Text(
-                "Disables TLS certificate checks — your token and files can be intercepted. Use only on a network you trust.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
         if (ui.pendingUserCode != null) {
             Text("Code: ${ui.pendingUserCode}", style = MaterialTheme.typography.titleMedium)
             Text("Confirm this code in the browser to pair.")
             CircularProgressIndicator()
         } else {
             Button(
-                onClick = { vm.pair(server, insecure) { url ->
-                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                } },
+                onClick = { vm.pair(server, openUrl) },
                 enabled = !ui.working
             ) { Text("Pair device") }
         }
-        ui.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        ui.lastError?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error) }
+    }
+    ui.certificate?.let { cert ->
+        CertTrustDialog(cert, onTrust = { vm.trustCertificate(openUrl) }, onCancel = { vm.rejectCertificate() })
     }
 }
 
@@ -132,7 +126,7 @@ fun SyncScreen(vm: SyncViewModel, ui: UiState) {
         }
         Text("State: ${ui.state} · last sync: ${lastSyncText(ui.lastSyncUnix)}",
             style = MaterialTheme.typography.bodySmall)
-        ui.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        ui.lastError?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error) }
         // The sync stopped rather than delete most of the vault. Offer the way out here, or
         // the only paths left would be doing nothing or unpairing.
         if (vm.bulkDeleteBlocked) {
@@ -182,6 +176,66 @@ fun SyncScreen(vm: SyncViewModel, ui: UiState) {
         )
     }
 }
+
+/** Asks whether to trust a certificate the system rejected; the user compares the fingerprint. */
+@Composable
+fun CertTrustDialog(cert: CertDetails, onTrust: () -> Unit, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Untrusted certificate") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (cert.selfSigned) {
+                    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
+                        Text(
+                            "Self-signed",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                CertField("Server", cert.host)
+                Column {
+                    Text("SHA-256 fingerprint", style = MaterialTheme.typography.labelMedium)
+                    SelectionContainer {
+                        Text(
+                            CertTrust.fingerprintLines(cert.fingerprint),
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                CertField("Issued to", cert.subject)
+                CertField("Issued by", cert.issuer)
+                CertField("Expires", CertTrust.expiryDate(cert.notAfter))
+                Text(
+                    "Only trust this if it matches the fingerprint of your server's certificate.",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onTrust) { Text("Trust") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun CertField(label: String, value: String) {
+    if (value.isEmpty()) return
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+private const val CERT_CHANGED =
+    "The server's certificate is not the one you trusted when pairing. Someone may be " +
+        "intercepting the connection. If the certificate was replaced on purpose, unpair and " +
+        "pair again to trust the new one."
+
+/** An error as the user reads it: a changed server certificate is explained, not just quoted. */
+private fun explainError(message: String): String = CertTrust.describe(message, CERT_CHANGED) ?: message
 
 private fun lastSyncText(unix: Long): String =
     if (unix > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(unix * 1000))

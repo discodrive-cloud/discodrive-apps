@@ -2,6 +2,7 @@ package org.discodrive.fastsync
 
 import android.content.Context
 import android.os.Environment
+import kotlinx.coroutines.Job
 import mobile.Client
 import java.io.File
 import java.util.concurrent.locks.ReentrantLock
@@ -27,6 +28,13 @@ object ClientHolder {
 
     val syncDir: File = File(Environment.getExternalStorageDirectory(), "DiscoDriveFastSync/Sync")
 
+    /**
+     * The local wipe of the last unpair, process-wide so a screen recreated meanwhile still
+     * waits for it: a pairing that started before it finished would have its fresh index wiped.
+     */
+    @Volatile
+    var unpairWipe: Job? = null
+
     /** Opens the client from the saved profile, or returns null when not paired yet. */
     fun get(context: Context): Client? = lock.withLock { open(context) }
 
@@ -37,7 +45,7 @@ object ClientHolder {
         if (prefs.serverURL.isEmpty()) return null
         syncDir.mkdirs()
         val db = File(context.filesDir, "state.db").path
-        val c = SyncCore.newClient(prefs.serverURL, token, syncDir.path, db, prefs.insecure)
+        val c = SyncCore.newClient(prefs.serverURL, token, syncDir.path, db, prefs.serverPin)
         client = c
         return c
     }

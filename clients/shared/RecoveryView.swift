@@ -106,7 +106,7 @@ struct RecoveryView: View {
 
     private func load() async throws {
         if let node {
-            versions = try await app.performAccountOperation { try await $0.versions(nodeID: node.id) }
+            versions = try await app.performNodeOperation(node.id) { try await $0.versions(nodeID: node.id) }
                 .sorted { $0.version > $1.version }
         } else { trash = try await app.performAccountOperation { try await $0.trash() } }
     }
@@ -133,12 +133,23 @@ struct RecoveryView: View {
             case .purge(let id): try await app.performAccountOperation { try await $0.purge(id: id) }
             case .empty: try await app.performAccountOperation { try await $0.emptyTrash() }
             case .version(let id, let version):
-                try await app.performAccountOperation { try await $0.restoreVersion(nodeID: id, version: version) }
+                try await app.performNodeOperation(id, confirmGone: true) { try await $0.restoreVersion(nodeID: id, version: version) }
                 notice = app.t("recovery.restored")
             }
             try await load()
             _ = await app.refresh()
-        } catch { show(error) }
+        } catch {
+            show(error)
+            // A refused purge (409) may still have removed other items: relist the trash
+            // whatever the outcome, keeping the message.
+            if case .version = action {} else {
+                try? await load()
+                _ = await app.refresh()
+            }
+        }
     }
-    private func show(_ error: Error) { self.error = app.userMessage(for: error) ?? app.t("status.opError") }
+    private func show(_ error: Error) {
+        if case APIError.trashBlocked = error { self.error = app.t("recovery.trashBlocked"); return }
+        self.error = app.userMessage(for: error) ?? app.t("status.opError")
+    }
 }

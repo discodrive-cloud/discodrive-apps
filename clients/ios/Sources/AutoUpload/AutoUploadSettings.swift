@@ -54,8 +54,8 @@ final class AutoUploadSettings: @unchecked Sendable {
         set { set(newValue, "autoUpload.requireBattery") }
     }
 
-    /// Wipes everything auto-upload remembers except the journal, which belongs to the
-    /// library rather than to the pairing.
+    /// Wipes everything auto-upload remembers except the journal (AutoUploadService.logout
+    /// empties that one itself).
     func reset() {
         for key in ["autoUpload.enabled", "autoUpload.seeded", "autoUpload.destID",
                     "autoUpload.wifiOnly", "autoUpload.chargingOnly", "autoUpload.requireBattery"] {

@@ -32,7 +32,7 @@ async function prepare(withoutPassword = false) {
     const result = await method(calendars.value, contacts.value)
     state.value = { ...state.value, ...result, access: state.value.access }
     automatic.value = withoutPassword
-    if (withoutPassword) await api.openPairURL(result.url)
+    if (withoutPassword) await api.openDAVURL()
   } catch (e) {
     if (withoutPassword && (String(e).includes('404') || String(e).includes('encrypted setup unavailable'))) error.value = 'dav.automaticUnavailable'
     else fail(e)
@@ -44,6 +44,9 @@ async function prepare(withoutPassword = false) {
 async function copy() {
   try { await api.copyText(state.value.credential.password); copied.value = true }
   catch (e) { fail(e) }
+}
+async function install() {
+  try { await api.openDAVURL() } catch (e) { fail(e) }
 }
 async function revoke() {
   busy.value = true; confirm.value = false; error.value = ''
@@ -66,7 +69,7 @@ async function revoke() {
       <p class="text-xs leading-relaxed text-muted">{{ t('dav.automaticHint') }}</p>
       <div v-if="state.credential" class="space-y-3">
         <button v-if="!automatic" class="btn-ghost" :disabled="busy" @click="copy">{{ t(copied ? 'dav.copied' : 'dav.copyPassword') }}</button>
-        <button v-if="state.url" class="btn" :disabled="busy" @click="api.openPairURL(state.url)">{{ t('dav.install') }}</button>
+        <button v-if="state.url" class="btn" :disabled="busy" @click="install">{{ t('dav.install') }}</button>
         <p v-else class="text-xs text-muted">{{ t('dav.prepareAgain') }}</p>
         <p class="text-xs leading-relaxed text-muted">{{ t(automatic ? 'dav.automaticInstallHint' : 'dav.installHint') }}</p>
         <button class="btn-ghost !text-danger" :disabled="busy" @click="confirm = true">{{ t('dav.revoke') }}</button>

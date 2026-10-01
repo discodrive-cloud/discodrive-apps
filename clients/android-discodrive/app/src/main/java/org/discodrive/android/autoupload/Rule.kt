@@ -15,6 +15,9 @@ import java.io.File
  * @param seeded whether the folder's existing contents have been recorded as pre-existing;
  *   until that has happened, switching a rule on would upload the whole archive
  * @param destID cached node id of the destination, so a pass does not re-resolve it
+ * @param createdAt when the rule was made (epoch ms); 0 for rules stored before this was
+ *   recorded. Lets a late fallback seed tell the folder's archive from files that arrived
+ *   after the user switched it on
  */
 data class Rule(
     val sourcePath: String,
@@ -24,6 +27,7 @@ data class Rule(
     val enabled: Boolean = true,
     val seeded: Boolean = false,
     val destID: String? = null,
+    val createdAt: Long = 0L,
 ) {
     val source: File get() = File(sourcePath)
 
@@ -39,6 +43,7 @@ data class Rule(
         put("enabled", enabled)
         put("seeded", seeded)
         destID?.let { put("destID", it) }
+        put("createdAt", createdAt)
     }
 
     companion object {
@@ -61,6 +66,7 @@ data class Rule(
             destSegments = destSegments,
             mediaOnly = mediaOnly,
             includeSubfolders = includeSubfolders,
+            createdAt = System.currentTimeMillis(),
         )
 
         fun fromJson(o: JSONObject): Rule {
@@ -73,6 +79,7 @@ data class Rule(
                 enabled = o.optBoolean("enabled", true),
                 seeded = o.optBoolean("seeded", false),
                 destID = if (o.has("destID")) o.getString("destID") else null,
+                createdAt = o.optLong("createdAt", 0L),
             )
         }
 

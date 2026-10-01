@@ -14,11 +14,13 @@
     <string name="perm_grant">Предоставить доступ</string>
 
     <string name="setup_server_url">URL сервера</string>
-    <string name="setup_self_signed">Самоподписанный сертификат</string>
-    <string name="setup_self_signed_warn">Отключает проверку TLS-сертификата — токен и файлы могут перехватить. Только в доверенной сети.</string>
     <string name="setup_code">Код: %1$s</string>
     <string name="setup_confirm_code">Подтвердите этот код в браузере для сопряжения.</string>
     <string name="setup_pair">Сопрячь устройство</string>
+    <string name="setup_https_required">Адрес сервера должен начинаться с https://. Незашифрованный http разрешён только для localhost.</string>
+    <string name="error_node_gone">Этого объекта больше нет на сервере. Список обновлён.</string>
+    <string name="error_trash_blocked">Некоторые объекты не удалены: папка всё ещё содержит файлы, которых нет в корзине. Сначала восстановите или переместите их.</string>
+    <string name="setup_open_manually">Сервер прислал ссылку для подтверждения, которую приложение не откроет само. Откройте её в браузере вручную, если доверяете ей:</string>
 
     <string name="menu_new_folder">Новая папка</string>
     <string name="menu_upload">Загрузить</string>
@@ -98,6 +100,7 @@
     <string name="au_blocked_charging">Ожидание зарядки</string>
     <string name="au_blocked_battery">Батарея разряжена</string>
     <string name="au_blocked_network">Ожидание сети</string>
+    <string name="au_add_failed">Не удалось добавить папку: %1$s</string>
     <string name="au_pick_folder">Выберите папку для загрузки</string>
     <string name="au_backfill">Загрузить и старые файлы</string>
     <string name="au_backfill_ask">%1$d файлов уже есть на телефоне и помечены как пропущенные. Загрузить их сейчас? Для большого архива это надолго — лучше по Wi-Fi и на зарядке.</string>
@@ -122,4 +125,17 @@
     <string name="sync_channel">Синхронизация папки</string>
     <string name="sync_notification">Синхронизация папки сервера…</string>
     <string name="sync_live">Изменения на сервере приходят, пока приложение открыто; в фоне папка проверяется примерно каждые 20 минут.</string>
+
+    <!-- Server certificate trust -->
+    <string name="cert_title">Недоверенный сертификат</string>
+    <string name="cert_self_signed">Самоподписанный</string>
+    <string name="cert_host">Сервер</string>
+    <string name="cert_fingerprint">Отпечаток SHA-256</string>
+    <string name="cert_subject">Кому выдан</string>
+    <string name="cert_issuer">Кем выдан</string>
+    <string name="cert_expires">Действует до</string>
+    <string name="cert_hint">Доверяйте, только если отпечаток совпадает с отпечатком сертификата вашего сервера.</string>
+    <string name="cert_trust">Доверять</string>
+    <string name="cert_changed">Сертификат сервера не тот, которому вы доверились при сопряжении. Возможно, соединение перехватывают. Если сертификат заменили намеренно, отвяжите устройство и выполните сопряжение заново, чтобы доверять новому.</string>
+    <string name="settings_cert_pinned">Доверенный сертификат (SHA-256)</string>
 </resources>

@@ -6,6 +6,7 @@ import (
 	"context"
 	"embed"
 	"os"
+	"runtime"
 	"slices"
 
 	"fyne.io/systray"
@@ -33,17 +34,7 @@ func main() {
 		mOpen := systray.AddMenuItem("Open DiscoDrive", "Show the window")
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("Quit", "Quit DiscoDrive")
-		go func() {
-			for {
-				select {
-				case <-mOpen.ClickedCh:
-					app.ShowWindow()
-				case <-mQuit.ClickedCh:
-					app.QuitApp()
-					return
-				}
-			}
-		}()
+		go runTrayActions(mOpen.ClickedCh, mQuit.ClickedCh, app.ShowWindow, app.QuitApp)
 	}
 
 	// Attempt C: create the status item on the MAIN thread at the very top of main(),
@@ -52,7 +43,14 @@ func main() {
 	trayStart, _ := systray.RunWithExternalLoop(onReady, func() {})
 	trayStart()
 
-	_ = wails.Run(&options.App{
+	installLauncher() // Linux: a launcher entry so the dock shows the app icon
+
+	_ = wails.Run(appOptions(app))
+}
+
+func appOptions(app *App) *options.App {
+	opts := &options.App{
+		Linux:            linuxOptions(),
 		Title:            "DiscoDrive",
 		Width:            1000,
 		Height:           700,
@@ -61,7 +59,7 @@ func main() {
 		AssetServer:      &assetserver.Options{Assets: assets},
 		BackgroundColour: &options.RGBA{R: 10, G: 14, B: 20, A: 1},
 		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
-		StartHidden:      hidden, // auto-launch with --hidden opens to tray, not the window
+		StartHidden:      app.startHidden, // auto-launch with --hidden opens to tray, not the window
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		// Close → hide to the tray and drop the dock icon (Accessory), instead of quitting.
@@ -71,5 +69,36 @@ func main() {
 			return true
 		},
 		Bind: []interface{}{app},
-	})
+	}
+	if runtime.GOOS == "darwin" {
+		// Cocoa handles the close button by hiding the app before it reaches
+		// OnBeforeClose. Native Quit (menu, Cmd+Q, Dock) still reaches this hook.
+		opts.HideWindowOnClose = true
+		opts.OnBeforeClose = func(context.Context) bool {
+			app.QuitApp()
+			// QuitApp exits after draining work, or retains the session if a vault
+			// cannot be saved. Never let Wails tear down the event loop separately.
+			return true
+		}
+	}
+	return opts
+}
+
+// runTrayActions owns the menu event loop independently of the native tray.
+func runTrayActions(open, quit <-chan struct{}, showWindow, quitApp func()) {
+	for {
+		select {
+		case _, ok := <-open:
+			if !ok {
+				return
+			}
+			showWindow()
+		case _, ok := <-quit:
+			if !ok {
+				return
+			}
+			// A rejected quit returns; keep accepting open and retry actions.
+			quitApp()
+		}
+	}
 }

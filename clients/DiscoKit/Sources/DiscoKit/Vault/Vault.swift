@@ -19,6 +19,18 @@ public final class Vault: Sendable {
         /// A decrypted name that is not a single path component ("", ".", "..", or one
         /// containing "/" or NUL). Anyone with the vault password can write one.
         case invalidName
+        /// masterkey.cryptomator asks for scrypt parameters outside what a real vault uses:
+        /// N not a power of two or above 2^20, r outside 1...32, or p below 1. Anyone who can
+        /// write the vault folder writes this file; N = 0 would divide by zero and a huge
+        /// N·r would try to allocate gigabytes.
+        case invalidScryptParameters(n: Int, r: Int, p: Int)
+    }
+
+    /// Refuses scrypt parameters no Cryptomator vault uses (it writes N = 2^15, r = 8, p = 1).
+    public static func validateScryptParameters(n: Int, r: Int, p: Int) throws {
+        guard n >= 1, n <= 1 << 20, n & (n - 1) == 0, r >= 1, r <= 32, p >= 1 else {
+            throw VaultError.invalidScryptParameters(n: n, r: r, p: p)
+        }
     }
 
     /// The unwrapped keys as 64 bytes (encryption key, then MAC key): what the app hands to
@@ -60,6 +72,7 @@ public final class Vault: Sendable {
         guard let salt = Data(base64Encoded: mk.scryptSalt),
               let wrappedEnc = Data(base64Encoded: mk.primaryMasterKey),
               let wrappedMac = Data(base64Encoded: mk.hmacMasterKey) else { throw VaultError.badMasterkey }
+        try validateScryptParameters(n: mk.scryptCostParam, r: mk.scryptBlockSize, p: 1)
         let kek = Scrypt.derive(password: Array(password.utf8), salt: Array(salt),
                                 n: mk.scryptCostParam, r: mk.scryptBlockSize, p: 1, dkLen: 32)
         let encKey: [UInt8], macKey: [UInt8]

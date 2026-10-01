@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-// Minimal generic-password store for the few persisted values (server URL, device token, flag).
+// Minimal generic-password store for the few persisted values (server URL, device token, pin).
 enum Keychain {
     private static let service = "org.discodrive.fastsync"
 

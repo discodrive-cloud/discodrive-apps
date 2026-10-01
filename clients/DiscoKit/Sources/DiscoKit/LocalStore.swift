@@ -310,6 +310,7 @@ public final class LocalStore {
         // without its row. A row whose file did not arrive reads as "not downloaded".
         try register(nodeID: nodeID, state: pinned ? "pinned" : "cached", version: version, relPath: rel)
         try FileManager.default.moveItem(at: tmp, to: dst)
+        DownloadQuarantine.mark(dst)
         // Renamed or moved on the server: the copy under the old name goes, or it would
         // sit there unclaimed and look like a file the user added.
         // Unless the old name is the new file: a change of case only, on a volume that

@@ -163,7 +163,7 @@ func openTestVault(t *testing.T, password string) *Vault {
 	copyTree(t, "../internal/vault/testdata/cmvault", filepath.Join(serverDir, "MyVault"))
 	srv := startVaultServer(t, serverDir)
 	mv, err := OpenVault(srv.URL, "kfd", "MyVault", password,
-		filepath.Join(t.TempDir(), "i.db"), t.TempDir(), false)
+		filepath.Join(t.TempDir(), "i.db"), t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("OpenVault: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestVaultWrongPassword(t *testing.T) {
 	copyTree(t, "../internal/vault/testdata/cmvault", filepath.Join(serverDir, "MyVault"))
 	srv := startVaultServer(t, serverDir)
 	_, err := OpenVault(srv.URL, "kfd", "MyVault", "wrong",
-		filepath.Join(t.TempDir(), "i.db"), t.TempDir(), false)
+		filepath.Join(t.TempDir(), "i.db"), t.TempDir(), "")
 	if !errors.Is(err, vault.ErrWrongPassword) {
 		t.Fatalf("expected ErrWrongPassword, got %v", err)
 	}

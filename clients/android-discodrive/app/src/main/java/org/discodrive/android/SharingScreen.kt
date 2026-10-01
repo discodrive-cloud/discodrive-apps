@@ -54,11 +54,11 @@ fun SharingScreen(node: Entry, onBack: () -> Unit) {
                 result.second?.let { val json = JSONObject(it); link = json.optString("url").takeIf { url -> url.isNotEmpty() }; createdID = json.optString("share_id").ifEmpty { null } }
                 if (revoked != null && revoked == createdID) { link = null; createdID = null }
                 load()
-            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message }
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = NodeGone.describe(e.message, context.getString(R.string.error_node_gone)) }
             finally { busy = false; mutating = false }
         }
     }
-    LaunchedEffect(node.id) { busy = true; try { load() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message } finally { busy = false } }
+    LaunchedEffect(node.id) { busy = true; try { load() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = NodeGone.describe(e.message, context.getString(R.string.error_node_gone)) } finally { busy = false } }
     BackHandler { if (!mutating) onBack() }
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.share_title)) }, navigationIcon = {
         IconButton(onClick = onBack, enabled = !mutating) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back)) }
@@ -88,7 +88,7 @@ fun SharingScreen(node: Entry, onBack: () -> Unit) {
             HorizontalDivider()
             Text(stringResource(R.string.share_existing), style = MaterialTheme.typography.titleMedium)
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error) }
             if (!busy && shares.isEmpty() && error == null) Text(stringResource(R.string.share_empty))
             shares.forEach { share ->
                 val id = share.getString("share_id")

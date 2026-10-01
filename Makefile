@@ -28,9 +28,11 @@ OUT := $(DIST)/$(OS)-$(ARCH)$(if $(filter 1,$(TRAY)),-tray,)
 GRADLE_DD := $(if $(wildcard clients/android-discodrive/gradlew),./gradlew,gradle)
 GRADLE_FS := $(if $(wildcard clients/android-fastsync/gradlew),./gradlew,gradle)
 
-.PHONY: help daemon daemon-all daemon-tray-all daemon-macos-release bind-ios bind-android \
+.PHONY: help daemon daemon-all daemon-tray-all daemon-macos-build-all daemon-macos-package daemon-macos-release \
+        bind-ios bind-android \
         app-macos app-ios app-ios-fastsync app-android app-android-fastsync \
-        desktop app-desktop-macos sign-desktop-macos dmg-desktop-macos desktop-linux desktop-windows \
+        desktop app-desktop-macos sign-desktop-macos dmg-desktop-macos dmg-desktop-macos-package \
+        desktop-linux desktop-windows \
         all-go test test-go test-swift doctor clean
 
 help:
@@ -39,10 +41,13 @@ help:
 	@echo "  daemon-all            server daemon (no tray): darwin amd64+arm64, linux amd64, windows amd64"
 	@echo "  daemon-tray-all       desktop daemon (tray): linux amd64+arm64, windows amd64 (+darwin on macOS)"
 	@echo "  daemon-macos-release  darwin daemon, both flavours × amd64+arm64, signed + notarized, tarred"
+	@echo "  daemon-macos-build-all  darwin daemon, both flavours × amd64+arm64 (build only, no signing)"
+	@echo "  daemon-macos-package  sign + notarize + tar the darwin daemon already built above"
 	@echo "  desktop               desktop client for host (darwin/universal on macOS)"
 	@echo "  app-desktop-macos     universal DiscoDrive.app (ad-hoc signed by Wails)"
 	@echo "  sign-desktop-macos    re-sign the built .app with Developer ID + hardened runtime"
 	@echo "  dmg-desktop-macos     signed + notarized dist/*.dmg  (VERSION=x.y.z names the file)"
+	@echo "  dmg-desktop-macos-package  sign + package the .app already built by app-desktop-macos"
 	@echo "  desktop-linux         desktop client Linux build via Debian Docker image"
 	@echo "  desktop-windows       desktop client Windows .exe + NSIS installers (amd64+arm64, cross-built)"
 	@echo "  bind-ios              gomobile xcframework → daemon/mobile/build/"
@@ -87,12 +92,30 @@ endif
 # one zip, then tarred as discodrive-daemon-<os>-<arch>[-tray].tar.gz for the release and
 # the Homebrew formulas. Signing degrades to ad-hoc + a notice without a certificate;
 # SIGN_REQUIRED=1 makes that an error (CI sets it).
-daemon-macos-release:
+#
+# Split in two: daemon-macos-build-all only builds (no secrets needed), daemon-macos-
+# package only signs binaries already built. In CI these run in separate jobs
+# (desktop-mac-win, then sign-macos) so the signing job never runs go/npm/wails. Locally,
+# daemon-macos-release runs both, in this order (a plain prerequisite list would let
+# `make -j` start packaging before the build finishes, or run them concurrently).
+daemon-macos-build-all:
 	$(MAKE) daemon OS=darwin ARCH=amd64
 	$(MAKE) daemon OS=darwin ARCH=arm64
 	$(MAKE) daemon OS=darwin ARCH=amd64 TRAY=1
 	$(MAKE) daemon OS=darwin ARCH=arm64 TRAY=1
+
+# Signs, notarizes and tars the binaries daemon-macos-build-all already produced under
+# dist/. Runs no go/npm/wails and no make target that builds — CI relies on that to run
+# it with a signing key unlocked. It does not verify what is in those binaries; in CI,
+# the sign-macos job allowlists their paths and checks Makefile/scripts against git
+# before this ever runs (see release.yml) — a build that already produced something
+# malicious at the expected path is not something this target can detect.
+daemon-macos-package:
 	scripts/macos-release-daemon.sh
+
+daemon-macos-release:
+	$(MAKE) daemon-macos-build-all
+	$(MAKE) daemon-macos-package
 
 # ---------- DESKTOP ----------
 DESKTOP_DIR := $(DAEMON_DIR)/cmd/discodrive-wails
@@ -105,9 +128,16 @@ desktop app-desktop-macos:
 sign-desktop-macos:
 	scripts/macos-sign.sh $(DESKTOP_DIR)/build/bin/DiscoDrive.app
 
-# Signs the .app, builds the .dmg, signs and notarizes it (see scripts/macos-*.sh).
-dmg-desktop-macos: app-desktop-macos
+# Signs the .app, builds the .dmg, signs and notarizes it (see scripts/macos-*.sh). Split
+# so CI can build the .app in one job (desktop-mac-win, no secrets) and sign it in
+# another (sign-macos, which never runs a build). Locally, dmg-desktop-macos runs both,
+# in this order — a plain prerequisite list would let `make -j` race them.
+dmg-desktop-macos-package:
 	scripts/package-macos-dmg.sh $(VERSION)
+
+dmg-desktop-macos:
+	$(MAKE) app-desktop-macos
+	$(MAKE) dmg-desktop-macos-package
 
 # Linux build needs WebKitGTK; Wails cannot cross-compile from macOS and there is
 # no official Wails image, so build inside Debian (see scripts/linux.Dockerfile).
@@ -153,7 +183,7 @@ bind-android:
 # ---------- CLIENT APPS ----------
 app-macos:
 	cd clients/macos && xcodegen generate && \
-	  xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -derivedDataPath build build
+	  xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -configuration Release -derivedDataPath build build
 
 app-ios:
 	cd clients/ios && xcodegen generate && \

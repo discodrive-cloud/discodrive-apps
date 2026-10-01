@@ -14,11 +14,13 @@
     <string name="perm_grant">Надати доступ</string>
 
     <string name="setup_server_url">URL сервера</string>
-    <string name="setup_self_signed">Самопідписаний сертифікат</string>
-    <string name="setup_self_signed_warn">Вимикає перевірку TLS-сертифіката — токен і файли можуть перехопити. Лише в довіреній мережі.</string>
     <string name="setup_code">Код: %1$s</string>
     <string name="setup_confirm_code">Підтвердьте цей код у браузері, щоб виконати парування.</string>
     <string name="setup_pair">Парувати пристрій</string>
+    <string name="setup_https_required">Адреса сервера має починатися з https://. Незашифрований http дозволено лише для localhost.</string>
+    <string name="error_node_gone">Цього об’єкта більше немає на сервері. Список оновлено.</string>
+    <string name="error_trash_blocked">Деякі об’єкти не видалено: папка ще містить файли, яких немає в кошику. Спершу відновіть або перемістіть їх.</string>
+    <string name="setup_open_manually">Сервер надіслав посилання для підтвердження, яке застосунок не відкриє сам. Відкрийте його в браузері вручну, якщо довіряєте йому:</string>
 
     <string name="menu_new_folder">Нова папка</string>
     <string name="menu_upload">Вивантажити</string>
@@ -98,6 +100,7 @@
     <string name="au_blocked_charging">Очікування зарядки</string>
     <string name="au_blocked_battery">Замало заряду</string>
     <string name="au_blocked_network">Очікування мережі</string>
+    <string name="au_add_failed">Не вдалося додати теку: %1$s</string>
     <string name="au_pick_folder">Виберіть теку для завантаження</string>
     <string name="au_backfill">Завантажити й старі файли</string>
     <string name="au_backfill_ask">%1$d файлів уже є на телефоні й позначені як пропущені. Завантажити їх зараз? Для великого архіву це надовго — краще через Wi-Fi і на зарядці.</string>
@@ -122,4 +125,17 @@
     <string name="sync_channel">Синхронізація теки</string>
     <string name="sync_notification">Синхронізація теки сервера…</string>
     <string name="sync_live">Зміни на сервері надходять, поки застосунок відкритий; у фоні тека перевіряється приблизно кожні 20 хвилин.</string>
+
+    <!-- Server certificate trust -->
+    <string name="cert_title">Недовірений сертифікат</string>
+    <string name="cert_self_signed">Самопідписаний</string>
+    <string name="cert_host">Сервер</string>
+    <string name="cert_fingerprint">Відбиток SHA-256</string>
+    <string name="cert_subject">Кому видано</string>
+    <string name="cert_issuer">Ким видано</string>
+    <string name="cert_expires">Дійсний до</string>
+    <string name="cert_hint">Довіряйте, лише якщо відбиток збігається з відбитком сертифіката вашого сервера.</string>
+    <string name="cert_trust">Довіряти</string>
+    <string name="cert_changed">Сертифікат сервера не той, якому ви довірилися під час сполучення. Можливо, з\'єднання перехоплюють. Якщо сертифікат замінили навмисно, від\'єднайте пристрій і виконайте сполучення знову, щоб довіряти новому.</string>
+    <string name="settings_cert_pinned">Довірений сертифікат (SHA-256)</string>
 </resources>

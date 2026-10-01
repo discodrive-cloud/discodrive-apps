@@ -58,7 +58,7 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
         RecoveryScreen(versionsFor, onChanged = { vm.syncNow() }) { recovery = false; versionsFor = null }
         return
     }
-    sharingFor?.let { entry -> SharingScreen(entry) { sharingFor = null }; return }
+    sharingFor?.let { entry -> SharingScreen(entry) { sharingFor = null; vm.reload() }; return }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.uploadUri(uri)
@@ -93,7 +93,7 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (ui.loading || ui.syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
-            ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
+            ui.error?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) }
             // The first pull after pairing has nothing in the index to show yet. A bare empty
             // list read as a broken app, so say what the progress bar is for.
             if ((ui.loading || ui.syncing) && ui.entries.isEmpty() && ui.error == null) {

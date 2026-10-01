@@ -578,6 +578,78 @@ public enum L10n {
             "sr": "Потврдите уређај у претраживачу који се отворио, па сачекајте…",
             "de": "Bestätigen Sie das Gerät im geöffneten Browser und warten Sie dann…",
         ],
+        "pair.openManually": [
+            "en": "The server sent a link that was not opened automatically. If you trust it, copy it into a browser to confirm the device:",
+            "ru": "Сервер прислал ссылку, которая не была открыта автоматически. Если вы ей доверяете, скопируйте её в браузер, чтобы подтвердить устройство:",
+            "uk": "Сервер надіслав посилання, яке не було відкрито автоматично. Якщо ви йому довіряєте, скопіюйте його в браузер, щоб підтвердити пристрій:",
+            "fr": "Le serveur a envoyé un lien qui n’a pas été ouvert automatiquement. Si vous lui faites confiance, copiez-le dans un navigateur pour confirmer l’appareil :",
+            "es": "El servidor envió un enlace que no se abrió automáticamente. Si confía en él, cópielo en un navegador para confirmar el dispositivo:",
+            "sr": "Сервер је послао везу која није аутоматски отворена. Ако јој верујете, копирајте је у претраживач да бисте потврдили уређај:",
+            "de": "Der Server hat einen Link gesendet, der nicht automatisch geöffnet wurde. Wenn Sie ihm vertrauen, kopieren Sie ihn in einen Browser, um das Gerät zu bestätigen:",
+        ],
+        // Trust dialog for a server whose certificate the system does not trust.
+        "pairing.certTitle": [
+            "en": "Untrusted server certificate", "ru": "Недоверенный сертификат сервера",
+            "uk": "Недовірений сертифікат сервера", "fr": "Certificat du serveur non reconnu",
+            "es": "Certificado del servidor no confiable", "sr": "Сертификат сервера није поуздан",
+            "de": "Nicht vertrauenswürdiges Serverzertifikat",
+        ],
+        "pairing.certHint": [
+            "en": "Only trust this if it matches the fingerprint of your server's certificate.",
+            "ru": "Доверяйте, только если отпечаток совпадает с отпечатком сертификата вашего сервера.",
+            "uk": "Довіряйте, лише якщо відбиток збігається з відбитком сертифіката вашого сервера.",
+            "fr": "Ne faites confiance que si l’empreinte correspond à celle du certificat de votre serveur.",
+            "es": "Confíe solo si coincide con la huella del certificado de su servidor.",
+            "sr": "Верујте само ако се отисак поклапа са отиском сертификата вашег сервера.",
+            "de": "Vertrauen Sie nur, wenn er mit dem Fingerabdruck des Zertifikats Ihres Servers übereinstimmt.",
+        ],
+        "pairing.certTrust": [
+            "en": "Trust", "ru": "Доверять", "uk": "Довіряти", "fr": "Faire confiance",
+            "es": "Confiar", "sr": "Верујем", "de": "Vertrauen",
+        ],
+        "pairing.certSelfSigned": [
+            "en": "Self-signed", "ru": "Самоподписанный", "uk": "Самопідписаний", "fr": "Auto-signé",
+            "es": "Autofirmado", "sr": "Самопотписан", "de": "Selbstsigniert",
+        ],
+        "pairing.certChanged": [
+            "en": "The server certificate changed. If you did not replace it, someone may be intercepting the connection. Pair again to trust the new certificate.",
+            "ru": "Сертификат сервера изменился. Если вы его не меняли, соединение может перехватываться. Подключите устройство заново, чтобы доверять новому сертификату.",
+            "uk": "Сертифікат сервера змінився. Якщо ви його не змінювали, з’єднання можуть перехоплювати. Підключіть пристрій знову, щоб довіряти новому сертифікату.",
+            "fr": "Le certificat du serveur a changé. Si vous ne l’avez pas remplacé, la connexion est peut-être interceptée. Appairez à nouveau pour faire confiance au nouveau certificat.",
+            "es": "El certificado del servidor ha cambiado. Si no lo reemplazó, alguien podría estar interceptando la conexión. Vuelva a vincular para confiar en el nuevo certificado.",
+            "sr": "Сертификат сервера се променио. Ако га нисте заменили, неко можда пресреће везу. Поново упарите уређај да бисте веровали новом сертификату.",
+            "de": "Das Serverzertifikat hat sich geändert. Wenn Sie es nicht ersetzt haben, wird die Verbindung möglicherweise abgefangen. Koppeln Sie erneut, um dem neuen Zertifikat zu vertrauen.",
+        ],
+        "pairing.certHost": [
+            "en": "Server", "ru": "Сервер", "uk": "Сервер", "fr": "Serveur",
+            "es": "Servidor", "sr": "Сервер", "de": "Server",
+        ],
+        "pairing.certFingerprint": [
+            "en": "SHA-256 fingerprint", "ru": "Отпечаток SHA-256", "uk": "Відбиток SHA-256",
+            "fr": "Empreinte SHA-256", "es": "Huella SHA-256", "sr": "SHA-256 отисак",
+            "de": "SHA-256-Fingerabdruck",
+        ],
+        "pairing.certSubject": [
+            "en": "Issued to", "ru": "Кому выдан", "uk": "Кому видано", "fr": "Délivré à",
+            "es": "Emitido para", "sr": "Издат за", "de": "Ausgestellt für",
+        ],
+        "pairing.certIssuer": [
+            "en": "Issued by", "ru": "Кем выдан", "uk": "Ким видано", "fr": "Délivré par",
+            "es": "Emitido por", "sr": "Издао", "de": "Ausgestellt von",
+        ],
+        "pairing.httpsRequired": [
+            "en": "The server address must start with https:// (plain http:// is allowed only for this device: localhost).",
+            "ru": "Адрес сервера должен начинаться с https:// (http:// допустим только для этого устройства: localhost).",
+            "uk": "Адреса сервера має починатися з https:// (http:// допустимий лише для цього пристрою: localhost).",
+            "fr": "L’adresse du serveur doit commencer par https:// (http:// n’est autorisé que pour cet appareil : localhost).",
+            "es": "La dirección del servidor debe empezar por https:// (http:// solo se permite para este dispositivo: localhost).",
+            "sr": "Адреса сервера мора почињати са https:// (http:// је дозвољен само за овај уређај: localhost).",
+            "de": "Die Serveradresse muss mit https:// beginnen (http:// ist nur für dieses Gerät erlaubt: localhost).",
+        ],
+        "pairing.certExpires": [
+            "en": "Expires", "ru": "Истекает", "uk": "Спливає", "fr": "Expire le",
+            "es": "Caduca", "sr": "Истиче", "de": "Gültig bis",
+        ],
         "browse.count": [
             "en": "Items", "ru": "Элементов", "uk": "Елементів",
             "fr": "Éléments", "es": "Elementos", "sr": "Ставки",
@@ -692,6 +764,24 @@ public enum L10n {
         "status.opError": [
             "en": "The operation failed", "de": "Der Vorgang ist fehlgeschlagen", "uk": "Операція не вдалася",
             "fr": "L’opération a échoué", "es": "La operación falló", "ru": "Операция не удалась", "sr": "Операција није успела",
+        ],
+        "recovery.trashBlocked": [
+            "en": "Some items could not be removed because a folder still contains files that are not in the trash. Restore or move them first.",
+            "de": "Einige Objekte konnten nicht entfernt werden, weil ein Ordner noch Dateien enthält, die nicht im Papierkorb sind. Stellen Sie sie zuerst wieder her oder verschieben Sie sie.",
+            "uk": "Деякі об’єкти не видалено: папка ще містить файли, яких немає в кошику. Спершу відновіть або перемістіть їх.",
+            "fr": "Certains éléments n’ont pas pu être supprimés, car un dossier contient encore des fichiers qui ne sont pas dans la corbeille. Restaurez-les ou déplacez-les d’abord.",
+            "es": "Algunos elementos no se pudieron eliminar porque una carpeta aún contiene archivos que no están en la papelera. Restáurelos o muévalos primero.",
+            "ru": "Некоторые объекты не удалены: папка всё ещё содержит файлы, которых нет в корзине. Сначала восстановите или переместите их.",
+            "sr": "Неке ставке нису уклоњене јер фасцикла још садржи датотеке које нису у отпаду. Прво их вратите или преместите.",
+        ],
+        "status.nodeGone": [
+            "en": "This item no longer exists on the server. The list has been updated.",
+            "de": "Dieses Objekt existiert nicht mehr auf dem Server. Die Liste wurde aktualisiert.",
+            "uk": "Цього об’єкта більше немає на сервері. Список оновлено.",
+            "fr": "Cet élément n’existe plus sur le serveur. La liste a été mise à jour.",
+            "es": "Este elemento ya no existe en el servidor. La lista se ha actualizado.",
+            "ru": "Этого объекта больше нет на сервере. Список обновлён.",
+            "sr": "Ова ставка више не постоји на серверу. Листа је освежена.",
         ],
         "status.downloadError": [
             "en": "Download error", "ru": "Ошибка скачивания", "uk": "Помилка завантаження",
@@ -815,6 +905,16 @@ public enum L10n {
             "en": "Close vault", "ru": "Закрыть сейф", "uk": "Закрити сейф",
             "fr": "Fermer le coffre", "es": "Cerrar caja fuerte", "sr": "Затвори сеф",
             "de": "Tresor schließen",
+        ],
+        "vault.showInFinder": [
+            "en": "Show in Finder", "ru": "Показать в Finder", "uk": "Показати у Finder",
+            "fr": "Afficher dans le Finder", "es": "Mostrar en Finder", "sr": "Прикажи у Finder-у",
+            "de": "Im Finder zeigen",
+        ],
+        "vault.isOpen": [
+            "en": "Vault is open in Finder", "ru": "Сейф открыт в Finder", "uk": "Сейф відкрито у Finder",
+            "fr": "Coffre ouvert dans le Finder", "es": "Caja fuerte abierta en Finder",
+            "sr": "Сеф је отворен у Finder-у", "de": "Tresor ist im Finder geöffnet",
         ],
         "vault.unlock": [
             "en": "Unlock", "ru": "Разблокировать", "uk": "Розблокувати",

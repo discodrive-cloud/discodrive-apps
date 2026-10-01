@@ -142,7 +142,12 @@ struct BrowserView: View {
                         HStack(spacing: 4) {
                             FileRow(node: node, status: app.status(of: node))
                             if node.isDir && app.isVault(node) {
-                                Image(systemName: "lock.fill").foregroundStyle(.orange)
+                                if app.isVaultOpen(node) {
+                                    Image(systemName: "lock.open.fill").foregroundStyle(.green)
+                                        .help(app.t("vault.isOpen"))
+                                } else {
+                                    Image(systemName: "lock.fill").foregroundStyle(.orange)
+                                }
                             }
                         }
                             .tag(node)
@@ -151,7 +156,9 @@ struct BrowserView: View {
                             // count:2 before count:1 — makes mouse navigation deterministic
                             .onTapGesture(count: 2) {
                                 if node.isDir {
-                                    if app.isVault(node) { app.vaultUnlockFolder = node }
+                                    if app.isVaultOpen(node) {
+                                        Task { await VaultDomains.reveal(vaultID: node.id, name: node.name) }
+                                    } else if app.isVault(node) { app.vaultUnlockFolder = node }
                                     else { selectedFolder = node.id; selectedFile = nil }
                                 } else { Task { await app.openFile(node) } }
                             }
@@ -236,7 +243,15 @@ struct BrowserView: View {
     }
 
     @ViewBuilder private func rowMenu(_ node: Node) -> some View {
-        if node.isDir && app.isVault(node) {
+        if node.isDir && app.isVaultOpen(node) {
+            Button(app.t("vault.showInFinder")) {
+                Task { await VaultDomains.reveal(vaultID: node.id, name: node.name) }
+            }
+            Button(app.t("vault.close")) {
+                Task { await VaultDomains.close(vaultID: node.id, name: node.name) }
+            }
+            Divider()
+        } else if node.isDir && app.isVault(node) {
             Button(app.t("vault.open")) { app.vaultUnlockFolder = node }
             Divider()
         }

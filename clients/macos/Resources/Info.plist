@@ -22,10 +22,24 @@
       <key>CFBundleURLSchemes</key><array><string>$(DISCODRIVE_URL_SCHEME)</string></array>
     </dict>
   </array>
+  <!-- Files this app writes carry com.apple.quarantine: their names come from the server,
+       and one opened from the browser must go through Gatekeeper like any download. -->
+  <key>LSFileQuarantineEnabled</key><true/>
   <key>NSHumanReadableCopyright</key><string>© 2026 kosmosoid</string>
   <!-- Read at launch (DiscoDriveApp.init): the App Group and keychain access group shared
        with the File Provider extension. Must match DiscoDrive.entitlements. -->
   <key>DiscoDriveAppGroup</key><string>$(DEVELOPMENT_TEAM).$(DISCODRIVE_GROUP_SUFFIX)</string>
   <key>DiscoDriveKeychainGroup</key><string>$(DEVELOPMENT_TEAM).$(DISCODRIVE_GROUP_SUFFIX)</string>
+  <!-- ATS is off so a self-signed server reached by a DNS name can be used: ATS runs its own
+  system-trust check and refuses the certificate the user trusted at pairing. DiscoKit's
+  URLSession delegate still accepts only a system-trusted chain or that exact certificate
+  fingerprint (DiscoNet), and http:// is refused in code except for loopback (URLPolicy).
+  NSAllowsLocalNetworking must not be added back: when present, ATS ignores this key. -->
+  <!-- Off so a server with a self-signed certificate can be used: the URLSession delegate still requires system trust or the certificate fingerprint the user confirmed at pairing, and URLPolicy.isAllowedServer refuses plain http (except localhost) before any request. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+  </dict>
 </dict>
 </plist>

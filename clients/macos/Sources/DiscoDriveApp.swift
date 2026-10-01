@@ -16,11 +16,8 @@ struct DiscoDriveApp: App {
         let info = Bundle.main.infoDictionary ?? [:]
         KeychainConfig.accessGroup = info["DiscoDriveKeychainGroup"] as? String
         AppState.appGroupID = info["DiscoDriveAppGroup"] as? String
-        #if DEBUG
-        // Debug builds may talk to a self-hosted server with a self-signed cert.
-        // Release builds keep strict TLS validation.
-        DiscoNet.allowInsecureTLS = true
-        #endif
+        // Strict TLS validation in every build; a self-signed server is accepted only by the
+        // fingerprint trusted at pairing (DiscoNet.pin, set when the pairing is activated).
     }
     // discodrive://vault/open?id=<node>  → the unlock sheet for that folder
     // discodrive://vault/close?id=<node> → the vault's Finder location goes away
@@ -39,7 +36,7 @@ struct DiscoDriveApp: App {
             app.vaultUnlockFolder = node
         case "/close":
             let name = app.node(id: id)?.name ?? ""
-            Task { await VaultDomains.close(vaultID: id, name: name) }
+            Task { await VaultDomains.close(vaultID: id, name: name) }   // refreshes the open list
         default: break
         }
     }
@@ -87,6 +84,13 @@ struct DiscoDriveApp: App {
                 app.presentUnlockedVault = { vault, folder in
                     await VaultDomains.open(vaultID: folder.id, name: folder.name, keys: vault.rawKeys)
                 }
+                // Which vaults are open is the system's list of their domains, re-read
+                // after every open/close and when the app comes back to the front (a
+                // vault may have been closed from Finder's menu meanwhile).
+                VaultDomains.didChange = {
+                    Task { @MainActor in app.openVaultIDs = await VaultDomains.openVaultIDs() }
+                }
+                VaultDomains.didChange?()
                 // Finder shows the DiscoDrive folder while paired; the extension is
                 // nudged after every change the server streams to the app.
                 app.onRemoteChange = { FileProviderDomain.signalChanges() }
@@ -123,6 +127,7 @@ struct DiscoDriveApp: App {
             // pairing is looked up again once the app is in front, before anyone re-pairs.
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 if !app.paired { app.bootstrap() }
+                VaultDomains.didChange?()
             }
         }
         // discodrive:// URLs go to the delegate; without this the group would open a

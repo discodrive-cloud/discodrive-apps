@@ -13,13 +13,21 @@ public struct Pairing: Sendable {
     public init(baseURL: URL, session: URLSession = DiscoNet.session) {
         self.baseURL = baseURL; self.session = session
     }
+    /// Pairs strictly (nil) or trusting exactly the certificate with fingerprint `pin`,
+    /// whatever `DiscoNet.pin` holds for the current pairing.
+    public init(baseURL: URL, pin: String?) {
+        self.init(baseURL: baseURL, session: DiscoNet.session(pin: pin))
+    }
 
     public func start(deviceName: String) async throws -> PairingInfo {
+        guard URLPolicy.isAllowedServer(baseURL) else { throw InsecureServerURLError() }
         var req = URLRequest(url: baseURL.appendingPathComponent("pair/init"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["name": deviceName, "kind": "desktop"])
-        let (data, resp) = try await session.data(for: req)
+        let (data, resp): (Data, URLResponse)
+        do { (data, resp) = try await session.data(for: req) }
+        catch { throw DiscoNet.explain(error, for: baseURL) }
         guard (resp as? HTTPURLResponse)?.statusCode == 201 else { throw APIError.badResponse }
         struct Out: Decodable {
             let device_code: String; let user_code: String
@@ -40,6 +48,7 @@ public struct Pairing: Sendable {
     /// an app that was backgrounded — gives up.
     public func poll(deviceCode: String, interval: Duration,
                      networkGrace: Duration = .seconds(120)) async throws -> String {
+        guard URLPolicy.isAllowedServer(baseURL) else { throw InsecureServerURLError() }
         struct Out: Decodable { let status: String; let device_token: String? }
         let clock = ContinuousClock()
         var failingSince: ContinuousClock.Instant?
@@ -52,6 +61,8 @@ public struct Pairing: Sendable {
             do {
                 data = try await session.data(for: req).0
             } catch let error as URLError {
+                // A changed certificate does not heal by waiting.
+                if DiscoNet.isCertificateChanged(error, for: baseURL) { throw DiscoNet.explain(error, for: baseURL) }
                 let since = failingSince ?? clock.now
                 failingSince = since
                 if clock.now - since >= networkGrace { throw error }

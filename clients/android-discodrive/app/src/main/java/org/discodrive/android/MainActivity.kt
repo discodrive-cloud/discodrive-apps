@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,7 +71,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
         ui.paired -> BrowserScreen(vm, ui,
             onUnlock = { root, pwd ->
                 val tok = vm.token
-                if (tok != null) vaultVm.open(vm.server, tok, root, pwd, vm.insecureTLS)
+                if (tok != null) vaultVm.open(vm.server, tok, root, pwd, vm.serverPin)
             },
             onSettings = { showSettings = true }
         )
@@ -91,7 +92,7 @@ fun VaultOpeningScreen(loading: Boolean, error: String?, onBack: () -> Unit) {
             Text(stringResource(R.string.vault_unlocking), style = MaterialTheme.typography.titleMedium)
         } else if (error != null) {
             Text(stringResource(R.string.vault_open_failed), style = MaterialTheme.typography.titleLarge)
-            Text(error, color = MaterialTheme.colorScheme.error)
+            Text(explainError(error), color = MaterialTheme.colorScheme.error)
             Button(onClick = onBack) { Text(stringResource(R.string.back)) }
         }
     }
@@ -117,7 +118,7 @@ fun PermissionGate(onBack: () -> Unit, onGrant: () -> Unit) {
 fun SetupScreen(vm: BrowserViewModel, ui: BrowseState) {
     val ctx = LocalContext.current
     var server by remember { mutableStateOf("https://") }
-    var insecure by remember { mutableStateOf(false) }
+    val openUrl: (String) -> Unit = { url -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(
         Modifier.fillMaxSize().padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -131,27 +132,23 @@ fun SetupScreen(vm: BrowserViewModel, ui: BrowseState) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth()
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = insecure, onCheckedChange = { insecure = it })
-            Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.setup_self_signed))
-        }
-        if (insecure) {
-            Text(
-                stringResource(R.string.setup_self_signed_warn),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
         if (ui.pendingUserCode != null) {
             Text(stringResource(R.string.setup_code, ui.pendingUserCode ?: ""), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(R.string.setup_confirm_code))
+            ui.verificationUrl?.let { url ->
+                Text(stringResource(R.string.setup_open_manually), style = MaterialTheme.typography.bodySmall)
+                SelectionContainer { Text(url, style = MaterialTheme.typography.bodyMedium) }
+            }
             CircularProgressIndicator()
         } else {
             Button(
-                onClick = { vm.pair(server, insecure) { url -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } },
+                onClick = { vm.pair(server, openUrl) },
                 enabled = !ui.loading
             ) { Text(stringResource(R.string.setup_pair)) }
         }
-        ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        ui.error?.let { Text(explainError(it), color = MaterialTheme.colorScheme.error) }
+    }
+    ui.certificate?.let { cert ->
+        CertTrustDialog(cert, onTrust = { vm.trustCertificate(openUrl) }, onCancel = { vm.rejectCertificate() })
     }
 }

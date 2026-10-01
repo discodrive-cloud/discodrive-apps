@@ -5,6 +5,7 @@ import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,8 @@ data class AutoUploadState(
     val running: String? = null,
     /** How many pre-existing files the last backfill queued; null until one is asked for. */
     val queued: Int? = null,
+    /** Adding a folder failed (its scan, the journal, the stored list), already translated. */
+    val error: String? = null,
 )
 
 class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
@@ -67,28 +70,67 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
         val ctx = getApplication<Application>()
         prefs.autoUpload = on
         if (on) {
-            if (prefs.rules.isEmpty()) prefs.addRule(AutoUploadRunner.defaultRule())
-            AutoUploadWorker.schedule(ctx, prefs.wifiOnly)
-            observers.start()
+            // Not cancellable: leaving the screen mid-scan must not leave the folder added
+            // but the worker never scheduled.
+            viewModelScope.launch(NonCancellable) {
+                try {
+                    if (prefs.rules.isEmpty()) addSeeded(AutoUploadRunner.defaultRule())
+                    // Switched off again while the folder was being scanned: stay off.
+                    if (prefs.autoUpload) {
+                        AutoUploadWorker.schedule(ctx, prefs.wifiOnly)
+                        observers.start()
+                    }
+                    _state.value = _state.value.copy(error = null)
+                } catch (e: Exception) {
+                    _state.value = _state.value.copy(error = addFailedText(e))
+                }
+                reload()
+            }
         } else {
             AutoUploadWorker.cancel(ctx)
             observers.stop()
+            reload()
         }
-        reload()
     }
 
     fun addFolder(path: String) {
         val dir = File(path)
         if (!dir.isDirectory) return
-        prefs.addRule(
-            Rule.of(
-                dir.path,
-                AutoUploadRunner.defaultDestFor(dir),
-                mediaOnly = AutoUploadRunner.defaultMediaOnlyFor(dir),
-            )
+        viewModelScope.launch(NonCancellable) {
+            try {
+                addSeeded(
+                    Rule.of(
+                        dir.path,
+                        AutoUploadRunner.defaultDestFor(dir),
+                        mediaOnly = AutoUploadRunner.defaultMediaOnlyFor(dir),
+                    )
+                )
+                if (prefs.autoUpload) observers.start() // watch the new folder too
+                _state.value = _state.value.copy(error = null)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(error = addFailedText(e))
+            }
+            reload()
+        }
+    }
+
+    /**
+     * Records what [rule]'s folder already holds as pre-existing, then stores the rule as
+     * seeded (see [RuleSeeding.add]); dropped if the device was unpaired during the scan.
+     *
+     * Seeding used to wait for the first pass that was allowed to run. With "Wi-Fi only" that
+     * could be days later, and every photo taken in between was recorded as "already there"
+     * and never sent.
+     */
+    private suspend fun addSeeded(rule: Rule): Boolean = withContext(Dispatchers.IO) {
+        RuleSeeding.add(
+            prefs, rule,
+            scan = { AutoUploadRunner.scanForSeed(it) },
+            record = { files ->
+                val j = UploadJournal(getApplication<Application>())
+                try { j.seedPreexisting(files) } finally { j.close() }
+            },
         )
-        if (prefs.autoUpload) observers.start() // watch the new folder too
-        reload()
     }
 
     /**
@@ -162,6 +204,9 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Where the folder picker opens: the shared storage root, which is what users browse. */
     fun pickerStart(): File = Environment.getExternalStorageDirectory()
+
+    private fun addFailedText(e: Exception): String =
+        getApplication<Application>().getString(R.string.au_add_failed, e.message ?: e.toString())
 
     private fun blockedText(): String? {
         if (!prefs.autoUpload) return null

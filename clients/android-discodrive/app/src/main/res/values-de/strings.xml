@@ -14,11 +14,13 @@
     <string name="perm_grant">Zugriff erteilen</string>
 
     <string name="setup_server_url">Server-URL</string>
-    <string name="setup_self_signed">Selbstsigniertes Zertifikat</string>
-    <string name="setup_self_signed_warn">Deaktiviert die TLS-Zertifikatsprüfung – Token und Dateien können abgefangen werden. Nur in einem vertrauenswürdigen Netzwerk verwenden.</string>
     <string name="setup_code">Code: %1$s</string>
     <string name="setup_confirm_code">Bestätige diesen Code im Browser, um zu koppeln.</string>
     <string name="setup_pair">Gerät koppeln</string>
+    <string name="setup_https_required">Die Serveradresse muss mit https:// beginnen. Unverschlüsseltes http ist nur für localhost erlaubt.</string>
+    <string name="error_node_gone">Dieses Objekt existiert nicht mehr auf dem Server. Die Liste wurde aktualisiert.</string>
+    <string name="error_trash_blocked">Einige Objekte konnten nicht entfernt werden, weil ein Ordner noch Dateien enthält, die nicht im Papierkorb sind. Stellen Sie sie zuerst wieder her oder verschieben Sie sie.</string>
+    <string name="setup_open_manually">Der Server hat einen Bestätigungslink gesendet, den die App nicht automatisch öffnet. Öffne ihn selbst im Browser, wenn du ihm vertraust:</string>
 
     <string name="menu_new_folder">Neuer Ordner</string>
     <string name="menu_upload">Hochladen</string>
@@ -98,6 +100,7 @@
     <string name="au_blocked_charging">Warte auf das Ladegerät</string>
     <string name="au_blocked_battery">Akku zu schwach</string>
     <string name="au_blocked_network">Warte auf Verbindung</string>
+    <string name="au_add_failed">Ordner konnte nicht hinzugefügt werden: %1$s</string>
     <string name="au_pick_folder">Ordner zum Hochladen wählen</string>
     <string name="au_backfill">Auch vorhandene Dateien hochladen</string>
     <string name="au_backfill_ask">%1$d Dateien liegen bereits auf dem Telefon und wurden übersprungen. Jetzt hochladen? Bei einem großen Archiv dauert das; am besten mit WLAN und Strom.</string>
@@ -122,4 +125,17 @@
     <string name="sync_channel">Ordner-Synchronisation</string>
     <string name="sync_notification">Server-Ordner wird synchronisiert…</string>
     <string name="sync_live">Änderungen auf dem Server kommen an, solange die App offen ist; im Hintergrund wird der Ordner etwa alle 20 Minuten geprüft.</string>
+
+    <!-- Server certificate trust -->
+    <string name="cert_title">Nicht vertrauenswürdiges Zertifikat</string>
+    <string name="cert_self_signed">Selbstsigniert</string>
+    <string name="cert_host">Server</string>
+    <string name="cert_fingerprint">SHA-256-Fingerabdruck</string>
+    <string name="cert_subject">Ausgestellt für</string>
+    <string name="cert_issuer">Ausgestellt von</string>
+    <string name="cert_expires">Gültig bis</string>
+    <string name="cert_hint">Nur vertrauen, wenn der Fingerabdruck mit dem Zertifikat Ihres Servers übereinstimmt.</string>
+    <string name="cert_trust">Vertrauen</string>
+    <string name="cert_changed">Das Serverzertifikat ist nicht das, dem Sie beim Koppeln vertraut haben. Möglicherweise wird die Verbindung abgefangen. Wurde das Zertifikat absichtlich ersetzt, entkoppeln und erneut koppeln, um dem neuen zu vertrauen.</string>
+    <string name="settings_cert_pinned">Vertrauenswürdiges Zertifikat (SHA-256)</string>
 </resources>

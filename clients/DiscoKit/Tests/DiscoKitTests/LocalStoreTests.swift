@@ -1,5 +1,8 @@
 import XCTest
 import GRDB
+#if os(macOS)
+import CoreServices
+#endif
 @testable import DiscoKit
 
 final class LocalStoreTests: XCTestCase {
@@ -28,6 +31,19 @@ final class LocalStoreTests: XCTestCase {
         XCTAssertEqual(url, dir.appendingPathComponent("Папка/a.txt"))
         XCTAssertEqual(url.lastPathComponent, "a.txt")
     }
+
+    #if os(macOS)
+    /// A downloaded copy's name is the server's to choose (report.pdf.terminal); opened
+    /// from the browser it must go through Gatekeeper like any other download.
+    func testDownloadedCopyIsQuarantinedOnMacOS() throws {
+        let (store, _) = try makeStore()
+        try store.store(nodeID: "q1", version: 1, from: tmpFile("#!/bin/sh"), pinned: false, relPath: "/run.command")
+        let url = try XCTUnwrap(store.localURL(nodeID: "q1"))
+        let props = try XCTUnwrap(url.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties)
+        XCTAssertEqual(props[kLSQuarantineTypeKey as String] as? String, kLSQuarantineTypeOtherDownload as String)
+        XCTAssertEqual(props[kLSQuarantineAgentNameKey as String] as? String, "DiscoDrive")
+    }
+    #endif
 
     func testRemovingTheLastFileRemovesTheFoldersItWasIn() throws {
         // folder1/folder2/folder3/file1 downloaded alone: removing it leaves no empty

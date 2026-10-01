@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-import { Link, Loader2 } from 'lucide-vue-next'
+import { Link, Loader2, ShieldAlert } from 'lucide-vue-next'
 import { api } from '../lib/api.js'
-import { t } from '../lib/i18n.js'
+import { t, errorText } from '../lib/i18n.js'
+import Dialog from '../components/Dialog.vue'
 
 const emit = defineEmits(['paired'])
 
@@ -11,6 +12,23 @@ const status = ref('')
 const error = ref('')
 const busy = ref(false)
 const pairing = ref(null) // {userCode, verifyUrl, deviceCode, interval}
+// The certificate PairInit fetched when the server is not trusted by the system:
+// {host, fingerprint, subject, issuer, notAfter, selfSigned}. The backend keeps the pin;
+// trusting only tells it to go ahead.
+const cert = ref(null)
+let certURL = ''
+
+function isAllowedServerURL(u) {
+  let parsed
+  try {
+    parsed = new URL(u)
+  } catch {
+    return false
+  }
+  if (parsed.protocol === 'https:') return true
+  const host = parsed.hostname.toLowerCase()
+  return parsed.protocol === 'http:' && (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]')
+}
 
 async function pair() {
   const url = server.value.trim()
@@ -18,25 +36,68 @@ async function pair() {
     error.value = t('pairing.needUrl')
     return
   }
+  if (!isAllowedServerURL(url)) {
+    error.value = t('pairing.httpsRequired')
+    return
+  }
   busy.value = true
   error.value = ''
   status.value = t('pairing.contacting')
   try {
-    pairing.value = await api.pairInit(url)
-    status.value = t('pairing.approve')
-    await api.pairPoll(url, pairing.value.deviceCode, pairing.value.interval)
-    emit('paired')
+    const info = await api.pairInit(url)
+    if (info.needsTrust) {
+      cert.value = info.certificate
+      certURL = url
+      status.value = ''
+      return
+    }
+    await awaitApproval(url, info)
   } catch (e) {
-    error.value = String(e)
-    pairing.value = null
-    status.value = ''
+    fail(e)
   } finally {
     busy.value = false
   }
 }
 
-function reopenLink() {
-  if (pairing.value) api.openPairURL(pairing.value.verifyUrl)
+async function awaitApproval(url, info) {
+  pairing.value = info
+  status.value = t('pairing.approve')
+  await api.pairPoll(url, info.deviceCode, info.interval)
+  emit('paired')
+}
+
+function fail(e) {
+  error.value = errorText(e)
+  pairing.value = null
+  status.value = ''
+}
+
+async function trust() {
+  cert.value = null
+  busy.value = true
+  error.value = ''
+  status.value = t('pairing.contacting')
+  try {
+    await awaitApproval(certURL, await api.trustAndPair())
+  } catch (e) {
+    fail(e)
+  } finally {
+    busy.value = false
+  }
+}
+
+function expiry(s) {
+  const d = new Date(s)
+  return isNaN(d) ? s : d.toLocaleDateString()
+}
+
+async function reopenLink() {
+  if (!pairing.value) return
+  try {
+    await api.openPairURL()
+  } catch (e) {
+    error.value = errorText(e)
+  }
 }
 </script>
 
@@ -69,5 +130,29 @@ function reopenLink() {
 
     <p v-if="status" class="mt-4 text-center text-xs text-muted">{{ status }}</p>
     <p v-if="error" class="mt-4 rounded border border-danger/30 bg-danger/10 px-3 py-2 text-center text-xs text-danger">{{ error }}</p>
+
+    <Dialog :open="!!cert" :title="t('pairing.certTitle')" @close="cert = null">
+      <div v-if="cert" class="space-y-2 text-xs">
+        <div class="flex items-center gap-2 text-ink">
+          <ShieldAlert :size="16" class="text-danger" />
+          <span class="font-medium">{{ cert.host }}</span>
+          <span v-if="cert.selfSigned" class="rounded border border-danger/30 bg-danger/10 px-1.5 py-0.5 text-danger">{{ t('pairing.certSelfSigned') }}</span>
+        </div>
+        <div>
+          <div class="text-muted">{{ t('pairing.certFingerprint') }}</div>
+          <div class="select-text break-all rounded bg-panel2 px-2 py-1 font-mono text-ink">{{ cert.fingerprint }}</div>
+        </div>
+        <div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+          <span class="text-muted">{{ t('pairing.certSubject') }}</span><span class="select-text break-all text-ink">{{ cert.subject }}</span>
+          <span class="text-muted">{{ t('pairing.certIssuer') }}</span><span class="select-text break-all text-ink">{{ cert.issuer }}</span>
+          <span class="text-muted">{{ t('pairing.certExpires') }}</span><span class="text-ink">{{ expiry(cert.notAfter) }}</span>
+        </div>
+        <p class="text-muted">{{ t('pairing.certHint') }}</p>
+      </div>
+      <template #footer>
+        <button class="btn-ghost" @click="cert = null">{{ t('common.cancel') }}</button>
+        <button class="btn-accent" @click="trust">{{ t('pairing.certTrust') }}</button>
+      </template>
+    </Dialog>
   </div>
 </template>

@@ -39,9 +39,8 @@ type browseEntry struct {
 	LocalPath string `json:"localPath"`
 }
 
-// NewBrowser builds a browser. rootDir — private folder for downloaded files; indexDBPath — sqlite index (app-private). insecure — accept self-signed TLS.
-func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath string, insecure bool) (*Browser, error) {
-	setInsecure(insecure)
+// NewBrowser builds a browser. rootDir — private folder for downloaded files; indexDBPath — sqlite index (app-private). serverPin — fingerprint saved at pairing, "" for none.
+func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath, serverPin string) (*Browser, error) {
 	if err := os.MkdirAll(rootDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -58,13 +57,13 @@ func NewBrowser(serverURL, deviceToken, rootDir, indexDBPath string, insecure bo
 		idx.Close()
 		return nil, err
 	}
-	return &Browser{client: protocol.NewUnscoped(serverURL, deviceToken), idx: idx, rootDir: rootDir,
+	return &Browser{client: protocol.NewUnscopedPinned(serverURL, deviceToken, serverPin), idx: idx, rootDir: rootDir,
 		chunkSize: defaultChunkSize}, nil
 }
 
 // Refresh pulls all change-feed metadata into the index (no file content downloaded).
 func (b *Browser) Refresh() error {
-	return pullChanges(context.Background(), b.client, b.idx)
+	return certError(pullChanges(context.Background(), b.client, b.idx))
 }
 
 // pullChanges pulls all change-feed metadata into idx (no file content). Shared by the
@@ -188,7 +187,7 @@ func (b *Browser) download(nodeID, state string) (string, error) {
 	defer os.Remove(f.Name())
 	if derr := b.client.Download(context.Background(), nodeID, f); derr != nil {
 		f.Close()
-		return "", derr
+		return "", b.forgetIfGone(nodeID, derr)
 	}
 	if err := f.Close(); err != nil {
 		return "", err
@@ -383,25 +382,100 @@ func (b *Browser) EnsureFolder(parentNodeID, name string) (string, error) {
 // Rename renames a node, then refreshes.
 func (b *Browser) Rename(nodeID, newName string) error {
 	if err := b.client.RenameNode(context.Background(), nodeID, newName); err != nil {
-		return err
+		return b.forgetIfGone(nodeID, err)
 	}
 	return b.Refresh()
 }
 
-// Move moves a node under newParentNodeID ("" = root), then refreshes.
+// Move moves a node under newParentNodeID ("" = root), then refreshes. The server answers
+// the same 404 whether the node or the destination is missing, so on that answer the
+// browser asks which one is gone and forgets that one (both, if both are).
 func (b *Browser) Move(nodeID, newParentNodeID string) error {
-	if err := b.client.MoveNode(context.Background(), nodeID, newParentNodeID); err != nil {
+	ctx := context.Background()
+	err := b.client.MoveNode(ctx, nodeID, newParentNodeID)
+	if err == nil {
+		return b.Refresh()
+	}
+	if !protocol.IsNotFound(err) {
 		return err
 	}
-	return b.Refresh()
+	forgot := false
+	for _, id := range []string{nodeID, newParentNodeID} {
+		if id == "" {
+			continue
+		}
+		if exists, xerr := b.client.NodeExists(ctx, id); xerr != nil || exists {
+			continue
+		}
+		if ferr := b.forgetNode(id); ferr != nil {
+			return ferr
+		}
+		forgot = true
+	}
+	if !forgot {
+		return err
+	}
+	return fmt.Errorf("%s (%v)", NodeGoneMarker, err)
 }
 
-// Delete soft-deletes a node, then refreshes.
+// Delete soft-deletes a node, then refreshes. A node the server no longer has is already
+// what the user asked for: it is forgotten locally and the delete succeeds.
 func (b *Browser) Delete(nodeID string) error {
 	if err := b.client.DeleteNode(context.Background(), nodeID); err != nil {
+		if protocol.IsNotFound(err) {
+			return b.forgetNode(nodeID)
+		}
 		return err
 	}
 	return b.Refresh()
+}
+
+// NodeGoneMarker starts the error text of an operation on a node the server no longer has
+// (hard-deleted while its delete event never reached this device). By then the node and
+// its subtree are already out of the index, so the app only relists and says so.
+// gomobile flattens errors to their text, so the app matches on it.
+const NodeGoneMarker = "node no longer exists on the server"
+
+// forgetNode applies a delete the change feed never delivered: nodeID and every node below
+// it leave the index, the way pullChanges applies a delete event.
+func (b *Browser) forgetNode(nodeID string) error {
+	nodes, err := b.idx.SubtreeOf(nodeID)
+	if err != nil {
+		return err
+	}
+	return b.idx.Batch(func(bt *index.Batch) error {
+		for _, d := range nodes {
+			if err := bt.Delete(d.NodeID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// forgetIfGone turns the server's "node not found" about nodeID into a NodeGoneMarker
+// error after forgetting the node; any other error is returned as it is.
+func (b *Browser) forgetIfGone(nodeID string, err error) error {
+	if !protocol.IsNotFound(err) {
+		return err
+	}
+	if ferr := b.forgetNode(nodeID); ferr != nil {
+		return ferr
+	}
+	return fmt.Errorf("%s (%v)", NodeGoneMarker, err)
+}
+
+// forgetIfConfirmedGone is forgetIfGone for a request whose 404 can also be about
+// something else it names (a share recipient, a version): the node is forgotten only once
+// the server confirms that it does not exist; otherwise the error is returned as it is.
+func (b *Browser) forgetIfConfirmedGone(nodeID string, err error) error {
+	if !protocol.IsNotFound(err) {
+		return err
+	}
+	if exists, xerr := b.client.NodeExists(context.Background(), nodeID); xerr != nil || exists {
+		return err
+	}
+	return b.forgetIfGone(nodeID, err)
 }
 
 // Close releases the index.
