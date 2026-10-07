@@ -25,7 +25,7 @@
   <!-- Files this app writes carry com.apple.quarantine: their names come from the server,
        and one opened from the browser must go through Gatekeeper like any download. -->
   <key>LSFileQuarantineEnabled</key><true/>
-  <key>NSHumanReadableCopyright</key><string>© 2026 kosmosoid</string>
+  <key>NSHumanReadableCopyright</key><string>©2026 discodrive.app</string>
   <!-- Read at launch (DiscoDriveApp.init): the App Group and keychain access group shared
        with the File Provider extension. Must match DiscoDrive.entitlements. -->
   <key>DiscoDriveAppGroup</key><string>$(DEVELOPMENT_TEAM).$(DISCODRIVE_GROUP_SUFFIX)</string>

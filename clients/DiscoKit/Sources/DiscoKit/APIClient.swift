@@ -110,14 +110,18 @@ public actor APIClient {
 
     // Stream the download straight to disk: URLSession writes to a temp file, so we
     // never buffer the whole body in memory — essential for large files.
-    public func download(nodeID: String, to dst: URL) async throws {
+    public func download(nodeID: String, to dst: URL,
+                         progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws {
         let url = baseURL.appendingPathComponent("files/\(nodeID)/content")
         for attempt in 0..<2 {
             let tok = try await token()
             var req = URLRequest(url: url)
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             req.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
-            let (tmp, resp) = try await session.download(for: req)
+            progress?(0, NSURLSessionTransferSizeUnknown)
+            let delegate = progress.map { TransferProgressDelegate(report: $0) }
+            defer { delegate?.stopObserving() }
+            let (tmp, resp) = try await session.download(for: req, delegate: delegate)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; try? FileManager.default.removeItem(at: tmp); continue }
             guard code == 200 || code == 206 else {
@@ -127,6 +131,10 @@ public actor APIClient {
             }
             if FileManager.default.fileExists(atPath: dst.path) { try FileManager.default.removeItem(at: dst) }
             try FileManager.default.moveItem(at: tmp, to: dst)
+            if let progress {
+                let size = (try FileManager.default.attributesOfItem(atPath: dst.path)[.size] as? NSNumber)?.int64Value ?? 0
+                progress(size, size)
+            }
             return
         }
         throw APIError.notAuthenticated
@@ -329,7 +337,8 @@ public actor APIClient {
     @discardableResult
     private func send(_ method: String, path: String, query: [URLQueryItem] = [],
                       body: Data? = nil, contentType: String? = nil,
-                      extraHeaders: [String: String] = [:], ok: Set<Int>, node: Bool = false) async throws -> Data {
+                      extraHeaders: [String: String] = [:], ok: Set<Int>, node: Bool = false,
+                      uploadProgress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> Data {
         for attempt in 0..<2 {
             let tok = try await token()
             var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
@@ -341,7 +350,10 @@ public actor APIClient {
             if let contentType { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             for (k, v) in extraHeaders { req.setValue(v, forHTTPHeaderField: k) }
             req.httpBody = body
-            let (data, resp) = try await session.data(for: req)
+            uploadProgress?(0, Int64(body?.count ?? 0))
+            let delegate = uploadProgress.map { TransferProgressDelegate(uploading: true, report: $0) }
+            defer { delegate?.stopObserving() }
+            let (data, resp) = try await session.data(for: req, delegate: delegate)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; continue }
             if node && APIError.isNodeNotFound(status: code, body: data) { throw APIError.nodeNotFound }
@@ -381,7 +393,9 @@ public actor APIClient {
     /// The PUT with the version the file was edited from: a newer server version becomes a
     /// conflict copy rather than being overwritten, and the outcome says so.
     @discardableResult
-    public func uploadFile(relPath: String, fileURL: URL, modifiedAt: Date?, baseVersion: Int64?) async throws -> UploadOutcome {
+    public func uploadFile(relPath: String, fileURL: URL, modifiedAt: Date?, baseVersion: Int64?,
+                           progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> UploadOutcome {
+        let size = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         for attempt in 0..<2 {
             let tok = try await token()
             var comps = URLComponents(url: baseURL.appendingPathComponent("sync/file"),
@@ -395,7 +409,12 @@ public actor APIClient {
             for (k, v) in Self.modifiedAtHeader(modifiedAt) { req.setValue(v, forHTTPHeaderField: k) }
             if let baseVersion { req.setValue(String(baseVersion), forHTTPHeaderField: "X-Base-Version") }
             // Re-reads the file from disk on the retry, so the 401 path stays whole-body.
-            let (data, resp) = try await session.upload(for: req, fromFile: fileURL)
+            progress?(0, size)
+            let delegate = progress.map { report in
+                TransferProgressDelegate(uploading: true) { sent, _ in report(min(max(0, sent), size), size) }
+            }
+            defer { delegate?.stopObserving() }
+            let (data, resp) = try await session.upload(for: req, fromFile: fileURL, delegate: delegate)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 && attempt == 0 { jwt = nil; continue }
             guard code == 201 else { throw APIError.http(code) }
@@ -428,7 +447,7 @@ public actor APIClient {
             return try await ChunkedUploader(api: self, chunkSize: chunkSize)
                 .upload(fileURL: fileURL, to: .path(relPath, baseVersion: baseVersion), modifiedAt: modifiedAt, progress: progress)
         }
-        let out = try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt, baseVersion: baseVersion)
+        let out = try await uploadFile(relPath: relPath, fileURL: fileURL, modifiedAt: modifiedAt, baseVersion: baseVersion, progress: progress)
         progress?(Int64(size), Int64(size))
         return out
     }
@@ -558,10 +577,11 @@ public actor APIClient {
 
     /// Sends chunk `index`; returns the next index the server expects. Re-sending an
     /// already-accepted chunk is safe — the server ignores it and answers the same.
-    public func uploadChunk(uploadID: String, index: Int, data: Data) async throws -> Int {
+    public func uploadChunk(uploadID: String, index: Int, data: Data,
+                            progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> Int {
         let out = try await send("PUT", path: "upload/\(uploadID)/chunk/\(index)",
                                  body: data, contentType: "application/octet-stream",
-                                 ok: [200, 201])
+                                 ok: [200, 201], uploadProgress: progress)
         struct Out: Decodable { let next_chunk: Int }
         return try JSONDecoder().decode(Out.self, from: out).next_chunk
     }
@@ -636,5 +656,52 @@ public actor APIClient {
     public func rename(nodeID: String, newName: String) async throws {
         let body = try JSONEncoder().encode(["name": newName])
         try await send("PATCH", path: "files/\(nodeID)/rename", body: body, contentType: "application/json", ok: [200], node: true)
+    }
+}
+
+/// Observe the actual task: async download(for:) consumes download-delegate callbacks.
+/// The existing session still owns TLS trust and streams the response to disk.
+final class TransferProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let report: @Sendable (Int64, Int64) -> Void
+    private let lock = NSLock()
+    private var observation: NSKeyValueObservation?
+    private let uploading: Bool
+    init(uploading: Bool = false, report: @escaping @Sendable (Int64, Int64) -> Void) {
+        self.uploading = uploading
+        self.report = report
+    }
+
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+        let keyPath = uploading ? \URLSessionTask.countOfBytesSent : \URLSessionTask.countOfBytesReceived
+        let token = task.observe(keyPath, options: [.new]) { [report, uploading] task, _ in
+            if uploading {
+                report(task.countOfBytesSent, task.countOfBytesExpectedToSend)
+            } else {
+                guard let response = task.response as? HTTPURLResponse,
+                      response.statusCode == 200 || response.statusCode == 206 else { return }
+                report(task.countOfBytesReceived, task.countOfBytesExpectedToReceive)
+            }
+        }
+        lock.lock()
+        observation = token
+        lock.unlock()
+    }
+
+    func stopObserving() {
+        lock.lock()
+        let token = observation
+        observation = nil
+        lock.unlock()
+        token?.invalidate()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        guard let original = task.originalRequest?.url, let target = request.url,
+              DiscoNet.allowsRedirect(from: original, to: target) else {
+            completionHandler(nil); return
+        }
+        completionHandler(request)
     }
 }

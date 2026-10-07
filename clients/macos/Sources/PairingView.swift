@@ -20,6 +20,10 @@ struct PairingView: View {
             Text(app.t("pair.title")).font(.title2)
             TextField("https://files.example.com", text: $serverString)
                 .textFieldStyle(.roundedBorder).frame(width: 360)
+                .onSubmit {
+                    guard !busy, info == nil, certificate == nil else { return }
+                    Task { await connect() }
+                }
             if let info {
                 Text("\(app.t("pair.deviceCode")): \(info.userCode)").font(.headline)
                 Text(app.t("pair.confirmHint"))
@@ -56,6 +60,7 @@ struct PairingView: View {
     // `pin` is nil for the strict first attempt, else the fingerprint of the certificate
     // just fetched from `url` and trusted by the user.
     private func connect(url given: URL? = nil, pin: String? = nil) async {
+        guard !busy else { return }
         guard let url = given ?? URL(string: serverString) else { return }
         busy = true; error = nil; manualLink = nil
         do {

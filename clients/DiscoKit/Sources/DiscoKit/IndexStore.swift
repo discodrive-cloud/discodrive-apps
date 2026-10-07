@@ -4,6 +4,12 @@ import GRDB
 public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is internally synchronized
     let dbQueue: DatabaseQueue
 
+    /// Each pairing owns its database. A surviving cache or an old process must not
+    /// expose or write rows into a different account's catalog.
+    public static func accountURL(in directory: URL, client: APIClient) -> URL {
+        directory.appendingPathComponent("index-\(client.transferIdentity).sqlite")
+    }
+
     public init(dbQueue: DatabaseQueue) throws {
         self.dbQueue = dbQueue
         try migrate()
@@ -233,6 +239,20 @@ public final class IndexStore: @unchecked Sendable {   // dbQueue (GRDB) is inte
             guard value > current else { return }
             try db.execute(sql: "INSERT INTO meta(key,value) VALUES('cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                            arguments: [String(value)])
+        }
+    }
+
+    /// A nonzero cursor can still be an interrupted first download. Only a completed
+    /// traversal may be restored as an offline catalog on the next launch.
+    public func catalogIsComplete() throws -> Bool {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM meta WHERE key='catalog_complete'") == "1"
+        }
+    }
+
+    public func markCatalogComplete() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "INSERT INTO meta(key,value) VALUES('catalog_complete','1') ON CONFLICT(key) DO UPDATE SET value='1'")
         }
     }
 

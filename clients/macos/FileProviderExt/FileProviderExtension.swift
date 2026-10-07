@@ -96,6 +96,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                        request: NSFileProviderRequest,
                        completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void) -> Progress {
         let progress = Progress(totalUnitCount: 1)
+        progress.kind = .file
+        progress.fileOperationKind = .downloading
         // The completion handler is the system's; calling it from the task's thread is fine.
         nonisolated(unsafe) let completionHandler = completionHandler
         let task = Task<Void, Never> {
@@ -103,7 +105,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 if let vc = try requireVaultCore() {
                     guard let id = VaultItemID.decode(itemIdentifier.rawValue) else { throw NSFileProviderError(.noSuchItem) }
                     let url = try await vc.decrypt(id)
-                    completionHandler(url, try await vc.item(for: id), nil)
+                    let item = try await vc.item(for: id)
+                    progress.completedUnitCount = progress.totalUnitCount
+                    completionHandler(url, item, nil)
                     return
                 }
                 let core = try requireCore()
@@ -112,7 +116,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 }
                 // The item names the version the bytes really are — it comes back as the
                 // base of the next edit — not whatever the index holds by now.
-                let (url, item) = try await core.fetch(node)
+                progress.totalUnitCount = max(1, node.size)
+                let (url, item) = try await core.fetch(node, progress: { received, expected in
+                    let total = max(1, expected > 0 ? expected : node.size, received)
+                    progress.totalUnitCount = total
+                    // Keep completion for the point where the file has been validated
+                    // and the correct item version is ready to hand back to Finder.
+                    progress.completedUnitCount = min(max(0, received), total - 1)
+                })
+                progress.completedUnitCount = progress.totalUnitCount
                 completionHandler(url, item, nil)
             } catch is CancellationError {
                 completionHandler(nil, nil, NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
@@ -138,6 +150,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         nonisolated(unsafe) let completionHandler = completionHandler
         nonisolated(unsafe) let template = itemTemplate
         let progress = Progress(totalUnitCount: 1)
+        progress.kind = .file
+        progress.fileOperationKind = .uploading
+        let report: @Sendable (Int64, Int64) -> Void = { sent, total in
+            progress.totalUnitCount = max(1, total, sent)
+            progress.completedUnitCount = min(max(0, sent), progress.totalUnitCount - 1)
+        }
         let task = Task<Void, Never> {
             do {
                 // Finder's own housekeeping files stay on this Mac; the system keeps them
@@ -149,12 +167,14 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     // answered with that entry, never written over.
                     if let existing = try await vc.existingItem(name: template.filename, in: parent) {
                         ProviderCore.log.error("createItem for an existing vault entry: returning it (contents \(url == nil ? "none" : "offered", privacy: .public), fields \(fields.rawValue))")
+                        progress.completedUnitCount = progress.totalUnitCount
                         completionHandler(existing, [], false, nil)
                         return
                     }
                     let item = template.contentType == .folder
                         ? try await vc.createFolder(name: template.filename, in: parent)
                         : try await vc.createFile(name: template.filename, contents: try url ?? Self.emptyFile(), in: parent)
+                    progress.completedUnitCount = progress.totalUnitCount
                     completionHandler(item, [], false, nil)
                     return
                 }
@@ -168,6 +188,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 _ = try await core.pull(since: try core.index.cursor())
                 if let existing = try core.index.node(atPath: path) {
                     ProviderCore.log.error("createItem for an existing path \(path, privacy: .public): returning the server's item (contents \(url == nil ? "none" : "offered", privacy: .public), fields \(fields.rawValue))")
+                    progress.completedUnitCount = progress.totalUnitCount
                     completionHandler(core.item(for: existing), [], false, nil)
                     return
                 }
@@ -179,19 +200,20 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 if template.contentType == .folder {
                     try await core.createFolder(path: path)   // idempotent on the server
                 } else if let url {
-                    outcome = try await core.upload(fileURL: url, path: path, baseVersion: ContentVersionCodec.unknownBase)
+                    outcome = try await core.upload(fileURL: url, path: path, baseVersion: ContentVersionCodec.unknownBase, progress: report)
                 } else if fields.contains(.contents) {
                     // Contents were promised but not handed over: nothing to put on the server.
                     throw NSFileProviderError(.noSuchItem)
                 } else {
                     // A file with no contents yet is created empty, as Finder's "New Document" does.
-                    outcome = try await core.upload(fileURL: try Self.emptyFile(), path: path, baseVersion: ContentVersionCodec.unknownBase)
+                    outcome = try await core.upload(fileURL: try Self.emptyFile(), path: path, baseVersion: ContentVersionCodec.unknownBase, progress: report)
                 }
                 if outcome?.conflicted == true {
                     ProviderCore.log.error("createItem: \(path, privacy: .public) was taken meanwhile; kept as a conflict copy")
                 }
                 var node = try await core.pullAndFind(path: path)
                 if let id = outcome?.nodeID, !id.isEmpty, id != node.id, let own = try core.index.node(id: id) { node = own }
+                progress.completedUnitCount = progress.totalUnitCount
                 completionHandler(core.item(for: node), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, error)
@@ -209,6 +231,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         nonisolated(unsafe) let item = item
         let editedFrom = version.contentVersion   // what the system says the new contents are based on
         let progress = Progress(totalUnitCount: 1)
+        progress.kind = .file
+        progress.fileOperationKind = .uploading
+        let report: @Sendable (Int64, Int64) -> Void = { sent, total in
+            progress.totalUnitCount = max(1, total, sent)
+            progress.completedUnitCount = min(max(0, sent), progress.totalUnitCount - 1)
+        }
         let task = Task<Void, Never> {
             do {
                 if LocalOnlyNames.isLocalOnly(item.filename) { throw NSFileProviderError(.excludedFromSync) }
@@ -231,6 +259,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                         current = try await vc.replaceContents(of: (current?.id ?? id), with: newContents, editedFrom: current?.itemVersion.contentVersion ?? editedFrom)
                     }
                     if current == nil { current = try await vc.item(for: id) }
+                    progress.completedUnitCount = progress.totalUnitCount
                     completionHandler(current, [], false, nil)
                     return
                 }
@@ -257,10 +286,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     // kept and this one filed as a conflict copy next to it, in which case
                     // Finder is told to fetch the server's file again.
                     let base = ContentVersionCodec.uploadBase(editedFrom: editedFrom, current: node)
-                    let outcome = try await core.upload(fileURL: newContents, path: node.path, baseVersion: base)
+                    let outcome = try await core.upload(fileURL: newContents, path: node.path, baseVersion: base, progress: report)
                     fetchAgain = outcome.conflicted
                     node = try await core.pullAndFind(path: node.path)
                 }
+                progress.completedUnitCount = progress.totalUnitCount
                 completionHandler(core.item(for: node), [], fetchAgain, nil)
             } catch {
                 completionHandler(nil, [], false, error)

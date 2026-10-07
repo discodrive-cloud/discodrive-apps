@@ -99,7 +99,9 @@ public struct ChunkedUploader: Sendable {
 
             let reply: Int
             do {
-                reply = try await api.uploadChunk(uploadID: session.uploadID, index: next, data: data)
+                reply = try await api.uploadChunk(uploadID: session.uploadID, index: next, data: data, progress: { sent, _ in
+                    progress?(min(offset + max(0, sent), size), size)
+                })
             } catch APIError.http(404) {
                 // The session expired (the server GCs after an hour) or the server
                 // restarted. Start a fresh one — once; a second loss is not a hiccup.

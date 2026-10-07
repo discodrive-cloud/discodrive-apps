@@ -135,6 +135,7 @@ struct BrowserView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var trashPresented = false
     @State private var settingsPresented = false
+    @State private var logoutConfirmPresented = false
     @State private var preview: PreviewItem?
 
     var body: some View {
@@ -149,7 +150,7 @@ struct BrowserView: View {
                             Button { settingsPresented = true } label: { Label(app.t("settings.title"), systemImage: "gear") }
                             Button { try? app.local?.evictCached() } label: { Label(app.t("toolbar.free"), systemImage: "trash") }
                             Divider()
-                            Button(role: .destructive) { app.logout() } label: { Label(app.t("toolbar.logout"), systemImage: "rectangle.portrait.and.arrow.right") }
+                            Button(role: .destructive) { logoutConfirmPresented = true } label: { Label(app.t("toolbar.logout"), systemImage: "rectangle.portrait.and.arrow.right") }
                         } label: { Image(systemName: "ellipsis.circle") }.accessibilityIdentifier("browser.actions")
                     }
                 }
@@ -157,6 +158,12 @@ struct BrowserView: View {
         .alert(app.t("status.opError"), isPresented: Binding(get: { app.lastError != nil }, set: { if !$0 { app.lastError = nil } })) {
             Button(app.t("dialog.done")) { app.lastError = nil }
         } message: { Text(app.lastError ?? "") }
+        .alert(app.t("dialog.logoutTitle"), isPresented: $logoutConfirmPresented) {
+            Button(app.t("toolbar.logout"), role: .destructive) { app.logout() }
+            Button(app.t("dialog.cancel"), role: .cancel) { }
+        } message: {
+            Text(app.t("dialog.logoutMessage"))
+        }
         .task { await app.refresh() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.importLocalFiles() } }

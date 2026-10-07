@@ -2,6 +2,7 @@ import SwiftUI
 import DiscoKit
 
 struct FileRow: View {
+    @EnvironmentObject var app: AppState
     let node: Node
     let status: LocalStatus
 
@@ -13,9 +14,16 @@ struct FileRow: View {
             if !node.isDir {
                 Text(ByteCountFormatter.string(fromByteCount: node.size, countStyle: .file))
                     .foregroundStyle(.secondary).font(.caption)
-                statusIcon
+                if app.isDownloading(node) {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.small)
+                        Text(app.t("activity.pull")).font(.caption).foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel(app.t("activity.pull"))
+                } else { statusIcon }
             }
         }
+        .task(id: "\(node.id):\(node.version):\(app.revision)") { await app.refreshLocalStatus(node) }
     }
 
     @ViewBuilder private var statusIcon: some View {

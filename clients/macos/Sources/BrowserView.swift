@@ -189,7 +189,7 @@ struct BrowserView: View {
                 .help(app.t("vault.createVault"))
             Button { app.openLocalFolderInFinder() } label: { Image(systemName: "folder") }
                 .help(app.t("toolbar.openFinder"))
-            Button { try? app.local?.evictCached() } label: { Image(systemName: "trash") }
+            Button { Task { await app.freeLocalCache() } } label: { Image(systemName: "trash") }
                 .help(app.t("toolbar.free"))
             Button { logoutConfirmPresented = true } label: { Image(systemName: "rectangle.portrait.and.arrow.right") }
                 .help(app.t("toolbar.logout"))

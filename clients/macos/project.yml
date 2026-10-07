@@ -95,6 +95,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.tests.fileprovider
         GENERATE_INFOPLIST_FILE: YES
+  AppStateTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [AppStateTests, ../shared/LocalFileAccess.swift, ../shared/AppState.swift, ../shared/ServerVaultIO.swift, ../DiscoKit/Tests/DiscoKitTests/MockURLProtocol.swift]
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.tests.appstate
+        GENERATE_INFOPLIST_FILE: YES
   SyncTests:
     type: bundle.unit-test
     platform: macOS
@@ -104,6 +114,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.tests.sync
         GENERATE_INFOPLIST_FILE: YES
 schemes:
+  AppStateTests:
+    build:
+      targets:
+        AppStateTests: all
+    test:
+      targets: [AppStateTests]
   SyncTests:
     build:
       targets:

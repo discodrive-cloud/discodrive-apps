@@ -30,7 +30,10 @@ final class AppState: ObservableObject {
     private(set) var serverURL: URL?
     private(set) var client: APIClient?
     private(set) var index: IndexStore?
+    private var accountIndexURL: URL?
     private(set) var local: LocalStore?
+    var fileAccess: (any LocalFileAccess)?
+    @Published private(set) var providerStatuses: [String: LocalStatus] = [:]
 
     // The folder tree and the set of vault folders, rebuilt from the index after every
     // refresh — off the main thread, in one pass over the nodes. The views read these;
@@ -38,6 +41,7 @@ final class AppState: ObservableObject {
     // seconds on every click (a query per folder, recursively, per redraw).
     @Published private(set) var tree: [FolderItem] = []
     @Published private(set) var vaultIDs: Set<String> = []
+    private var visibleChildren: [String?: [Node]] = [:]
 
     private var session = AccountSession()
     @Published private(set) var loggingOut = false
@@ -59,7 +63,12 @@ final class AppState: ObservableObject {
     // container, where the File Provider extension can open it too.
     nonisolated(unsafe) static var appGroupID: String?
 
+    private let storageDirectory: URL?
+    private let automaticallyConnect: Bool
+    private let networkSession: URLSession?
+
     private var appSupportDir: URL {
+        if let storageDirectory { return storageDirectory }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("DiscoDrive", isDirectory: true)
     }
@@ -67,6 +76,7 @@ final class AppState: ObservableObject {
     // Where the index database goes: the App Group container when there is one (shared with
     // the extension), the app's own Application Support otherwise.
     private var indexDir: URL {
+        if let storageDirectory { return storageDirectory }
         if let group = Self.appGroupID,
            let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) {
             return container.appendingPathComponent("DiscoDrive", isDirectory: true)
@@ -76,7 +86,12 @@ final class AppState: ObservableObject {
 
     // Runs once, from init, so the first frame already knows whether the device is paired;
     // calling it again later is harmless.
-    init() { bootstrap() }
+    init(storageDirectory: URL? = nil, automaticallyConnect: Bool = true, networkSession: URLSession? = nil) {
+        self.storageDirectory = storageDirectory
+        self.automaticallyConnect = automaticallyConnect
+        self.networkSession = networkSession
+        if automaticallyConnect { bootstrap() }
+    }
 
     func bootstrap() {
         #if DEBUG
@@ -126,7 +141,10 @@ final class AppState: ObservableObject {
         // Before the client below makes its first request.
         DiscoNet.pin = pin
         session.invalidate()
+        fileAccess?.close()
+        providerStatuses = [:]
         session = AccountSession()
+        visibleChildren = [:]; tree = []; vaultIDs = []; fileToPreview = nil; previewNode = nil
         fileListLoaded = false; fileListError = nil; lastError = nil
         refreshing = false; importing = false; downloadingIDs = []
         let dir = appSupportDir
@@ -134,16 +152,21 @@ final class AppState: ObservableObject {
         SetAsideDownloads.prune(in: dir.appendingPathComponent("local", isDirectory: true), olderThan: SetAsideDownloads.maxAge)
         try? FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
         self.serverURL = serverURL
-        self.client = APIClient(baseURL: serverURL, deviceToken: token)
-        self.index = try? IndexStore(path: indexDir.appendingPathComponent("index.sqlite").path)
+        let client = APIClient(baseURL: serverURL, deviceToken: token, session: networkSession ?? DiscoNet.session)
+        self.client = client
+        let indexURL = IndexStore.accountURL(in: indexDir, client: client)
+        self.accountIndexURL = indexURL
+        self.index = try? IndexStore(path: indexURL.path)
         // Provider downloads are private copies. Documents is reserved for the
         // independent iOS mirror, so browsing cannot overwrite its working files.
         self.local = try? LocalStore(directory: dir.appendingPathComponent("local"))
         self.paired = (index != nil && local != nil)
-        Task { await rebuildTree() }
+        if automaticallyConnect { Task { await restoreCatalog() } }
         Self.log.notice("activated against \(serverURL.absoluteString, privacy: .public), index at \(self.indexDir.path, privacy: .public) (\(self.index == nil ? "FAILED" : "ok", privacy: .public)), paired=\(self.paired)")
-        Task { await loadLanguage() }
-        startLiveUpdates()
+        if automaticallyConnect {
+            Task { await loadLanguage() }
+            startLiveUpdates()
+        }
     }
 
     // Live updates: maintain an SSE connection to /sync/events, refresh on every event.
@@ -266,6 +289,8 @@ final class AppState: ObservableObject {
 
     private func finishLogout() {
         session.invalidate()
+        fileAccess?.close()
+        providerStatuses = [:]
         stopLiveUpdates()
         KeychainToken.delete(service: KeychainToken.tokenService)
         KeychainToken.delete(service: KeychainToken.serverService)
@@ -280,7 +305,7 @@ final class AppState: ObservableObject {
         // A banner belongs to the session that raised it ("session expired" kept showing
         // after signing out and pairing again).
         statusText = ""; lastError = nil
-        tree = []; vaultIDs = []; fileToPreview = nil; previewNode = nil; downloadingIDs = []
+        visibleChildren = [:]; tree = []; vaultIDs = []; fileToPreview = nil; previewNode = nil; downloadingIDs = []
         paired = false
         syncStatus = .offline
         forgetLocalState()
@@ -291,20 +316,40 @@ final class AppState: ObservableObject {
     // than kept where the next pairing would mistake them for its own.
     private func forgetLocalState() {
         openVaultIDs = []
-        let fm = FileManager.default
-        for suffix in ["", "-wal", "-shm"] {
-            try? fm.removeItem(at: indexDir.appendingPathComponent("index.sqlite" + suffix))
+        do {
+            try removeAccountIndex()
+            try retireLocalDownloads()
+        } catch {
+            lastError = error.localizedDescription
+            Self.log.error("account cleanup failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func removeAccountIndex() throws {
+        guard let url = accountIndexURL else { return }
+        for suffix in ["", "-wal", "-shm"] {
+            try removeIfPresent(URL(fileURLWithPath: url.path + suffix))
+        }
+        accountIndexURL = nil
+    }
+
+    private func removeIfPresent(_ url: URL) throws {
+        do { try FileManager.default.removeItem(at: url) }
+        catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError { }
+    }
+
+    private func retireLocalDownloads() throws {
+        let fm = FileManager.default
         let local = appSupportDir.appendingPathComponent("local", isDirectory: true)
-        try? fm.removeItem(at: local.appendingPathComponent("local.sqlite"))
-        // Earlier logouts' set-aside downloads go now; this one's is kept for a while and
-        // removed at a later launch once it is a week old (or at the next logout).
-        SetAsideDownloads.prune(in: local, olderThan: 0)
         let content = local.appendingPathComponent("content", isDirectory: true)
         if fm.fileExists(atPath: content.path) {
-            try? fm.moveItem(at: content, to: local.appendingPathComponent(SetAsideDownloads.name(for: Date()), isDirectory: true))
+            try fm.moveItem(at: content, to: local.appendingPathComponent(SetAsideDownloads.name(for: Date()), isDirectory: true))
         }
-        Self.log.notice("local state forgotten after logout")
+        for suffix in ["", "-wal", "-shm"] {
+            try removeIfPresent(local.appendingPathComponent("local.sqlite" + suffix))
+        }
+        // Preserve the disconnected account's files across the next pairing too.
+        SetAsideDownloads.prune(in: local, olderThan: SetAsideDownloads.maxAge)
     }
 
     // iOS: URL to present in QuickLook (macOS opens files via NSWorkspace).
@@ -314,6 +359,13 @@ final class AppState: ObservableObject {
     // Open the local folder of downloaded files in Finder (macOS only).
     func openLocalFolderInFinder() {
         #if os(macOS)
+        if let fileAccess {
+            Task {
+                do { NSWorkspace.shared.open(try await fileAccess.rootURL()) }
+                catch { fail("status.opError", error) }
+            }
+            return
+        }
         let dir = appSupportDir.appendingPathComponent("local/content", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         NSWorkspace.shared.open(dir)
@@ -338,7 +390,7 @@ final class AppState: ObservableObject {
         // A new pairing starts from a clean slate: forget any previously-paired server's
         // index and downloaded files, so old content is never shown or pushed to the new server.
         await session.stop()
-        resetLocalState()
+        try resetLocalState()
         KeychainToken.save(token, service: KeychainToken.tokenService)
         KeychainToken.save(serverURL.absoluteString, service: KeychainToken.serverService)
         savePin(pin)
@@ -362,19 +414,19 @@ final class AppState: ObservableObject {
         return error.localizedDescription
     }
 
-    // Wipe all locally-cached state from a previous pairing: the file-tree index and the
-    // downloaded-files store (cache DB + content). Called on every pairing. Downloads are
-    // on-demand, so the only cost is re-downloading opened/pinned files from the new server.
-    private func resetLocalState() {
+    // Retire the previous pairing before accepting credentials: delete its index and
+    // download bookkeeping, and keep its content under a disconnected folder name.
+    // Any cleanup failure aborts confirmation instead of authorizing stale local state.
+    func resetLocalState() throws {
         session.invalidate()
+        fileAccess?.close()
+        providerStatuses = [:]
         stopLiveUpdates()
         index = nil          // release the SQLite handles before deleting the files
         local = nil
-        let fm = FileManager.default
-        for name in ["index.sqlite", "index.sqlite-wal", "index.sqlite-shm"] {
-            try? fm.removeItem(at: indexDir.appendingPathComponent(name))
-        }
-        try? fm.removeItem(at: appSupportDir.appendingPathComponent("local"))   // macOS: cache DB + content
+        visibleChildren = [:]; tree = []; vaultIDs = []; fileToPreview = nil; previewNode = nil
+        try removeAccountIndex()
+        try retireLocalDownloads()
         #if os(iOS)
         // Documents contains user-owned mirrors and backups; pairing must preserve them.
         // Auto-upload's destination is a node id on the previous server; forget it with
@@ -419,9 +471,10 @@ final class AppState: ObservableObject {
                     if !page.hasMore { break }
                 }
                 try index.setCursor(cursor)
+                try index.markCatalogComplete()
                 return cursor
             }
-            await rebuildTree()
+            guard await rebuildTree() else { throw CocoaError(.fileReadUnknown) }
             try session.check()
             fileListLoaded = true
             statusText = t("status.updated")
@@ -484,7 +537,7 @@ final class AppState: ObservableObject {
     // MARK: - Task 12: browser helpers
 
     func children(of parentID: String?) -> [Node] {
-        (try? index?.children(of: parentID)) ?? []
+        visibleChildren[parentID] ?? []
     }
 
     struct FolderItem: Identifiable, Sendable {
@@ -498,15 +551,25 @@ final class AppState: ObservableObject {
 
     // One pass over the index, off the main thread: every folder's children, and which
     // folders are Cryptomator vaults (they hold masterkey.cryptomator + vault.cryptomator).
-    func rebuildTree() async {
+    func restoreCatalog() async {
+        guard let index, (try? index.catalogIsComplete()) == true else { return }
+        await rebuildTree()
+    }
+
+    @discardableResult
+    func rebuildTree() async -> Bool {
         let session = self.session
-        guard session.isActive else { return }
-        guard let index else { tree = []; vaultIDs = []; return }
-        guard let built = try? await session.perform({ () -> ([FolderItem], Set<String>) in
-            guard let nodes = try? index.allNodes() else { return ([], []) }
+        guard session.isActive else { return false }
+        guard let index else { visibleChildren = [:]; tree = []; vaultIDs = []; return false }
+        guard let built = try? await session.perform({ () throws -> ([FolderItem], Set<String>, [String?: [Node]]) in
+            let nodes = try index.allNodes()
             var kids: [String?: [Node]] = [:]
+            var rows: [String?: [Node]] = [:]
             var names: [String: Set<String>] = [:]
             for n in nodes {
+                // allNodes is sorted folders first, then by path, which also orders
+                // siblings by name. Both UI panes come from this one SQLite snapshot.
+                rows[n.parentID, default: []].append(n)
                 if n.isDir { kids[n.parentID, default: []].append(n) }
                 if let p = n.parentID, !n.isDir { names[p, default: []].insert(n.name) }
             }
@@ -517,16 +580,28 @@ final class AppState: ObservableObject {
                     return FolderItem(node: dir, children: sub.isEmpty ? nil : sub)
                 }
             }
-            return (build(nil), vaults)
-        }) else { return }
-        guard session.isActive else { return }
+            return (build(nil), vaults, rows)
+        }) else { return false }
+        guard session.isActive else { return false }
+        visibleChildren = built.2
         tree = built.0
         vaultIDs = built.1
+        return true
     }
 
     func status(of node: Node) -> LocalStatus {
         guard !node.isDir, let local else { return .none }
-        return (try? local.status(nodeID: node.id, serverVersion: node.version)) ?? .none
+        let localStatus = (try? local.status(nodeID: node.id, serverVersion: node.version)) ?? .none
+        if fileAccess != nil { return localStatus == .pinned ? .pinned : (providerStatuses[node.id] ?? .none) }
+        return localStatus
+    }
+
+    func refreshLocalStatus(_ node: Node) async {
+        guard !node.isDir, let fileAccess, session.isActive else { return }
+        let session = self.session
+        let status = try? await session.perform { try await fileAccess.status(of: node) }
+        guard session.isActive else { return }
+        providerStatuses[node.id] = status ?? LocalStatus.none
     }
 
     // IDs of files currently being downloaded (drives the spinner in the row).
@@ -756,6 +831,32 @@ final class AppState: ObservableObject {
     func ensureDownloaded(_ node: Node, pin: Bool = false) async -> URL? {
         guard let client, let index, let local, session.isActive else { return nil }
         let session = self.session
+        if let fileAccess {
+            downloadingIDs.insert(node.id)
+            defer { if session.isActive { downloadingIDs.remove(node.id) } }
+            do {
+                let url = try await session.perform { try await fileAccess.download(node) }
+                try session.check()
+                if pin {
+                    // Keep the existing explicit offline guarantee as a private backup.
+                    // Ordinary downloads use only the Finder copy.
+                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                    defer { try? FileManager.default.removeItem(at: tmp) }
+                    try FileManager.default.copyItem(at: url, to: tmp)
+                    try local.store(nodeID: node.id, version: node.version, from: tmp, pinned: true, relPath: node.path)
+                }
+                providerStatuses[node.id] = .cached
+                revision += 1
+                return url
+            } catch {
+                guard session.isActive, !(error is CancellationError) else { return nil }
+                if (try? local.status(nodeID: node.id, serverVersion: node.version)) == .pinned {
+                    return local.localURL(nodeID: node.id)
+                }
+                fail("status.downloadError", error)
+                return nil
+            }
+        }
         let st = (try? local.status(nodeID: node.id, serverVersion: node.version)) ?? .none
         let needsDownload = (st == .none || st == .stale)
         do {
@@ -785,6 +886,18 @@ final class AppState: ObservableObject {
         guard let client, let index, let local, session.isActive else { return nil }
         let session = self.session
         let url = directory.appendingPathComponent(node.name)
+        if fileAccess != nil {
+            guard let source = await ensureDownloaded(node), session.isActive else { return nil }
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: source, to: url)
+                DownloadQuarantine.mark(url)
+                return url
+            } catch {
+                fail("status.downloadError", error)
+                return nil
+            }
+        }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let status = try local.status(nodeID: node.id, serverVersion: node.version)
@@ -824,8 +937,41 @@ final class AppState: ObservableObject {
 
     // Remove the local copy and redraw the row status (otherwise the checkmark lingers until refresh).
     func removeLocal(_ node: Node) {
-        try? local?.remove(nodeID: node.id)
-        revision += 1
+        if let fileAccess {
+            let session = self.session
+            Task {
+                do {
+                    try await session.perform { try await fileAccess.evict(node) }
+                    try session.check()
+                    try local?.remove(nodeID: node.id)
+                    providerStatuses[node.id] = LocalStatus.none
+                    revision += 1
+                } catch { if session.isActive { fail("status.opError", error) } }
+            }
+        } else {
+            try? local?.remove(nodeID: node.id)
+            revision += 1
+        }
+    }
+
+    func freeLocalCache() async {
+        let session = self.session
+        guard session.isActive else { return }
+        do {
+            if let fileAccess {
+                let ids = try await session.perform { try await fileAccess.cachedIDs() }
+                for id in ids {
+                    try session.check()
+                    guard let node = try index?.node(id: id), !node.isDir else { continue }
+                    if (try? local?.status(nodeID: id, serverVersion: node.version)) == .pinned { continue }
+                    try await session.perform { try await fileAccess.evict(node) }
+                    try session.check()
+                    providerStatuses[id] = LocalStatus.none
+                }
+            }
+            try local?.evictCached()
+            revision += 1
+        } catch { if session.isActive { fail("status.opError", error) } }
     }
 
     @Published var importing = false

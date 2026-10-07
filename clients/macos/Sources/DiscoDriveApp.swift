@@ -1,5 +1,6 @@
 import SwiftUI
 import DiscoKit
+import FileProvider
 import os
 
 @main
@@ -79,6 +80,7 @@ struct DiscoDriveApp: App {
             .frame(minWidth: 700, minHeight: 480)
             .environmentObject(app)
             .onAppear {
+                if app.fileAccess == nil { app.fileAccess = FinderFileAccess() }
                 app.bootstrap()
                 // On this platform an unlocked vault is a Finder location, not a window.
                 app.presentUnlockedVault = { vault, folder in
@@ -122,11 +124,15 @@ struct DiscoDriveApp: App {
             .onChange(of: app.paired) { _, paired in
                 if paired { FileProviderDomain.register(); fullSync.attach(app) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .fileProviderMaterializedSetDidChange)) { _ in
+                app.revision += 1
+            }
             .onChange(of: app.syncStatus) { _, status in appDelegate.setStatus(status) }
             // Launched while the keychain was unavailable (screen locked at login): the
             // pairing is looked up again once the app is in front, before anyone re-pairs.
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 if !app.paired { app.bootstrap() }
+                app.revision += 1
                 VaultDomains.didChange?()
             }
         }

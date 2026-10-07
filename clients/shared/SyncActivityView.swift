@@ -30,7 +30,12 @@ struct SyncActivityView: View {
                     if fullSync.activity.completed == 0 && fullSync.activity.phase.isEmpty && fullSync.activity.errors.isEmpty {
                         Text(app.t("activity.empty")).foregroundStyle(.secondary)
                     }
-                } footer: { Text(app.t("activity.hint")) }
+                } footer: {
+                    Text(app.t("activity.hint"))
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if !fullSync.activityError.isEmpty {
                     Section { Text(fullSync.activityError).foregroundStyle(.red).textSelection(.enabled) }
                 }

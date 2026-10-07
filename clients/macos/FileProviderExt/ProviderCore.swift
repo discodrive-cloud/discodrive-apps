@@ -10,13 +10,13 @@ enum ProviderConfig {
     static let appGroup = Bundle.main.infoDictionary?["DiscoDriveAppGroup"] as? String
     static let keychainGroup = Bundle.main.infoDictionary?["DiscoDriveKeychainGroup"] as? String
 
-    static var indexPath: String? {
+    static func indexPath(for client: APIClient) -> String? {
         guard let appGroup,
               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
         else { return nil }
         let dir = container.appendingPathComponent("DiscoDrive", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("index.sqlite").path
+        return IndexStore.accountURL(in: dir, client: client).path
     }
 }
 
@@ -29,10 +29,6 @@ final class ProviderCore: @unchecked Sendable {
 
     init() throws {
         KeychainConfig.accessGroup = ProviderConfig.keychainGroup
-        guard let path = ProviderConfig.indexPath else {
-            Self.log.error("Shared container unavailable")
-            throw NSFileProviderError(.cannotSynchronize)
-        }
         let token: String?, urlStr: String?, pin: String?
         do {
             token = try KeychainToken.loadShared(service: KeychainToken.tokenService)
@@ -48,6 +44,13 @@ final class ProviderCore: @unchecked Sendable {
             Self.log.error("Invalid stored server URL")
             throw NSFileProviderError(.cannotSynchronize)
         }
+        // Set the trusted certificate before the client captures its network session.
+        DiscoNet.pin = pin
+        let client = APIClient(baseURL: url, deviceToken: token)
+        guard let path = ProviderConfig.indexPath(for: client) else {
+            Self.log.error("Shared container unavailable")
+            throw NSFileProviderError(.cannotSynchronize)
+        }
         let index: IndexStore
         do { index = try IndexStore(path: path) }
         catch {
@@ -55,9 +58,7 @@ final class ProviderCore: @unchecked Sendable {
             throw NSFileProviderError(.cannotSynchronize, userInfo: [NSUnderlyingErrorKey: error])
         }
         self.index = index
-        // The certificate the user trusted at pairing; set before the client's first request.
-        DiscoNet.pin = pin
-        self.client = APIClient(baseURL: url, deviceToken: token)
+        self.client = client
     }
 
     init(index: IndexStore, client: APIClient) {
@@ -117,12 +118,12 @@ final class ProviderCore: @unchecked Sendable {
     /// match nothing (the server moved on again mid-download) are fetched anew; if that
     /// never settles they are served without a version, and an edit of them is then
     /// guarded as an edit of unknown base.
-    func fetch(_ node: Node) async throws -> (URL, ProviderItem) {
+    func fetch(_ node: Node, progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> (URL, ProviderItem) {
         var known = node
         var last: (url: URL, hash: String)?
         for _ in 0..<3 {
             if let last { try? FileManager.default.removeItem(at: last.url) }
-            let url = try await download(nodeID: known.id)
+            let url = try await download(nodeID: known.id, progress: progress)
             let hash = try ContentHash.sha256Hex(of: url)
             if let owner = ContentHash.owner(ofDownloaded: hash, before: known, after: nil) { return (url, item(for: owner)) }
             _ = try await pull(since: try index.cursor())
@@ -157,10 +158,10 @@ final class ProviderCore: @unchecked Sendable {
 
     // The client operations the write path uses, with transport failures translated.
     func createFolder(path: String) async throws { try await mapErrors { try await client.createDir(relPath: path) } }
-    func upload(fileURL: URL, path: String, baseVersion: Int64?) async throws -> APIClient.UploadOutcome {
+    func upload(fileURL: URL, path: String, baseVersion: Int64?, progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> APIClient.UploadOutcome {
         try await mapErrors { try await client.upload(fileURL: fileURL, relPath: path,
                                                      modifiedAt: APIClient.contentModificationDate(of: fileURL),
-                                                     baseVersion: baseVersion) }
+                                                     baseVersion: baseVersion, progress: progress) }
     }
     // A node the server answers "not found" about was deleted there while its delete event
     // never arrived: the index forgets it and its subtree, and Finder is told .noSuchItem,
@@ -185,9 +186,9 @@ final class ProviderCore: @unchecked Sendable {
         if !gone.isEmpty { Self.log.notice("delete of \(nodeID, privacy: .public): already gone on the server; forgot \(gone.count) node(s)") }
     }
 
-    func download(nodeID: String) async throws -> URL {
+    func download(nodeID: String, progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try await mapErrors { try await index.forgettingIfGone(nodeID) { try await client.download(nodeID: nodeID, to: tmp) } }
+        try await mapErrors { try await index.forgettingIfGone(nodeID) { try await client.download(nodeID: nodeID, to: tmp, progress: progress) } }
         return tmp
     }
 

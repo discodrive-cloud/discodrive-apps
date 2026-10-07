@@ -122,16 +122,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     @objc private func quit() { NSApp.terminate(nil) }
 
-    // Custom About panel: "beta" badge in the version string + link to the website.
+    // About panel with the release version and linked copyright.
     func showAboutPanel() {
         let para = NSMutableParagraphStyle(); para.alignment = .center
-        let credits = NSAttributedString(string: "discodrive.kosmosoid.dev", attributes: [
-            .link: URL(string: "https://discodrive.kosmosoid.dev")!,
+        let copyright = "©2026 discodrive.app"
+        let credits = NSMutableAttributedString(string: copyright, attributes: [
             .font: NSFont.systemFont(ofSize: 11),
             .paragraphStyle: para,
         ])
+        credits.addAttribute(.link, value: URL(string: "https://discodrive.app")!,
+                             range: (copyright as NSString).range(of: "discodrive.app"))
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationVersion: "0.1 beta",
+            .applicationVersion: "0.1",
+            .version: "",
+            NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): "",
             .credits: credits,
         ])
         NSApp.activate(ignoringOtherApps: true)
