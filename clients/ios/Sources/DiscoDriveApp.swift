@@ -3,6 +3,7 @@ import DiscoKit
 
 @main
 struct DiscoDriveApp: App {
+    @UIApplicationDelegateAdaptor(PhotoTransferAppDelegate.self) private var delegate
     @StateObject private var app: AppState
     @StateObject private var files: FilesIntegration
     @StateObject private var fullSync: FullSyncController
@@ -26,6 +27,7 @@ struct DiscoDriveApp: App {
         _files = StateObject(wrappedValue: integration)
         AutoUploadService.shared.configure { [weak state] in state?.client }
         state.bootstrap()
+        AutoUploadService.shared.restoreTransfers()
         sync.registerBackgroundTask()
         _fullSync = StateObject(wrappedValue: sync)
         // Must be registered before the app finishes launching, or iOS refuses the handler.
@@ -54,9 +56,12 @@ struct DiscoDriveApp: App {
             .environmentObject(files)
             .environmentObject(fullSync)
             .onChange(of: app.paired) { _, paired in
+                if paired { AutoUploadService.shared.resumeIfEnabled() }
                 Task { if paired { await files.connect(); await fullSync.resume() } else { _ = await files.disconnect() } }
             }
             .onChange(of: scenePhase) { _, phase in
+                if phase == .active { AutoUploadService.shared.resumeIfEnabled() }
+                if phase == .background { AutoUploadService.shared.enteredBackground() }
                 Task {
                     if phase == .active { await fullSync.resume(); if await app.refresh() { await files.signal() } }
                     else if phase == .background { await fullSync.suspend() }

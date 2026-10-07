@@ -36,26 +36,6 @@ enum PhotoLibrarySource {
         PHPhotoLibrary.authorizationStatus(for: .readWrite)
     }
 
-    /// Everything in the library, newest first — a photo just taken should not queue behind
-    /// an archive of thousands.
-    ///
-    /// `mediaOnly` has no meaning here (a photo library holds photos), so unlike Android
-    /// there is no filter: the choice a user makes on iOS is the album, not the file type.
-    static func scan(limit: Int? = nil) -> [PhotoItem] {
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        if let limit { options.fetchLimit = limit }
-        let assets = PHAsset.fetchAssets(with: options)
-
-        var out: [PhotoItem] = []
-        out.reserveCapacity(assets.count)
-        assets.enumerateObjects { asset, _, _ in
-            guard let item = describe(asset) else { return }
-            out.append(item)
-        }
-        return out
-    }
-
     /// Fetches assets by identifier, for turning journal rows back into work.
     static func assets(withIDs ids: [String]) -> [PHAsset] {
         guard !ids.isEmpty else { return [] }
@@ -79,7 +59,7 @@ enum PhotoLibrarySource {
             filename: NameResolver.uploadName(resource: resource.originalFilename,
                                               original: original?.originalFilename),
             created: asset.creationDate ?? asset.modificationDate ?? Date(),
-            modified: asset.modificationDate ?? asset.creationDate ?? Date(),
+            modified: asset.modificationDate ?? asset.creationDate ?? .distantPast,
             isVideo: asset.mediaType == .video,
         )
     }
@@ -104,12 +84,74 @@ enum PhotoLibrarySource {
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            PHAssetResourceManager.default().writeData(for: resource, toFile: dest, options: options) { error in
-                if let error { cont.resume(throwing: PhotoSourceError.exportFailed(error.localizedDescription)) }
-                else { cont.resume() }
-            }
+        let export = try PhotoExportRequest(destination: dest)
+        do {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    export.start(resource: resource, options: options, continuation: cont)
+                }
+            } onCancel: { export.cancel() }
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            throw error
         }
         return (dest, item)
+    }
+}
+
+
+/// PhotoKit's writeData API cannot be cancelled. Stream its resource request into a
+/// file instead so an expired background budget releases discovery immediately.
+private final class PhotoExportRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private let manager = PHAssetResourceManager.default()
+    private let handle: FileHandle
+    private var requestID: PHAssetResourceDataRequestID?
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var outcome: Result<Void, Error>?
+
+    init(destination: URL) throws {
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil,
+                                             attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else {
+            throw PhotoSourceError.exportFailed("cannot create export")
+        }
+        handle = try FileHandle(forWritingTo: destination)
+    }
+
+    func start(resource: PHAssetResource, options: PHAssetResourceRequestOptions,
+               continuation: CheckedContinuation<Void, Error>) {
+        lock.lock()
+        if let outcome { lock.unlock(); continuation.resume(with: outcome); return }
+        self.continuation = continuation
+        lock.unlock()
+        let id = manager.requestData(for: resource, options: options, dataReceivedHandler: { [self] data in
+            lock.lock()
+            guard outcome == nil else { lock.unlock(); return }
+            do { try handle.write(contentsOf: data); lock.unlock() }
+            catch { lock.unlock(); finish(.failure(error)) }
+        }, completionHandler: { [self] error in
+            finish(error.map { .failure($0) } ?? .success(()))
+        })
+        lock.lock()
+        requestID = id
+        let finished = outcome != nil
+        lock.unlock()
+        if finished { manager.cancelDataRequest(id) }
+    }
+
+    func cancel() { finish(.failure(CancellationError())) }
+
+    private func finish(_ result: Result<Void, Error>) {
+        lock.lock()
+        guard outcome == nil else { lock.unlock(); return }
+        var result = result
+        do { try handle.close() } catch { result = .failure(error) }
+        outcome = result
+        let continuation = self.continuation
+        self.continuation = nil
+        let id = requestID
+        lock.unlock()
+        if case .failure = result, let id { manager.cancelDataRequest(id) }
+        continuation?.resume(with: result)
     }
 }

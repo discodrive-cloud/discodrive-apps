@@ -66,14 +66,16 @@ final class Enumerator: NSObject, NSFileProviderEnumerator, @unchecked Sendable 
         Task {
             do {
                 let since = try ProviderSyncAnchor.decode(anchor.rawValue)
-                let delta = try await core.pull(since: since)
+                let limit = min(200, max(1, observer.suggestedBatchSize ?? 200))
+                let batch = try await core.pullChangeBatch(since: since, limit: limit)
+                let delta = batch.delta
                 let updated = delta.updated.compactMap { try? core.index.node(id: $0) }.map(core.item(for:))
                 if !updated.isEmpty { observer.didUpdate(updated) }
                 if !delta.deleted.isEmpty {
                     observer.didDeleteItems(withIdentifiers: delta.deleted.map { NSFileProviderItemIdentifier($0) })
                 }
                 observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(ProviderSyncAnchor.encode(delta.cursor)),
-                                                  moreComing: false)
+                                                  moreComing: batch.moreComing)
             } catch {
                 observer.finishEnumeratingWithError(error)
             }

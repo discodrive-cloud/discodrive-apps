@@ -40,11 +40,13 @@ final class FullSyncController: ObservableObject {
     }
 
     func registerBackgroundTask() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskID, using: nil) { task in
+        // The handler inherits MainActor isolation. A nil queue lets BGTaskScheduler
+        // invoke it on its worker queue and traps before the inner Task can hop actors.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskID, using: .main) { task in
             guard let task = task as? BGProcessingTask else { task.setTaskCompleted(success: false); return }
             Task { @MainActor in
                 let work = Task { await self.backgroundPass() }
-                task.expirationHandler = { work.cancel() }
+                task.expirationHandler = { @Sendable in work.cancel() }
                 let success = await work.value
                 task.setTaskCompleted(success: success)
             }

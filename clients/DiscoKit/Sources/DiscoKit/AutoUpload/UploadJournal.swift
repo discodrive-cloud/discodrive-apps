@@ -69,6 +69,9 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
                   at INTEGER NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_uploads_state ON uploads(state);
+                CREATE TABLE IF NOT EXISTS photo_discovery_cursor(id INTEGER PRIMARY KEY CHECK(id = 1), token BLOB NOT NULL);
+                CREATE TABLE IF NOT EXISTS photo_discovery_pending(asset_id TEXT PRIMARY KEY, modified INTEGER NOT NULL);
+                CREATE INDEX IF NOT EXISTS idx_photo_pending_modified ON photo_discovery_pending(modified DESC);
             """)
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
             if version < 1 {
@@ -160,6 +163,11 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
         try dbQueue.write { db in
             let n = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM uploads WHERE state = ?",
                                      arguments: [UploadState.skippedPreexisting.rawValue]) ?? 0
+            try db.execute(sql: """
+                INSERT INTO photo_discovery_pending(asset_id, modified)
+                SELECT asset_id, modified FROM uploads WHERE state = ?
+                ON CONFLICT(asset_id) DO UPDATE SET modified = excluded.modified
+                """, arguments: [UploadState.skippedPreexisting.rawValue])
             try db.execute(sql: "DELETE FROM uploads WHERE state = ?",
                            arguments: [UploadState.skippedPreexisting.rawValue])
             return n
@@ -169,7 +177,9 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
     /// Forgets everything. Called on logout: the next pairing may be another account, and
     /// what was sent to this one says nothing about what that one has.
     public func wipe() throws {
-        try dbQueue.write { db in try db.execute(sql: "DELETE FROM uploads") }
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM uploads; DELETE FROM photo_discovery_pending; DELETE FROM photo_discovery_cursor")
+        }
     }
 
     public func counts() throws -> JournalCounts {
@@ -200,6 +210,73 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
         }
     }
 
+    public func photoDiscoveryCursor() throws -> Data? {
+        try dbQueue.read { try Data.fetchOne($0, sql: "SELECT token FROM photo_discovery_cursor WHERE id = 1") }
+    }
+
+    /// The cursor and pending identifiers commit together: a killed process replays
+    /// changes or finds their durable work, never advances past unrecorded photos.
+    public func applyPhotoDiscovery(_ change: PhotoLibraryDelta, replacing: Bool = false,
+                                    seedPreexisting: Bool = false) throws {
+        try dbQueue.write { db in
+            if replacing { try db.execute(sql: "DELETE FROM photo_discovery_pending; DELETE FROM photo_discovery_cursor") }
+            for id in change.deleted {
+                try db.execute(sql: "DELETE FROM photo_discovery_pending WHERE asset_id = ?", arguments: [id])
+            }
+            for asset in change.updated {
+                try Task.checkCancellation()
+                let modified = Int64(asset.modified.timeIntervalSince1970 * 1000)
+                if seedPreexisting {
+                    try db.execute(sql: """
+                        INSERT OR IGNORE INTO uploads(asset_id, modified, state, at) VALUES (?, ?, ?, ?)
+                        """, arguments: [asset.id, modified, UploadState.skippedPreexisting.rawValue,
+                                         Int64(Date().timeIntervalSince1970 * 1000)])
+                }
+                let known = try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS(SELECT 1 FROM uploads WHERE asset_id = ? AND modified = ? AND state != ?)
+                    """, arguments: [asset.id, modified, UploadState.deferred.rawValue]) ?? false
+                if known {
+                    try db.execute(sql: "DELETE FROM photo_discovery_pending WHERE asset_id = ?", arguments: [asset.id])
+                } else {
+                    try db.execute(sql: """
+                        INSERT INTO photo_discovery_pending(asset_id, modified) VALUES (?, ?)
+                        ON CONFLICT(asset_id) DO UPDATE SET modified = excluded.modified
+                        """, arguments: [asset.id, modified])
+                }
+            }
+            try Task.checkCancellation()
+            if let token = change.token {
+                try db.execute(sql: "INSERT OR REPLACE INTO photo_discovery_cursor(id, token) VALUES (1, ?)", arguments: [token])
+            }
+        }
+    }
+
+    public func pendingPhotos(limit: Int, excluding: Set<String> = [], retryAfter: TimeInterval = 60,
+                              now: Date = Date()) throws -> [PhotoAssetStamp] {
+        try dbQueue.read { db in
+            let placeholders = Array(repeating: "?", count: excluding.count).joined(separator: ",")
+            let exclusion = excluding.isEmpty ? "" : "AND p.asset_id NOT IN (\(placeholders))"
+            var args: StatementArguments = [UploadState.deferred.rawValue, Int64(now.addingTimeInterval(-retryAfter).timeIntervalSince1970 * 1000)]
+            args += StatementArguments(excluding.sorted())
+            args += [max(0, limit)]
+            return try Row.fetchAll(db, sql: """
+                SELECT p.asset_id, p.modified FROM photo_discovery_pending p
+                LEFT JOIN uploads u ON u.asset_id = p.asset_id AND u.modified = p.modified
+                WHERE (u.state IS NULL OR u.state != ? OR u.at <= ?) \(exclusion)
+                ORDER BY p.modified DESC, p.asset_id LIMIT ?
+                """, arguments: args).map {
+                    PhotoAssetStamp(id: $0["asset_id"], modified: Date(timeIntervalSince1970: Double($0["modified"] as Int64) / 1000))
+                }
+        }
+    }
+
+    public func forgetPendingPhoto(_ asset: PhotoAssetStamp) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM photo_discovery_pending WHERE asset_id = ? AND modified = ?",
+                           arguments: [asset.id, Int64((asset.modified.timeIntervalSince1970 * 1000).rounded())])
+        }
+    }
+
     private func put(assetID: String, modified: Date, bytes: Int64, sha: String?,
                      serverName: String?, state: UploadState, error: String?, attempts: Int) throws {
         try dbQueue.write { db in
@@ -213,6 +290,10 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
             """, arguments: [assetID, Int64(modified.timeIntervalSince1970 * 1000), bytes, sha,
                              serverName, state.rawValue, attempts, error,
                              Int64(Date().timeIntervalSince1970 * 1000)])
+            if state == .sent {
+                try db.execute(sql: "DELETE FROM photo_discovery_pending WHERE asset_id = ? AND modified = ?",
+                               arguments: [assetID, Int64(modified.timeIntervalSince1970 * 1000)])
+            }
         }
     }
 }

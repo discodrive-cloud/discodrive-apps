@@ -67,6 +67,20 @@ final class ProviderCore: @unchecked Sendable {
 
     typealias Delta = ChangeDelta
 
+    // A File Provider change callback must yield before loading the next server page.
+    // Replaying the entire feed at once can exceed the iOS extension's memory limit;
+    // the system then retries the same anchor and eventually pauses synchronization.
+    func pullChangeBatch(since: Int64, limit: Int) async throws -> (delta: Delta, moreComing: Bool) {
+        let page = try await mapErrors { try await client.changes(since: since, limit: limit) }
+        try index.apply(page.changes)
+        try index.setCursor(page.cursor)
+        var delta = Delta(cursor: page.cursor)
+        delta.record(page.changes)
+        // The shared index can be ahead (the app also updates it). Only acknowledge
+        // the page actually reported to the system, never that shared index cursor.
+        return (delta, page.hasMore)
+    }
+
     // Pull every change after `since` into the index and say which nodes moved. The app
     // may have applied the same pages already (it listens to the server's event stream);
     // applying them again is idempotent and the cursor never moves backwards.

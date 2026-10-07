@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>org.discodrive.ios.autoupload</string>
+		<string>org.discodrive.ios.autoupload.refresh</string>
 		<string>org.discodrive.ios.fullsync</string>
 	</array>
 	<key>CFBundleDisplayName</key>

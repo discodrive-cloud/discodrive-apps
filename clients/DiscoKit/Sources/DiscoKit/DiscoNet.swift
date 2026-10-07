@@ -199,11 +199,11 @@ public enum DiscoNet {
 }
 
 // Applies the acceptance rule, with one fixed pin, to every connection of its session.
-final class PinningDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+public final class PinningDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     private let pin: String?
-    init(pin: String?) { self.pin = pin }
+    public init(pin: String?) { self.pin = pin }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask,
+    public func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                     completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         guard let original = task.originalRequest?.url, let target = request.url,
@@ -213,7 +213,7 @@ final class PinningDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         completionHandler(request)
     }
 
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+    public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let space = challenge.protectionSpace
         guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust else {

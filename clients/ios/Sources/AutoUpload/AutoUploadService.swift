@@ -3,21 +3,25 @@ import BackgroundTasks
 import DiscoKit
 import Photos
 import UIKit
+import os
 
-/// Drives auto-upload: owns the journal, runs passes, and wires the two things that can
-/// start one — the photo library changing, and iOS handing the app background time.
-///
-/// What iOS allows here is genuinely weaker than Android, and the UI says so rather than
-/// pretending otherwise: there is no equivalent of a foreground service, background time is
-/// granted at the system's discretion, and nothing runs at all while the app is force-quit.
+/// Discovers assets on library changes, foreground entry and system background time.
+/// File-backed transfers have a separate persistent owner and can outlive a discovery pass.
 @MainActor
 final class AutoUploadService: NSObject, ObservableObject {
 
     static let shared = AutoUploadService()
+    private static let log = Logger(subsystem: "org.discodrive.ios", category: "photo-discovery")
+    private var backgroundPassOwners: Set<UUID> = []
+    private var foregroundLease: UIBackgroundTaskIdentifier = .invalid
 
     /// Must match BGTaskSchedulerPermittedIdentifiers in Info.plist.
     static let taskID = "org.discodrive.ios.autoupload"
+    static let refreshTaskID = "org.discodrive.ios.autoupload.refresh"
 
+    @Published private(set) var queuedTransfers = 0
+    @Published private(set) var transferError: String?
+    private var transfers: BackgroundPhotoUploader?
     @Published private(set) var running = false
     @Published private(set) var progressText: String?
     @Published private(set) var lastResult: RunResult?
@@ -30,6 +34,16 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// one being sent finishes, the rest are dropped.
     private var passTask: Task<RunResult, Never>?
     private var settingsGeneration = 0
+    private var passRequested = false
+    private var schedulingTask: Task<Void, Never>?
+    private var rescheduleIDs: Set<String> = []
+    var applicationIsActive: @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }
+    var pendingBackgroundRequests: @MainActor () async -> [BGTaskRequest] = {
+        await BGTaskScheduler.shared.pendingTaskRequests()
+    }
+    var submitBackgroundRequest: @MainActor (BGTaskRequest) throws -> Void = {
+        try BGTaskScheduler.shared.submit($0)
+    }
     /// How a pass waits for the network path to settle. Replaced only by tests, which need
     /// to hold a pass at this suspension point.
     var waitForPath: @MainActor () async -> Void = { await Conditions.shared.waitForPath() }
@@ -43,6 +57,54 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// the app is paired, and again after re-pairing.
     func configure(apiProvider: @escaping () -> APIClient?) {
         self.apiProvider = apiProvider
+    }
+
+    private func uploader(for api: APIClient) throws -> BackgroundPhotoUploader {
+        if let transfers, transfers.api.transferIdentity == api.transferIdentity { return transfers }
+        if let previous = transfers {
+            previous.invalidate()
+            Task { try? await previous.logout() }
+        }
+        let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                               appropriateFor: nil, create: true)
+            .appendingPathComponent("DiscoDrive/PhotoTransfers", isDirectory: true)
+        let transfers = BackgroundPhotoUploader(api: api, store: try PhotoTransferStore(directory: root),
+                                               journal: try openJournal())
+        transfers.onChange = { [weak self, weak transfers] in
+            guard let self, let transfers, self.transfers === transfers else { return }
+            let jobs = (try? transfers.queued()) ?? []
+            self.queuedTransfers = jobs.count
+            self.transferError = jobs.first(where: { $0.lastError != nil })?.lastError
+            // Drain a bounded export batch before discovering more archive items.
+            if jobs.isEmpty, self.settings.enabled, !self.running {
+                Task { await self.runPass() }
+            }
+        }
+        self.transfers = transfers
+        Task { await transfers.restore() }
+        return transfers
+    }
+
+    func restoreTransfers() {
+        guard let api = apiProvider?() else { return }
+        do { _ = try uploader(for: api) }
+        catch { transferError = String(describing: error) }
+    }
+
+    func handleTransferEvents(identifier: String, completion: @escaping () -> Void) {
+        if let api = apiProvider?(), identifier == BackgroundPhotoUploader.prefix + api.transferIdentity,
+           let transfers = try? uploader(for: api) {
+            transfers.handleEvents(completion: completion)
+            Task { await transfers.restore() }
+        } else {
+            // A session from a former account must never use the current account's API.
+            let session = URLSession(configuration: .background(withIdentifier: identifier))
+            Task {
+                for task in await session.allTasks { task.cancel() }
+                session.invalidateAndCancel()
+                completion()
+            }
+        }
     }
 
     func openJournal() throws -> UploadJournal {
@@ -84,8 +146,10 @@ final class AutoUploadService: NSObject, ObservableObject {
             // Switching off has to stop what is happening now, not just what would happen
             // next: a back-fill of a few thousand photos would otherwise run to completion.
             stopPass()
+            await transfers?.pause()
             stopObserving()
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
         }
     }
 
@@ -94,13 +158,11 @@ final class AutoUploadService: NSObject, ObservableObject {
         settings.enabled = false
         stopObserving()
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
         stopPass()
+        do { try await transfers?.logout() } catch { transferError = String(describing: error) }
+        transfers = nil; queuedTransfers = 0
         _ = await passTask?.value
-        // A pass still waiting for the network has no task to await yet. It notices the new
-        // generation when it resumes and returns without touching anything; wait for that
-        // (bounded — the path wait itself gives up after five seconds).
-        var waited = 0
-        while running, waited < 80 { try? await Task.sleep(for: .milliseconds(100)); waited += 1 }
         settings.seeded = false
         settings.destID = nil
         // The next pairing may be another account: what went to this one says nothing
@@ -113,22 +175,50 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// Runs a pass now, if the conditions allow it.
     @discardableResult
     func runPass() async -> RunResult {
-        guard settings.enabled, !running else { return RunResult() }
-        guard let api = apiProvider?() else {
-            return RunResult(error: "not paired")
+        guard settings.enabled, !Task.isCancelled else { return RunResult() }
+        if let task = passTask {
+            if task.isCancelled {
+                _ = await task.value
+                return await runPass()
+            }
+            // A new photo or foreground transition during a pass needs another scan.
+            // Join the owner so a background caller does not report completion early.
+            passRequested = true
+            return await task.value
         }
-        // Claimed before the first suspension point: set after it, a background task and a
-        // library change could both pass the guard above and run two passes side by side,
-        // uploading the same photos twice.
-        running = true
-        defer { running = false; progressText = nil }
         let generation = settingsGeneration
+        Self.log.notice("discovery started")
+        running = true
+        let task = Task { @MainActor in
+            defer { self.passTask = nil; self.running = false; self.progressText = nil }
+            var result = RunResult()
+            repeat {
+                self.passRequested = false
+                let pass = await self.performPass(generation: generation)
+                result.uploaded += pass.uploaded
+                result.queued += pass.queued
+                result.skipped += pass.skipped
+                result.deferred += pass.deferred
+                result.blocked = pass.blocked
+                if let error = pass.error { result.error = error }
+                self.lastResult = result
+                Self.log.notice("discovery pass finished: queued=\(pass.queued) deferred=\(pass.deferred) blocked=\(String(describing: pass.blocked), privacy: .public) error=\(pass.error ?? "none", privacy: .public)")
+            } while self.passRequested && self.settings.enabled &&
+                    self.settingsGeneration == generation && !Task.isCancelled
+            return result
+        }
+        passTask = task
+        return await task.value
+    }
+
+    private func performPass(generation: Int) async -> RunResult {
+        guard let api = apiProvider?() else { return RunResult(error: "not paired") }
         // Give the path monitor a moment before believing it: at launch it reports nothing
         // for a beat, and calling that "no network" is how a pass silently did nothing.
         await waitForPath()
         // Logout or switch-off while waiting: the journal may be wiped and `api` belongs to
         // the account being left. Seeding or uploading now would undo the logout.
-        guard settings.enabled, settingsGeneration == generation else { return RunResult() }
+        guard settings.enabled, settingsGeneration == generation, !Task.isCancelled else { return RunResult() }
         let blocked = blockingCondition(settings)
         guard blocked == .none else {
             var r = RunResult(); r.blocked = blocked
@@ -138,28 +228,16 @@ final class AutoUploadService: NSObject, ObservableObject {
 
         do {
             let journal = try openJournal()
-            let runner = AutoUploadRunner(api: api, journal: journal, settings: settings)
-            // The pass runs inside a task we keep a handle on, and reports cancellation
-            // through it — that is what makes "stop" arrive between photos rather than at
-            // the end of a several-thousand-photo queue.
-            let task = Task { [weak self] in
-                do {
-                    try Task.checkCancellation()
-                    _ = try await runner.seedIfNeeded()
-                    try Task.checkCancellation()
-                } catch {
-                    var result = RunResult(); result.error = String(describing: error)
-                    return result
-                }
-                return await runner.runOnce(progress: { done, total, name in
-                    Task { @MainActor in self?.progressText = "\(done + 1)/\(total) · \(name)" }
-                }, isCancelled: { Task.isCancelled })
-            }
-            passTask = task
-            let result = await task.value
-            passTask = nil
-            lastResult = result
-            return result
+            let transfers = try uploader(for: api)
+            await transfers.resume()
+            guard settings.enabled, settingsGeneration == generation, !Task.isCancelled else { return RunResult() }
+            let runner = AutoUploadRunner(api: api, journal: journal, settings: settings, transfers: transfers)
+            try Task.checkCancellation()
+            try await runner.discover()
+            try Task.checkCancellation()
+            return await runner.runOnce(progress: { [weak self] done, total, name in
+                Task { @MainActor in self?.progressText = "\(done + 1)/\(total) · \(name)" }
+            }, isCancelled: { Task.isCancelled })
         } catch {
             var r = RunResult(); r.error = String(describing: error)
             lastResult = r
@@ -171,7 +249,9 @@ final class AutoUploadService: NSObject, ObservableObject {
     /// mid-chunk would only leave the server to garbage-collect it — and the queue is
     /// dropped after it.
     func stopPass() {
+        passRequested = false
         passTask?.cancel()
+        if let transfers { Task { await transfers.pause() } }
     }
 
     /// Turns the photos that were marked "already there" back into work, then runs a pass.
@@ -210,38 +290,116 @@ final class AutoUploadService: NSObject, ObservableObject {
         observer = nil
     }
 
-    /// Called at launch so a paired, enabled app starts watching without a visit to settings.
+    /// Reconcile on launch and foreground entry: PhotoKit callbacks are not a durable queue.
     func resumeIfEnabled() {
         guard settings.enabled else { return }
         startObserving()
         scheduleBackgroundPass()
+        Task { await runPass() }
+    }
+
+    func conditionsChanged() {
+        Task {
+            await transfers?.pause()
+            scheduleBackgroundPass()
+            if settings.enabled { await runPass() }
+        }
+    }
+
+    func enteredBackground() {
+        guard settings.enabled, foregroundLease == .invalid else { return }
+        foregroundLease = UIApplication.shared.beginBackgroundTask(withName: "photo-discovery") { [weak self] in
+            guard let self else { return }
+            if !self.applicationIsActive(), self.backgroundPassOwners.isEmpty {
+                self.passRequested = false
+                self.passTask?.cancel()
+            }
+            self.endForegroundLease()
+        }
+        Task {
+            _ = await runPass()
+            endForegroundLease()
+        }
+    }
+
+    private func endForegroundLease() {
+        guard foregroundLease != .invalid else { return }
+        let lease = foregroundLease
+        foregroundLease = .invalid
+        UIApplication.shared.endBackgroundTask(lease)
     }
 
     // MARK: - Background task
 
     /// Registers the handler. Must run before the app finishes launching.
     func registerBackgroundTask() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskID, using: nil) { task in
-            guard let task = task as? BGProcessingTask else { return }
-            Task { @MainActor in
-                // Always leave a successor behind: BGProcessingTask is one-shot.
-                self.scheduleBackgroundPass()
-                let work = Task { await self.runPass() }
-                task.expirationHandler = { work.cancel(); Task { @MainActor in self.stopPass() } }
-                let result = await work.value
-                task.setTaskCompleted(success: !work.isCancelled && result.error == nil && result.blocked == .none)
+        // The handler inherits MainActor isolation. A nil queue lets BGTaskScheduler
+        // invoke it on its worker queue and traps before the inner Task can hop actors.
+        for identifier in [Self.taskID, Self.refreshTaskID] {
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
+                Task { @MainActor in
+                    self.scheduleBackgroundPass(replacing: identifier)
+                    let owner = self.retainBackgroundPass()
+                    let lease = PhotoBackgroundLease(task: task)
+                    let work = Task { await self.runPass() }
+                    lease.onExpire = {
+                        work.cancel()
+                        self.releaseBackgroundPass(owner, expired: true)
+                    }
+                    let result = await work.value
+                    self.releaseBackgroundPass(owner, expired: false)
+                    lease.finish(success: !work.isCancelled && result.error == nil && result.blocked == .none && result.deferred == 0)
+                }
             }
+        }
+    }
+
+    /// Refresh and processing can share a discovery pass. Expiration of one system
+    /// task must not cancel work still covered by the other task's execution time.
+    func retainBackgroundPass() -> UUID {
+        let id = UUID()
+        backgroundPassOwners.insert(id)
+        return id
+    }
+
+    func releaseBackgroundPass(_ id: UUID, expired: Bool) {
+        guard backgroundPassOwners.remove(id) != nil else { return }
+        if expired, backgroundPassOwners.isEmpty, foregroundLease == .invalid,
+           !self.applicationIsActive() {
+            passRequested = false
+            passTask?.cancel()
         }
     }
 
     /// Asks for background time. iOS decides when — usually when the phone is idle and
     /// charging — so this is "eventually", never "in twenty minutes".
-    func scheduleBackgroundPass() {
-        let request = BGProcessingTaskRequest(identifier: Self.taskID)
-        request.requiresNetworkConnectivity = true
-        request.requiresExternalPower = settings.chargingOnly
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-        try? BGTaskScheduler.shared.submit(request)
+    func scheduleBackgroundPass(replacing identifier: String? = nil) {
+        if let identifier { rescheduleIDs.insert(identifier) }
+        guard settings.enabled, schedulingTask == nil else { return }
+        schedulingTask = Task { @MainActor in
+            defer { self.schedulingTask = nil }
+            let pending = await self.pendingBackgroundRequests()
+            guard self.settings.enabled else { return }
+            let replacing = self.rescheduleIDs
+            self.rescheduleIDs.removeAll()
+            // Foreground reconciliation must not push an already scheduled request
+            // fifteen minutes into the future each time the user opens the app.
+            let existing = pending.first { $0.identifier == Self.taskID } as? BGProcessingTaskRequest
+            if replacing.contains(Self.taskID) || existing == nil || existing?.requiresExternalPower != self.settings.chargingOnly {
+                let request = BGProcessingTaskRequest(identifier: Self.taskID)
+                request.requiresNetworkConnectivity = true
+                request.requiresExternalPower = self.settings.chargingOnly
+                request.earliestBeginDate = replacing.contains(Self.taskID) ? Date(timeIntervalSinceNow: 15 * 60) : (existing?.earliestBeginDate ?? Date(timeIntervalSinceNow: 15 * 60))
+                do { try self.submitBackgroundRequest(request) }
+                catch { self.transferError = String(describing: error) }
+            }
+            if replacing.contains(Self.refreshTaskID) || !pending.contains(where: { $0.identifier == Self.refreshTaskID }) {
+                let request = BGAppRefreshTaskRequest(identifier: Self.refreshTaskID)
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60)
+                do { try self.submitBackgroundRequest(request) }
+                catch { self.transferError = String(describing: error) }
+            }
+        }
     }
 }
 
@@ -250,10 +408,13 @@ private final class LibraryObserver: NSObject, PHPhotoLibraryChangeObserver {
     private let onChange: @Sendable () -> Void
     /// A burst of photos produces a burst of callbacks; one pass covers them all.
     private var pending: DispatchWorkItem?
+    private let lock = NSLock()
 
     init(onChange: @escaping @Sendable () -> Void) { self.onChange = onChange }
 
     func photoLibraryDidChange(_ changeInstance: PHChange) {
+        lock.lock()
+        defer { lock.unlock() }
         pending?.cancel()
         let item = DispatchWorkItem { [onChange] in onChange() }
         pending = item

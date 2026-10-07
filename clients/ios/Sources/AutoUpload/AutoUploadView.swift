@@ -47,11 +47,11 @@ struct AutoUploadView: View {
 
             Section(app.t("au.when")) {
                 Toggle(app.t("au.wifi"), isOn: $wifiOnly)
-                    .onChange(of: wifiOnly) { _, v in settings.wifiOnly = v }
+                    .onChange(of: wifiOnly) { _, v in settings.wifiOnly = v; service.conditionsChanged() }
                 Toggle(app.t("au.charging"), isOn: $chargingOnly)
-                    .onChange(of: chargingOnly) { _, v in settings.chargingOnly = v }
+                    .onChange(of: chargingOnly) { _, v in settings.chargingOnly = v; service.conditionsChanged() }
                 Toggle(app.t("au.battery"), isOn: $requireBattery)
-                    .onChange(of: requireBattery) { _, v in settings.requireBattery = v }
+                    .onChange(of: requireBattery) { _, v in settings.requireBattery = v; service.conditionsChanged() }
             }
 
             Section {
@@ -79,6 +79,14 @@ struct AutoUploadView: View {
                 if let note = queuedNote {
                     Text(note).font(.footnote).foregroundStyle(.secondary)
                 }
+                Text(app.t("au.queued").replacingOccurrences(of: "%1", with: "\(service.queuedTransfers)"))
+                    .font(.footnote).foregroundStyle(.secondary)
+                if service.queuedTransfers > 0, service.progressText == nil {
+                    Button(app.t("au.stop")) { service.stopPass(); queuedNote = app.t("au.stopped") }
+                }
+                if let error = service.transferError {
+                    Text(error).font(.footnote).foregroundStyle(.orange)
+                }
                 Text(app.t("au.stats")
                     .replacingOccurrences(of: "%1", with: "\(counts.sent)")
                     .replacingOccurrences(of: "%2", with: "\(counts.skipped)")
@@ -100,6 +108,7 @@ struct AutoUploadView: View {
         .navigationTitle(app.t("au.title"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { refresh() }
+        .onChange(of: service.queuedTransfers) { _, _ in refresh() }
         .sheet(isPresented: $showLog) { LogView(entries: logEntries()) }
         .alert(app.t("au.backfill"), isPresented: $askBackfill) {
             Button(app.t("au.backfillStart")) {

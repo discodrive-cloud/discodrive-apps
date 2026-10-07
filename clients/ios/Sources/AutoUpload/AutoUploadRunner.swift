@@ -7,6 +7,7 @@ import Photos
 /// Outcome of one pass.
 struct RunResult: Sendable {
     var uploaded = 0
+    var queued = 0
     var skipped = 0
     var deferred = 0
     var blocked: UploadBlock = .none
@@ -27,29 +28,29 @@ actor AutoUploadRunner {
         return name.isEmpty ? "iPhone" : name
     }
 
-    /// Give up on an asset after this many failed passes; it stays visible in the log.
-    static let maxAttempts = 5
-    /// After `maxAttempts` failures an asset is tried once a day instead of every pass.
-    static let retryAfter: TimeInterval = 24 * 60 * 60
+    /// Export failures retry on later discovery passes. Persistent transfer failures
+    /// have their own exponential backoff; neither path parks an asset for a whole day.
+    static let maxAttempts = 1
+    static let retryAfter: TimeInterval = 60
 
     private let api: APIClient
     private let journal: UploadJournal
     private let settings: AutoUploadSettings
+    private let transfers: BackgroundPhotoUploader
 
-    init(api: APIClient, journal: UploadJournal, settings: AutoUploadSettings) {
+    init(api: APIClient, journal: UploadJournal, settings: AutoUploadSettings, transfers: BackgroundPhotoUploader) {
         self.api = api
         self.journal = journal
         self.settings = settings
+        self.transfers = transfers
     }
 
-    /// Records everything currently in the library as pre-existing, so switching the feature
-    /// on does not push years of pictures over a cellular link. Runs once.
-    func seedIfNeeded() throws -> Int {
-        guard !settings.seeded else { return 0 }
-        let existing = PhotoLibrarySource.scan().map { (id: $0.id, modified: $0.modified) }
-        try journal.seedPreexisting(existing)
+    /// Persist discovery before doing any network work. Existing installations take
+    /// one metadata-only snapshot; subsequent passes consume PhotoKit change history.
+    func discover() throws {
+        try PhotoDiscovery.reconcile(source: PhotoKitDiscoverySource(), journal: journal,
+                                     seedPreexisting: !settings.seeded)
         settings.seeded = true
-        return existing.count
     }
 
     /// Uploads everything new. `progress` is called before each asset with (done, total, name).
@@ -62,15 +63,18 @@ actor AutoUploadRunner {
             return result
         }
 
-        // Resolve the destination first: a pass that cannot address the server has nothing
-        // to do, and creating the folder per photo would be silly.
-        let destID: String
+        let queued: [PhotoTransfer]
+        let candidates: [PhotoAssetStamp]
         do {
-            destID = try await resolveDestination()
-        } catch {
-            result.error = "cannot reach the server: \(error)"
-            return result
-        }
+            queued = try await transfers.queued()
+            candidates = try journal.pendingPhotos(limit: max(0, 20 - queued.count),
+                                                    excluding: Set(queued.map(\.assetID)))
+        } catch { result.error = String(describing: error); return result }
+        guard !candidates.isEmpty else { return result }
+
+        let destID: String
+        do { destID = try await resolveDestination() }
+        catch { result.error = "cannot reach the server: \(error)"; return result }
 
         // The listing is what the collision check reads. Pulling it once per pass keeps the
         // check honest about files added from another device without a request per photo.
@@ -84,19 +88,30 @@ actor AutoUploadRunner {
             return result
         }
 
-        let candidates = PhotoLibrarySource.scan().filter { item in
-            (try? journal.isKnown(assetID: item.id, modified: item.modified)) != true
-        }
+        for job in queued { taken[job.name] = "" }
         let assets = PhotoLibrarySource.assets(withIDs: candidates.map(\.id))
         let byID = Dictionary(uniqueKeysWithValues: assets.map { ($0.localIdentifier, $0) })
 
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("autoupload", isDirectory: true)
-        let uploader = ChunkedUploader(api: api)
 
         for (i, item) in candidates.enumerated() {
             if isCancelled() { break }
-            progress(i, candidates.count, item.filename)
-            guard let asset = byID[item.id] else { continue }
+            guard let asset = byID[item.id] else {
+                // Removed from the library or from the authorized selection.
+                try? journal.forgetPendingPhoto(item)
+                continue
+            }
+            guard let described = PhotoLibrarySource.describe(asset) else {
+                try? journal.markDeferred(assetID: item.id, modified: item.modified, error: "no photo resource")
+                result.deferred += 1
+                continue
+            }
+            // Metadata may change after discovery; persist the version actually exported.
+            let item = PhotoAssetStamp(id: described.id, modified: described.modified)
+            do { try journal.applyPhotoDiscovery(PhotoLibraryDelta(updated: [item], token: nil)) }
+            catch { result.error = String(describing: error); return result }
+            if (try? journal.isKnown(assetID: item.id, modified: item.modified)) == true { continue }
+            progress(i, candidates.count, described.filename)
             if (try? journal.mayRetry(assetID: item.id, maxAttempts: Self.maxAttempts,
                                       retryAfter: Self.retryAfter)) == false {
                 result.deferred += 1
@@ -130,14 +145,17 @@ actor AutoUploadRunner {
                 }
 
                 let bytes = Int64((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)??.int64Value ?? 0)
-                try await uploader.upload(fileURL: url, parentID: destID, name: name,
-                                          modifiedAt: described.created)
-                // Claim the name for the rest of this pass: the listing was read once, so
-                // two photos could otherwise be handed the same free name.
-                taken[name] = sha
-                try journal.markSent(assetID: item.id, modified: item.modified,
-                                     bytes: bytes, sha: sha, serverName: name)
-                result.uploaded += 1
+                guard !isCancelled() else { break }
+                let job = PhotoTransfer(account: api.transferIdentity, assetID: item.id,
+                                        modified: item.modified, created: described.created,
+                                        parentID: destID, name: name, sha: sha, bytes: bytes)
+                try await transfers.enqueue(job, exportedFile: url)
+                // A queued copy is not "sent". The background delegate commits the
+                // journal only after /complete is acknowledged (or reconciled by hash).
+                taken[name] = ""
+                result.queued += 1
+            } catch is CancellationError {
+                break
             } catch UploadError.fileChangedDuringUpload {
                 // The asset changed under the upload — its modification date moved too, so
                 // the next pass sees it as fresh work.

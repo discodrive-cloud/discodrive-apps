@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public enum APIError: Error {
     case http(Int), notAuthenticated, badResponse
@@ -31,12 +32,16 @@ public actor APIClient {
     public static let featuresHeaderField = "X-Discodrive-Features"
     public static let featuresHeaderValue = "delete-by-id"
 
+    public nonisolated let transferIdentity: String
+    public nonisolated let certificatePin: String?
     private let baseURL: URL
     private let deviceToken: String
     private let session: URLSession
     private var jwt: String?
 
     public init(baseURL: URL, deviceToken: String, session: URLSession = DiscoNet.session) {
+        self.transferIdentity = SHA256.hash(data: Data((baseURL.absoluteString + "\n" + deviceToken).utf8)).map { String(format: "%02x", $0) }.joined()
+        self.certificatePin = DiscoNet.pin
         self.baseURL = baseURL
         self.deviceToken = deviceToken
         self.session = session
@@ -559,6 +564,17 @@ public actor APIClient {
                                  ok: [200, 201])
         struct Out: Decodable { let next_chunk: Int }
         return try JSONDecoder().decode(Out.self, from: out).next_chunk
+    }
+
+    /// A file-backed body is supplied by the background transfer owner. Authentication
+    /// and feature negotiation stay identical to the foreground chunk protocol.
+    public func backgroundChunkRequest(uploadID: String, index: Int) async throws -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("upload/\(uploadID)/chunk/\(index)"))
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.featuresHeaderValue, forHTTPHeaderField: Self.featuresHeaderField)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        return request
     }
 
     /// Where to resume from.
