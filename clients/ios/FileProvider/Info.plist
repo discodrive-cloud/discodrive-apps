@@ -32,8 +32,8 @@
 	<string>$(DISCODRIVE_URL_SCHEME)</string>
 	<key>NSExtension</key>
 	<dict>
-		<key>NSExtensionFileProviderEnabledByDefault</key>
-		<true/>
+		<key>NSExtensionFileProviderDocumentGroup</key>
+		<string>$(DISCODRIVE_APP_GROUP)</string>
 		<key>NSExtensionFileProviderSupportsEnumeration</key>
 		<true/>
 		<key>NSExtensionPointIdentifier</key>

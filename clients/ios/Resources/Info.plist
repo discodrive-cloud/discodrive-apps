@@ -37,6 +37,12 @@
 	<string>$(AppIdentifierPrefix)$(DISCODRIVE_KEYCHAIN_GROUP)</string>
 	<key>DiscoDriveURLScheme</key>
 	<string>$(DISCODRIVE_URL_SCHEME)</string>
+	<!-- Vaults use standard algorithms (AES, Cryptomator format) for the user's own data: the
+	     mass-market exemption of EAR Category 5 Part 2 (740.17(b)(1)), so no export documentation
+	     is uploaded and YES (which demands a compliance code from App Store Connect) is wrong.
+	     The French declaration would still be needed for France, where the app is not sold. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

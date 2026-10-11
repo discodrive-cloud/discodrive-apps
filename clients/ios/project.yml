@@ -35,7 +35,7 @@ targets:
   DiscoDrive:
     type: application
     platform: iOS
-    sources: [Sources, ../shared, Resources/Assets.xcassets, ../macos/Resources/DiscoDrive.icon, ../macos/Sources/FullSyncStorage.swift]
+    sources: [Sources, ../shared, Resources/Assets.xcassets, Resources/PrivacyInfo.xcprivacy, ../macos/Resources/DiscoDrive.icon, ../macos/Sources/FullSyncStorage.swift]
     preBuildScripts:
       - name: Build sync engine
         script: bash "${SRCROOT}/SyncBridge/build.sh"
@@ -65,6 +65,7 @@ targets:
       - path: ../macos/FileProviderExt
         excludes: [Info.plist, FileProviderExt.entitlements]
       - path: ../shared/ServerVaultIO.swift
+      - path: FileProvider/PrivacyInfo.xcprivacy
     dependencies:
       - package: DiscoKit
     settings:
