@@ -18,17 +18,16 @@ Multiplateforme : macOS, Windows, Linux et Android. Un seul `Makefile` construit
 
 ### 🔄 Démon de synchronisation
 
-Synchronisation bidirectionnelle de dossier en arrière-plan, façon Dropbox : un dossier local ↔ le serveur. Ce qui est synchronisé — un seul dossier ou toute la racine du stockage — se configure **sur le serveur**.
+Synchronisation bidirectionnelle de dossier en arrière-plan, façon Dropbox : un dossier local ↔ le serveur. Ce qui est synchronisé — un seul dossier ou toute la racine du stockage — se configure **sur le serveur**. Publié pour **Linux** (serveurs et NAS) ; sur ordinateurs et téléphones, la synchronisation de dossiers est intégrée aux applis.
 
 - **Sans interface (headless)** — fonctionne sans interface graphique, idéal pour serveurs et NAS.
-- **Barre de menus / zone de notification** (build avec `TRAY=1`) — icône d’état et actions rapides.
 - **Coffre E2E** — chiffrement côté client dans un format compatible [Cryptomator](https://cryptomator.org) : les fichiers sont chiffrés sur l’appareil avant d’être envoyés.
 - **Aucune perte de données** — si le même fichier change à deux endroits en même temps, une copie de conflit est créée au lieu d’un écrasement silencieux.
 - **Démarrage automatique à l’ouverture de session.**
 
 ### 🖥️ Client de bureau
 
-Une appli graphique multiplateforme (macOS, Windows, Linux) avec un modèle **à la demande**.
+Une appli graphique avec un modèle **à la demande** : l’appli native sur macOS (DiscoDrive dans le Finder), l’appli Wails sur Windows et Linux.
 
 - **Parcourir tout le stockage** — toute l’arborescence des fichiers est visible.
 - **Téléverser et télécharger** fichiers et dossiers, gérer les coffres E2E directement dans l’appli.
@@ -45,22 +44,22 @@ Une appli graphique multiplateforme (macOS, Windows, Linux) avec un modèle **à
 
 ## Builds prêts à l’emploi
 
-Des binaires prêts à l’emploi pour Linux, Windows et macOS (démon et client de bureau) ainsi qu’un `.apk` pour Android sont publiés sur la page des releases :
+Des clients de bureau prêts à l’emploi pour macOS, Windows et Linux, le démon Linux ainsi qu’un `.apk` pour Android sont publiés sur la page des releases :
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) est signé avec un Developer ID et notarisé par Apple : il s’ouvre sans avertissement. **Windows** (`.exe` + installateur) n’est **pas signé** : au premier lancement, SmartScreen affichera un avertissement.
 - **iOS** n’est pas inclus dans les releases (il faut le compiler soi-même et l’installer sur un iPhone via Xcode).
 
-### 🍺 Homebrew (macOS et Linux)
+### 🍺 Homebrew
 
-Le démon de synchronisation peut aussi être installé depuis notre tap Homebrew :
+L’appli macOS et le démon Linux peuvent aussi être installés depuis notre tap Homebrew :
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # uniquement pour les versions récentes de Homebrew
-brew install discodrive-daemon      # démon de synchronisation
-brew install --cask discodrive      # client de bureau (macOS)
+brew install --cask discodrive      # appli macOS
+brew install discodrive-daemon      # démon de synchronisation (Linux)
 ```
 
 Ensuite, appairez le démon avec votre serveur et activez le démarrage automatique :
@@ -103,15 +102,13 @@ Les commandes et outils ci-dessous supposent **macOS comme système hôte** : le
 ```bash
 make daemon                       # pour l’OS actuel → dist/<os>-<arch>/discodrive
 make daemon OS=linux ARCH=arm64   # compilation croisée (Go pur, sans CGO)
-make daemon TRAY=1                # avec barre de menus / zone de notification (CGO)
-make daemon-all                   # tous les OS d’un coup
+make daemon-all                   # ce que livrent les releases : linux amd64 + arm64
 ```
 
 ### Client de bureau
 
 ```bash
-make desktop              # appli macOS (universal)
-make dmg-desktop-macos    # macOS .dmg                  → dist/DiscoDrive-<version>-macos.dmg
+make dmg-macos VERSION=x.y.z  # appli macOS native, signée + notarisée → dist/DiscoDrive-<version>-macos.dmg
 make desktop-windows      # Windows .exe + NSIS         → dist/windows/   (compilation croisée depuis macOS)
 make desktop-linux        # Linux (via Docker, tout hôte) → dist/linux/
 ```

@@ -775,16 +775,16 @@ var catalog = map[string]map[string]string{
 		"sr": "Трезор",
 		"de": "Tresor",
 	},
-	// Says where to get the other flavour rather than how to compile one: whoever meets
-	// this installed a build, they did not make it.
+	// Released builds have no tray (Linux servers only); a desktop user belongs in the app,
+	// which syncs folders itself. Whoever meets this installed a build, they did not make it.
 	"tray_no_tray_build": {
-		"en": "this build has no tray icon. Install the desktop flavour: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, or take a -tray build from the releases page",
-		"ru": "в этой сборке нет иконки в трее. Поставьте десктопный вариант: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, либо возьмите сборку -tray со страницы релизов",
-		"uk": "у цій збірці немає іконки в треї. Установіть десктопний варіант: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, або візьміть збірку -tray зі сторінки релізів",
-		"fr": "cette version n'a pas d'icône de barre de menus. Installez la variante bureau : `brew install discodrive-cloud/tap/discodrive-daemon-tray`, ou prenez une version -tray sur la page des releases",
-		"es": "esta compilación no tiene icono en la barra de menús. Instala la variante de escritorio: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, o toma una compilación -tray de la página de releases",
-		"sr": "ова верзија нема икону у траци. Инсталирај десктоп варијанту: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, или узми -tray верзију са странице релиза",
-		"de": "diese Version hat kein Menüleisten-Symbol. Installiere die Desktop-Variante: `brew install discodrive-cloud/tap/discodrive-daemon-tray`, oder nimm einen -tray-Build von der Releases-Seite",
+		"en": "this build has no tray icon. On a desktop use the DiscoDrive app — folder sync is built in: https://github.com/discodrive-cloud/discodrive-apps/releases",
+		"ru": "в этой сборке нет иконки в трее. На компьютере используйте приложение DiscoDrive — синхронизация папок встроена в него: https://github.com/discodrive-cloud/discodrive-apps/releases",
+		"uk": "у цій збірці немає іконки в треї. На комп'ютері використовуйте застосунок DiscoDrive — синхронізація тек вбудована в нього: https://github.com/discodrive-cloud/discodrive-apps/releases",
+		"fr": "cette version n'a pas d'icône de barre de menus. Sur un ordinateur, utilisez l'application DiscoDrive — la synchronisation de dossiers y est intégrée : https://github.com/discodrive-cloud/discodrive-apps/releases",
+		"es": "esta compilación no tiene icono en la barra de menús. En un ordenador usa la aplicación DiscoDrive — la sincronización de carpetas está integrada: https://github.com/discodrive-cloud/discodrive-apps/releases",
+		"sr": "ова верзија нема икону у траци. На рачунару користи апликацију DiscoDrive — синхронизација фасцикли је уграђена: https://github.com/discodrive-cloud/discodrive-apps/releases",
+		"de": "diese Version hat kein Menüleisten-Symbol. Auf dem Computer nutze die DiscoDrive-App — die Ordnersynchronisation ist eingebaut: https://github.com/discodrive-cloud/discodrive-apps/releases",
 	},
 
 	// ── autostart platform strings ────────────────────────────────────────────

@@ -8,7 +8,7 @@ HOST_OS    := $(shell go env GOOS)
 OS   ?= $(HOST_OS)
 ARCH ?= $(shell go env GOARCH)
 TRAY ?= 0
-# dmg version label; empty ⇒ fall back to the app's Info.plist (see package-macos-dmg.sh)
+# Release version x.y.z for the native macOS app and its dmg; required by dmg-macos*.
 VERSION ?=
 
 ifeq ($(TRAY),1)
@@ -28,32 +28,28 @@ OUT := $(DIST)/$(OS)-$(ARCH)$(if $(filter 1,$(TRAY)),-tray,)
 GRADLE_DD := $(if $(wildcard clients/android-discodrive/gradlew),./gradlew,gradle)
 GRADLE_FS := $(if $(wildcard clients/android-fastsync/gradlew),./gradlew,gradle)
 
-.PHONY: help daemon daemon-all daemon-tray-all daemon-macos-build-all daemon-macos-package daemon-macos-release \
+.PHONY: help daemon daemon-all \
         bind-ios bind-android \
-        app-macos app-ios app-ios-fastsync app-android app-android-fastsync \
-        desktop app-desktop-macos sign-desktop-macos dmg-desktop-macos dmg-desktop-macos-package \
+        app-macos app-macos-unsigned dmg-macos dmg-macos-package ios-archive ios-upload \
+        app-ios app-ios-fastsync app-android app-android-fastsync \
         desktop-linux desktop-windows \
         all-go test test-go test-swift doctor clean
 
 help:
 	@echo "discodrive-apps — build targets (override OS=, ARCH=, TRAY=1):"
 	@echo "  daemon                headless sync daemon for OS/ARCH  (TRAY=1 ⇒ menubar/tray flavor)"
-	@echo "  daemon-all            server daemon (no tray): darwin amd64+arm64, linux amd64, windows amd64"
-	@echo "  daemon-tray-all       desktop daemon (tray): linux amd64+arm64, windows amd64 (+darwin on macOS)"
-	@echo "  daemon-macos-release  darwin daemon, both flavours × amd64+arm64, signed + notarized, tarred"
-	@echo "  daemon-macos-build-all  darwin daemon, both flavours × amd64+arm64 (build only, no signing)"
-	@echo "  daemon-macos-package  sign + notarize + tar the darwin daemon already built above"
-	@echo "  desktop               desktop client for host (darwin/universal on macOS)"
-	@echo "  app-desktop-macos     universal DiscoDrive.app (ad-hoc signed by Wails)"
-	@echo "  sign-desktop-macos    re-sign the built .app with Developer ID + hardened runtime"
-	@echo "  dmg-desktop-macos     signed + notarized dist/*.dmg  (VERSION=x.y.z names the file)"
-	@echo "  dmg-desktop-macos-package  sign + package the .app already built by app-desktop-macos"
+	@echo "  daemon-all            released headless daemon: linux amd64+arm64"
 	@echo "  desktop-linux         desktop client Linux build via Debian Docker image"
 	@echo "  desktop-windows       desktop client Windows .exe + NSIS installers (amd64+arm64, cross-built)"
 	@echo "  bind-ios              gomobile xcframework → daemon/mobile/build/"
 	@echo "  bind-android          gomobile aar → clients/android-*/app/libs/"
 	@echo "  app-macos             native macOS app (xcodegen + xcodebuild)"
+	@echo "  app-macos-unsigned    universal Release app, unsigned → dist/macos-unsigned/ (VERSION=x.y.z)"
+	@echo "  dmg-macos             app-macos-unsigned + dmg-macos-package (VERSION=x.y.z)"
+	@echo "  dmg-macos-package     Developer ID sign + dmg + notarize → dist/DiscoDrive-<v>-macos.dmg"
 	@echo "  app-ios               iOS app (xcodegen + xcodebuild)"
+	@echo "  ios-archive           App Store archive → dist/ios/DiscoDrive.xcarchive (VERSION=x.y.z [BUILD=n])"
+	@echo "  ios-upload            send that archive to App Store Connect (TestFlight) via the Xcode account"
 	@echo "  app-ios-fastsync      folder-sync iOS app   (⇒ bind-ios)"
 	@echo "  app-android           full Android app      (⇒ bind-android)"
 	@echo "  app-android-fastsync  folder-sync Android   (⇒ bind-android)"
@@ -71,73 +67,14 @@ daemon:
 	  go build $(DAEMON_TAGS) -o ../$(OUT)/discodrive$(EXE) ./cmd/discodrive
 	@echo "built → $(OUT)/discodrive$(EXE)"
 
+# What a release ships: the headless daemon for Linux servers and NAS. Desktops and phones
+# sync folders inside the apps.
 daemon-all:
-	$(MAKE) daemon OS=darwin  ARCH=amd64
-	$(MAKE) daemon OS=darwin  ARCH=arm64
-	$(MAKE) daemon OS=linux   ARCH=amd64
-	$(MAKE) daemon OS=windows ARCH=amd64
-
-# Desktop flavor (tray menu + icon). Pure-Go targets build anywhere; the darwin
-# tray needs cgo, so it is only attempted on a macOS host.
-daemon-tray-all:
-	$(MAKE) daemon OS=linux   ARCH=amd64 TRAY=1
-	$(MAKE) daemon OS=linux   ARCH=arm64 TRAY=1
-	$(MAKE) daemon OS=windows ARCH=amd64 TRAY=1
-ifeq ($(HOST_OS),darwin)
-	$(MAKE) daemon OS=darwin ARCH=amd64 TRAY=1
-	$(MAKE) daemon OS=darwin ARCH=arm64 TRAY=1
-endif
-
-# Release-grade darwin daemon: every flavour and arch, Developer-ID signed, notarized as
-# one zip, then tarred as discodrive-daemon-<os>-<arch>[-tray].tar.gz for the release and
-# the Homebrew formulas. Signing degrades to ad-hoc + a notice without a certificate;
-# SIGN_REQUIRED=1 makes that an error (CI sets it).
-#
-# Split in two: daemon-macos-build-all only builds (no secrets needed), daemon-macos-
-# package only signs binaries already built. In CI these run in separate jobs
-# (desktop-mac-win, then sign-macos) so the signing job never runs go/npm/wails. Locally,
-# daemon-macos-release runs both, in this order (a plain prerequisite list would let
-# `make -j` start packaging before the build finishes, or run them concurrently).
-daemon-macos-build-all:
-	$(MAKE) daemon OS=darwin ARCH=amd64
-	$(MAKE) daemon OS=darwin ARCH=arm64
-	$(MAKE) daemon OS=darwin ARCH=amd64 TRAY=1
-	$(MAKE) daemon OS=darwin ARCH=arm64 TRAY=1
-
-# Signs, notarizes and tars the binaries daemon-macos-build-all already produced under
-# dist/. Runs no go/npm/wails and no make target that builds — CI relies on that to run
-# it with a signing key unlocked. It does not verify what is in those binaries; in CI,
-# the sign-macos job allowlists their paths and checks Makefile/scripts against git
-# before this ever runs (see release.yml) — a build that already produced something
-# malicious at the expected path is not something this target can detect.
-daemon-macos-package:
-	scripts/macos-release-daemon.sh
-
-daemon-macos-release:
-	$(MAKE) daemon-macos-build-all
-	$(MAKE) daemon-macos-package
+	$(MAKE) daemon OS=linux ARCH=amd64
+	$(MAKE) daemon OS=linux ARCH=arm64
 
 # ---------- DESKTOP ----------
 DESKTOP_DIR := $(DAEMON_DIR)/cmd/discodrive-wails
-
-desktop app-desktop-macos:
-	cd $(DESKTOP_DIR) && export PATH="$$(go env GOPATH)/bin:$$PATH" && \
-	  wails build -platform darwin/universal -clean
-	@echo "built → $(DESKTOP_DIR)/build/bin/DiscoDrive.app"
-
-sign-desktop-macos:
-	scripts/macos-sign.sh $(DESKTOP_DIR)/build/bin/DiscoDrive.app
-
-# Signs the .app, builds the .dmg, signs and notarizes it (see scripts/macos-*.sh). Split
-# so CI can build the .app in one job (desktop-mac-win, no secrets) and sign it in
-# another (sign-macos, which never runs a build). Locally, dmg-desktop-macos runs both,
-# in this order — a plain prerequisite list would let `make -j` race them.
-dmg-desktop-macos-package:
-	scripts/package-macos-dmg.sh $(VERSION)
-
-dmg-desktop-macos:
-	$(MAKE) app-desktop-macos
-	$(MAKE) dmg-desktop-macos-package
 
 # Linux build needs WebKitGTK; Wails cannot cross-compile from macOS and there is
 # no official Wails image, so build inside Debian (see scripts/linux.Dockerfile).
@@ -185,9 +122,53 @@ app-macos:
 	cd clients/macos && xcodegen generate && \
 	  xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -configuration Release -derivedDataPath build build
 
+# Release build of the native app with no signing at all, for scripts/package-macos-native.sh
+# to sign. Split like this so CI builds (Go, SwiftPM) in a job without the signing key and
+# signs in another that builds nothing; locally dmg-macos runs both, in this order.
+# CFBundleVersion only ever increases: major*1000000 + minor*1000 + patch.
+app-macos-unsigned:
+	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$' || { echo "VERSION=x.y.z is required" >&2; exit 1; }
+	cd clients/macos && xcodegen generate && \
+	  xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -configuration Release \
+	    -destination 'generic/platform=macOS' -derivedDataPath build build \
+	    CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
+	    MARKETING_VERSION=$(VERSION) \
+	    CURRENT_PROJECT_VERSION=$$(echo "$(VERSION)" | awk -F'[.-]' '{print $$1*1000000 + $$2*1000 + $$3}')
+	rm -rf $(DIST)/macos-unsigned && mkdir -p $(DIST)/macos-unsigned
+	ditto clients/macos/build/Build/Products/Release/DiscoDrive.app $(DIST)/macos-unsigned/DiscoDrive.app
+	@echo "built → $(DIST)/macos-unsigned/DiscoDrive.app"
+
+dmg-macos-package:
+	scripts/package-macos-native.sh $(VERSION)
+
+dmg-macos:
+	$(MAKE) app-macos-unsigned
+	$(MAKE) dmg-macos-package
+
 app-ios:
 	cd clients/ios && xcodegen generate && \
 	  xcodebuild -project DiscoDrive.xcodeproj -scheme DiscoDrive -sdk iphoneos -derivedDataPath build build
+
+# App Store build of the iOS app. Signing is Xcode's automatic signing under the account
+# logged into Xcode (team TQD2R45V4P); the upload re-signs it for distribution. BUILD
+# (CFBundleVersion) defaults to the version formula used everywhere else; App Store
+# Connect refuses a build number twice, so a second upload of one version needs BUILD=.
+ios-archive:
+	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "VERSION=x.y.z is required" >&2; exit 1; }
+	cd clients/ios && xcodegen generate
+	rm -rf $(DIST)/ios/DiscoDrive.xcarchive
+	xcodebuild -project clients/ios/DiscoDrive.xcodeproj -scheme DiscoDrive -configuration Release \
+	  -destination 'generic/platform=iOS' -derivedDataPath clients/ios/build-device \
+	  -archivePath $(DIST)/ios/DiscoDrive.xcarchive -allowProvisioningUpdates \
+	  MARKETING_VERSION=$(VERSION) \
+	  CURRENT_PROJECT_VERSION=$${BUILD:-$$(echo "$(VERSION)" | awk -F. '{print $$1*1000000 + $$2*1000 + $$3}')} archive
+	@echo "archived → $(DIST)/ios/DiscoDrive.xcarchive"
+
+ios-upload:
+	@test -d $(DIST)/ios/DiscoDrive.xcarchive || { echo "no archive: run make ios-archive first" >&2; exit 1; }
+	xcodebuild -exportArchive -archivePath $(DIST)/ios/DiscoDrive.xcarchive \
+	  -exportOptionsPlist clients/ios/AppStoreUpload.plist -exportPath $(DIST)/ios/upload \
+	  -allowProvisioningUpdates
 
 app-ios-fastsync: bind-ios
 	cd clients/ios-fastsync && xcodegen generate && \

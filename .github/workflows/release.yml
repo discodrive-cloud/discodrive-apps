@@ -26,14 +26,10 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: daemon/go.sum
-      - name: Build server daemon (no tray) — Linux and Windows
-        # darwin binaries are built in desktop-mac-win, signed+notarized in sign-macos.
-        run: |
-          make daemon OS=linux   ARCH=amd64
-          make daemon OS=linux   ARCH=arm64
-          make daemon OS=windows ARCH=amd64
-      - name: Build desktop daemon (tray) — pure-Go targets
-        run: make daemon-tray-all
+      - name: Build headless daemon — Linux amd64 + arm64
+        # The daemon ships for Linux servers and NAS only; desktops and phones sync
+        # folders inside the apps.
+        run: make daemon-all
       - name: Package
         run: |
           cd dist
@@ -44,20 +40,8 @@ jobs:
           name: daemon
           path: dist/*.tar.gz
 
-  # Build only. What this guarantees: no `env:` or step `env:` in this job references
-  # any macOS signing or notarization secret, so the signing key and notary credentials
-  # simply do not exist in this job's environment for third-party build code (npm ci via
-  # wails build, go build, gomobile-adjacent deps) to reach. It does NOT guarantee that a
-  # compromised dependency here cannot tamper with the build output itself — that is what
-  # the allowlist check and the Makefile/scripts tripwire in sign-macos are for; signing a
-  # binary that a compromised build already produced is not something this design can
-  # detect. Produces the unsigned macOS .app + darwin daemon binaries (tarred, to keep
-  # exec bits and file modes — actions/upload-artifact zips and drops them; links are
-  # not carried at all, sign-macos rejects any) for sign-macos,
-  # and the Windows build directly, since it is never signed at all. On workflow_dispatch
-  # (no tag) this job still runs and still uploads macos-unsigned, but sign-macos does
-  # not — a manual run yields only the unsigned tar, never even an ad-hoc-signed .dmg.
-  desktop-mac-win:
+  # Windows desktop client (Wails), cross-built on macOS and never signed. No secrets.
+  desktop-windows:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -83,12 +67,8 @@ jobs:
           scripts/set-version.sh "$V"
           [ -n "$V" ] || V="$(jq -r '.info.productVersion' daemon/cmd/discodrive-wails/wails.json)"
           echo "version=$V" >> "$GITHUB_OUTPUT"
-      - name: Build macOS app (universal, unsigned)
-        run: make app-desktop-macos
       - name: Build Windows .exe + installers (cross-built)
         run: make desktop-windows
-      - name: Build darwin daemon (both flavours × amd64+arm64, unsigned)
-        run: make daemon-macos-build-all
       - name: Collect Windows artifacts (unsigned — never signed at all)
         env:
           VER: ${{ steps.ver.outputs.version }}
@@ -104,22 +84,47 @@ jobs:
           name: desktop-windows
           path: out-windows/*
           if-no-files-found: error
-      - name: Tar the unsigned macOS build for sign-macos
-        # tar (not upload-artifact's own zip) so the exec bits and file modes of the app
-        # and the daemon binaries survive the hop to the next job (symlinks are rejected
-        # by sign-macos; the real bundle has none). Absolute
-        # /usr/bin/tar, not whatever "tar" resolves to on PATH: the previous step put
-        # $(go env GOPATH)/bin at the front of PATH, so a compromised go install could
-        # otherwise shadow tar here. Defense in depth only — sign-macos does not trust
-        # this step; it independently allowlists every path in the archive before
-        # extracting anything. COPYFILE_DISABLE=1: without it, macOS tar adds an
-        # AppleDouble ._<name> sidecar file per entry with extended attributes, which
-        # would otherwise fail sign-macos's allowlist check for no real reason.
+
+  # Build only. What this guarantees: no `env:` or step `env:` in this job references
+  # any macOS signing or notarization secret, so the signing key and notary credentials
+  # simply do not exist in this job's environment for third-party build code (Go modules
+  # in the embedded sync engine, Swift packages, Homebrew's xcodegen) to reach. It does
+  # NOT guarantee that a compromised dependency here cannot tamper with the build output
+  # itself — that is what the allowlist check and the Makefile/scripts tripwire in
+  # sign-macos are for. Produces the native app (clients/macos) as a universal Release
+  # build with code signing switched off (make app-macos-unsigned), tarred to keep exec
+  # bits and file modes — actions/upload-artifact zips and drops them; links are not
+  # carried at all, sign-macos rejects any. On workflow_dispatch (no tag) the version is
+  # 0.0.0 and sign-macos does not run: a manual run proves the build, nothing more.
+  macos-app:
+    # Xcode 26+: the app icon is an Icon Composer document.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: daemon/go.sum
+      - name: Install xcodegen
         run: |
-          COPYFILE_DISABLE=1 /usr/bin/tar -cf unsigned-macos.tar \
-            dist/darwin-amd64/discodrive dist/darwin-arm64/discodrive \
-            dist/darwin-amd64-tray/discodrive dist/darwin-arm64-tray/discodrive \
-            daemon/cmd/discodrive-wails/build/bin/DiscoDrive.app
+          brew install xcodegen
+          xcodebuild -version
+      - name: Build the native app (universal, unsigned)
+        run: |
+          V="0.0.0"
+          case "$GITHUB_REF" in refs/tags/v*) V="${GITHUB_REF_NAME#v}";; esac
+          make app-macos-unsigned VERSION="$V"
+      - name: Tar the unsigned macOS build for sign-macos
+        # Absolute /usr/bin/tar, not whatever "tar" resolves to on PATH: setup-go put
+        # its bin dir at the front of PATH. Defense in depth only — sign-macos does not
+        # trust this step; it independently allowlists every path in the archive before
+        # extracting anything. COPYFILE_DISABLE=1: without it, macOS tar adds an
+        # AppleDouble ._<name> sidecar per entry with extended attributes, which would
+        # fail sign-macos's allowlist check for no real reason.
+        run: |
+          COPYFILE_DISABLE=1 /usr/bin/tar -cf unsigned-macos.tar dist/macos-unsigned/DiscoDrive.app
           ls -la unsigned-macos.tar
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -128,28 +133,29 @@ jobs:
           if-no-files-found: error
 
   # Signing only, tag builds only. What this guarantees: the build job never has the
-  # signing secrets (see desktop-mac-win); this job never installs a toolchain and never
-  # runs npm/go/wails or any make target that builds — it downloads the artifact from
-  # desktop-mac-win and hands it to scripts/verify-unsigned-macos-tar.py, which validates
+  # signing secrets (see macos-app); this job never installs a toolchain and never
+  # runs go/xcodebuild or any make target that builds — it downloads the artifact from
+  # macos-app and hands it to scripts/verify-unsigned-macos-tar.py, which validates
   # and extracts it using Python's tarfile module ONLY (bsdtar is never invoked on this
   # archive, for listing or extraction — see that script's docstring for why: a verifier/
   # extractor parser mismatch there is exactly what let a corrupted-then-resynced archive
   # smuggle a hidden .git/config entry past an earlier version of this job). A second,
   # independent tripwire then verifies via git — with core.fsmonitor and core.hooksPath
   # neutralized, so a hostile .git/config can't turn the check itself into code execution
-  # — that nothing changed under Makefile, scripts/, or .git/, and that the working tree
-  # has no changes anywhere outside the two already-gitignored directories the extraction
-  # is allowed to write to. Only after both pass does this job run xcrun/hdiutil/codesign/
-  # zip/tar (all preinstalled on macos-latest, nothing installed by this job; that `tar`
-  # is inside scripts/macos-release-daemon.sh's own re-tarring of already-verified files,
-  # not on the untrusted archive) through the two packaging Makefile targets. What this
-  # does NOT guarantee: if desktop-mac-win's build itself is compromised and produces a
-  # malicious (but correctly-pathed, correctly-typed) DiscoDrive.app or daemon binary,
+  # — that nothing changed under Makefile, scripts/, clients/macos/ (the entitlements and
+  # profiles the signing uses) or .git/, and that the working tree
+  # has no changes anywhere outside the one already-gitignored directory (dist/) the extraction
+  # is allowed to write to. Only after both pass does this job run xcrun/hdiutil/codesign
+  # (all preinstalled on macos-latest, nothing installed by this job) through the
+  # dmg-macos-package Makefile target. The provisioning profiles it embeds come from the
+  # checkout (clients/macos/Signing), never from the artifact. What this
+  # does NOT guarantee: if macos-app's build itself is compromised and produces a
+  # malicious (but correctly-pathed, correctly-typed) DiscoDrive.app,
   # this design signs it anyway — an allowlist on paths and types says nothing about the
   # contents of an allowlisted file, and no job in this workflow re-verifies build output
   # against source.
   sign-macos:
-    needs: [desktop-mac-win]
+    needs: [macos-app]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: macos-latest
     permissions:
@@ -179,7 +185,7 @@ jobs:
           path: ${{ runner.temp }}/unsigned
       - name: Snapshot git internals before extracting anything
         # .git/config and .git/hooks/* are never something the archive is allowed to
-        # touch (they aren't inside dist/darwin-*/discodrive or DiscoDrive.app/, so the
+        # touch (they aren't inside dist/macos-unsigned/DiscoDrive.app/, so the
         # allowlist in verify-unsigned-macos-tar.py already rejects any tar entry that
         # names them) — this hashes them now so the tripwire below can independently
         # prove they didn't change, without trusting that reasoning alone.
@@ -187,8 +193,8 @@ jobs:
           { shasum -a 256 .git/config 2>/dev/null || echo none; } > "$RUNNER_TEMP/gitconfig.before"
           { find .git/hooks -type f -exec shasum -a 256 {} \; 2>/dev/null | sort; } > "$RUNNER_TEMP/githooks.before"
       - name: Verify and extract unsigned build
-        # desktop-mac-win's build ran with no signing secrets, but it still ran
-        # third-party code (npm/go); a compromised dependency there could have put
+        # macos-app's build ran with no signing secrets, but it still ran
+        # third-party code (Go modules, Swift packages); a compromised dependency there could have put
         # Makefile, scripts/macos-sign.sh, an extra dist/*.dmg, a path-traversal/symlink
         # entry, or a hidden entry after a deliberately corrupted header into
         # unsigned-macos.tar. scripts/verify-unsigned-macos-tar.py rejects all of that —
@@ -202,12 +208,11 @@ jobs:
       - name: Verify repo-tracked scripts and git internals are unmodified
         # Independent of the allowlist in verify-unsigned-macos-tar.py (belt +
         # suspenders, not the same check): confirms extraction did not modify any
-        # git-tracked file under Makefile or scripts/, did not add an untracked one
-        # there, did not touch .git/config or .git/hooks, and — checked on the whole
-        # tree, not just those two paths — did not create anything anywhere outside the
-        # two directories (dist/, daemon/cmd/discodrive-wails/build/bin/) that are
-        # already gitignored, which are the only places this extraction is allowed to
-        # write. `-c core.fsmonitor=false -c core.hooksPath=/dev/null` on every git
+        # git-tracked file under Makefile, scripts/ or clients/macos/, did not add an
+        # untracked one there, did not touch .git/config or .git/hooks, and — checked on
+        # the whole tree, not just those paths — did not create anything anywhere
+        # outside dist/, which is already gitignored and the only place this extraction
+        # is allowed to write. `-c core.fsmonitor=false -c core.hooksPath=/dev/null` on every git
         # invocation here: if a hostile .git/config nonetheless existed at this point,
         # its core.fsmonitor or core.hooksPath settings could make plain `git status`/
         # `git diff` execute attacker-controlled commands — this is what stops that from
@@ -216,14 +221,14 @@ jobs:
         run: |
           set -euo pipefail
           GITOPTS=(-c core.fsmonitor=false -c core.hooksPath=/dev/null)
-          git "${GITOPTS[@]}" diff --exit-code -- Makefile scripts
-          if [ -n "$(git "${GITOPTS[@]}" status --porcelain -- Makefile scripts)" ]; then
-            echo "::error::Makefile or scripts/ has untracked changes after extracting the build artifact" >&2
-            git "${GITOPTS[@]}" status --porcelain -- Makefile scripts >&2
+          git "${GITOPTS[@]}" diff --exit-code -- Makefile scripts clients/macos
+          if [ -n "$(git "${GITOPTS[@]}" status --porcelain -- Makefile scripts clients/macos)" ]; then
+            echo "::error::Makefile, scripts/ or clients/macos/ has untracked changes after extracting the build artifact" >&2
+            git "${GITOPTS[@]}" status --porcelain -- Makefile scripts clients/macos >&2
             exit 1
           fi
-          # Whole-tree check: dist/ and daemon/cmd/discodrive-wails/build/bin/ are the
-          # only gitignored paths this extraction ever writes to, so a clean checkout's
+          # Whole-tree check: dist/ is the only gitignored path this extraction ever
+          # writes to, so a clean checkout's
           # status stays empty through a legitimate extraction — anything this reports
           # landed somewhere it should not have.
           LEFTOVER="$(git "${GITOPTS[@]}" status --porcelain)"
@@ -278,20 +283,13 @@ jobs:
         env:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: make dmg-desktop-macos-package VERSION="$VER"
-      - name: Sign + notarize darwin daemon
-        env:
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: make daemon-macos-package
+        run: make dmg-macos-package VERSION="$VER"
       - name: Remove the signing keychain
         if: always() && env.SIGNING_KEYCHAIN != ''
         run: security delete-keychain "$SIGNING_KEYCHAIN"; rm -f "$NOTARY_KEY_PATH"
       - name: Collect signed artifacts
-        # Exact filenames, no globs: package-macos-dmg.sh always names the dmg
-        # DiscoDrive-$VERSION-macos.dmg, and macos-release-daemon.sh always tars exactly
-        # these four darwin-* dirs (the ones extracted above) as discodrive-daemon-<dir>
-        # .tar.gz. A glob here (dist/*.dmg, dist/discodrive-daemon-*.tar.gz) would also
+        # Exact filename, no glob: package-macos-native.sh always names the dmg
+        # DiscoDrive-$VERSION-macos.dmg. A glob here (dist/*.dmg) would also
         # pick up anything else a compromised build step managed to leave in dist/ —
         # the allowlist check earlier stops that from being an extracted file, but
         # naming exactly what we expect is a second, independent reason nothing else
@@ -299,10 +297,6 @@ jobs:
         run: |
           mkdir -p out
           cp "dist/DiscoDrive-$VER-macos.dmg" out/
-          cp dist/discodrive-daemon-darwin-amd64.tar.gz      out/
-          cp dist/discodrive-daemon-darwin-arm64.tar.gz      out/
-          cp dist/discodrive-daemon-darwin-amd64-tray.tar.gz out/
-          cp dist/discodrive-daemon-darwin-arm64-tray.tar.gz out/
           ls -la out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -435,7 +429,7 @@ jobs:
           if-no-files-found: ${{ startsWith(github.ref, 'refs/tags/') && 'error' || 'warn' }}
 
   release:
-    needs: [daemon, sign-macos, desktop-linux, android]
+    needs: [daemon, sign-macos, desktop-windows, desktop-linux, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     # Gate publishing behind an environment: GitHub creates it on first use; add
@@ -459,8 +453,8 @@ jobs:
         with:
           path: artifacts
       - name: Flatten
-        # macos-unsigned is the intermediate handoff from desktop-mac-win to sign-macos
-        # (the unsigned .app + daemon binaries, tarred) — not a release asset; excluded
+        # macos-unsigned is the intermediate handoff from macos-app to sign-macos
+        # (the unsigned .app, tarred) — not a release asset; excluded
         # so it never reaches the published release.
         run: |
           mkdir -p release
@@ -512,15 +506,15 @@ jobs:
         run: |
           VER="${GITHUB_REF_NAME#v}"
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/discodrive-cloud/homebrew-tap.git" tap
-          # Both flavours of the same release: headless, and the desktop one with a tray icon.
-          scripts/gen-brew-formula.sh "$VER"      > tap/Formula/discodrive-daemon.rb
-          scripts/gen-brew-formula.sh "$VER" tray > tap/Formula/discodrive-daemon-tray.rb
-          # The desktop app, now that its .dmg is signed and notarized.
+          # The headless daemon (Linux only). The tray flavour is no longer released.
+          scripts/gen-brew-formula.sh "$VER" > tap/Formula/discodrive-daemon.rb
+          git -C tap rm -q --ignore-unmatch Formula/discodrive-daemon-tray.rb
+          # The native macOS app (signed and notarized .dmg).
           mkdir -p tap/Casks
           scripts/gen-brew-cask.sh "$VER" > tap/Casks/discodrive.rb
           cd tap
           git config user.name  "discodrive-cloud"
           git config user.email "info@discodrive.app"
-          git add Formula/discodrive-daemon.rb Formula/discodrive-daemon-tray.rb Casks/discodrive.rb
+          git add Formula/discodrive-daemon.rb Casks/discodrive.rb
           git diff --cached --quiet || git commit -m "discodrive $VER"
           git push

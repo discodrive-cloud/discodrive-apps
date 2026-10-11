@@ -2,6 +2,7 @@
 # Emit the Homebrew cask for the released desktop .dmg of a given version.
 # usage: gen-brew-cask.sh <version>   (e.g. 0.0.6) → cask on stdout
 #
+# The native macOS app (clients/macos, Finder integration via File Provider; macOS 14+).
 # The .dmg is universal (arm64 + x86_64), so one url serves both. It is signed with
 # Developer ID and notarized, which is what makes a cask viable at all: an unsigned app
 # installed by `brew install --cask` looks broken (Gatekeeper refuses to open it).
@@ -22,7 +23,7 @@ cask "discodrive" do
 
   url "https://github.com/discodrive-cloud/discodrive-apps/releases/download/v#{version}/DiscoDrive-#{version}-macos.dmg"
   name "DiscoDrive"
-  desc "Desktop client for the DiscoDrive personal cloud"
+  desc "DiscoDrive personal cloud in Finder"
   homepage "https://github.com/discodrive-cloud/discodrive-apps"
 
   livecheck do
@@ -30,11 +31,15 @@ cask "discodrive" do
     strategy :github_latest
   end
 
+  depends_on macos: ">= :sonoma"
+
   app "DiscoDrive.app"
 
   zap trash: [
-    "~/Library/Application Support/discodrive/desktop",
-    "~/Library/LaunchAgents/com.wails.discodrive-wails.plist",
+    "~/Library/Containers/org.discodrive.app",
+    "~/Library/Containers/org.discodrive.app.fileprovider",
+    "~/Library/Containers/org.discodrive.app.fileproviderui",
+    "~/Library/Group Containers/TQD2R45V4P.org.discodrive",
   ]
 end
 EOF

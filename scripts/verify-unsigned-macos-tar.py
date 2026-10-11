@@ -24,15 +24,15 @@ Exits 1 (with an ::error:: line for the Actions log) on the first problem found:
     malformed/truncated/"resync" archive — see above)
   - a member whose type is not exactly a plain regular file (REGTYPE/AREGTYPE) or a
     directory (DIRTYPE), or that is a GNU sparse member (symlinks and
-    hardlinks are rejected outright: the real Wails-built DiscoDrive.app has none, so
+    hardlinks are rejected outright: the real Xcode-built DiscoDrive.app has none, so
     there is no legitimate reason for either to be in this archive, and both are classic
     vectors for making an "allowlisted" path resolve somewhere else — a chain of relative
     symlinks can walk out of the bundle one hop at a time even when each individual link's
     literal text looks contained, and a hardlink's `linkname` is resolved against the
     archive root, not the entry's own directory, so a naive same-directory check on it is
     wrong)
-  - a path that is absolute, contains a ".." segment, or is not exactly one of the four
-    daemon binaries or under the DiscoDrive.app bundle
+  - a path that is absolute, contains a ".." segment, or is not under the unsigned
+    DiscoDrive.app bundle (dist/macos-unsigned/DiscoDrive.app)
   - the destination extraction is only ever done with `filter="data"` (str, not a
     reference to a TarFilter enum member) via `TarFile.extractall`, which is the standard
     library's own safe-extraction filter (Python 3.12+): it independently strips
@@ -47,13 +47,7 @@ import posixpath
 import sys
 import tarfile
 
-ALLOWED_FILES = {
-    "dist/darwin-amd64/discodrive",
-    "dist/darwin-arm64/discodrive",
-    "dist/darwin-amd64-tray/discodrive",
-    "dist/darwin-arm64-tray/discodrive",
-}
-APP_ROOT = "daemon/cmd/discodrive-wails/build/bin/DiscoDrive.app"
+APP_ROOT = "dist/macos-unsigned/DiscoDrive.app"
 APP_PREFIX = APP_ROOT + "/"
 
 BLOCKSIZE = 512
@@ -81,8 +75,7 @@ def check_path(name):
     if posixpath.isabs(name) or ".." in name.split("/"):
         fail(f"unsafe path: {name}")
     bare = name.rstrip("/")
-    in_app = bare == APP_ROOT or name.startswith(APP_PREFIX)
-    if not (in_app or name in ALLOWED_FILES):
+    if not (bare == APP_ROOT or name.startswith(APP_PREFIX)):
         fail(f"disallowed path: {name}")
 
 

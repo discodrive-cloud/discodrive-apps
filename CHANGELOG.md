@@ -47,6 +47,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Releases: the macOS download is now the native app (DiscoDrive in Finder), signed with
+  Developer ID and notarized; the Wails app is released for Windows and Linux only. The
+  sync daemon is released for Linux only (amd64, arm64) — desktops and phones sync folders
+  inside the apps — and the tray flavour and the darwin/Windows daemon builds are no longer
+  published. Homebrew: `brew install --cask discodrive` installs the native app, the
+  `discodrive-daemon` formula is Linux-only and `discodrive-daemon-tray` is retired.
+
 - Native macOS: document Developer ID archive export and add distribution verification
   to reject Debug identities and device-restricted development bundles.
 

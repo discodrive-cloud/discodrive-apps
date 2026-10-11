@@ -18,17 +18,16 @@
 
 ### 🔄 Демон-синхронізатор
 
-Фонова двостороння синхронізація теки за моделлю «як Dropbox»: локальна тека ↔ сервер. Що саме синхронізувати — окрему теку чи весь корінь сховища — задається в налаштуваннях **на сервері**.
+Фонова двостороння синхронізація теки за моделлю «як Dropbox»: локальна тека ↔ сервер. Що саме синхронізувати — окрему теку чи весь корінь сховища — задається в налаштуваннях **на сервері**. Випускається для **Linux** (сервери та NAS); на десктопах і телефонах синхронізацію тек вбудовано в застосунки.
 
 - **Headless** — працює без графічного інтерфейсу, ідеальний для серверів і NAS.
-- **Менюбар / трей** (збірка з `TRAY=1`) — іконка стану та швидкі дії.
 - **E2E-сейф** — клієнтське шифрування у [Cryptomator](https://cryptomator.org)-сумісному форматі: файли шифруються на пристрої перед надсиланням.
 - **Захист від втрати даних** — якщо той самий файл змінюється у двох місцях одночасно, створюється конфліктна копія, а не мовчазний перезапис.
 - **Автозапуск при вході в систему.**
 
 ### 🖥️ Десктоп-клієнт
 
-Кросплатформний застосунок із графічним інтерфейсом (macOS, Windows, Linux) з моделлю **на вимогу**.
+Застосунок із графічним інтерфейсом з моделлю **на вимогу**: на macOS — нативний застосунок (DiscoDrive у Finder), на Windows і Linux — застосунок на Wails.
 
 - **Перегляд усього сховища** — видно все дерево файлів.
 - **Завантаження та вивантаження** файлів і тек, керування E2E-сейфами просто із застосунку.
@@ -45,22 +44,22 @@
 
 ## Готові збірки
 
-Готові бінарні файли під Linux, Windows і macOS (демон і десктоп-клієнт) та `.apk` для Android публікуються на сторінці релізів:
+Готові десктоп-клієнти під macOS, Windows і Linux, демон під Linux та `.apk` для Android публікуються на сторінці релізів:
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) підписаний Developer ID і нотаризований Apple — відкривається без попереджень. **Windows** (`.exe` + інсталятор) **не підписаний**: під час першого запуску SmartScreen покаже попередження.
 - **iOS** до релізів не входить (потрібно зібрати самостійно та встановити на iPhone за допомогою Xcode).
 
-### 🍺 Homebrew (macOS і Linux)
+### 🍺 Homebrew
 
-Демон синхронізації можна також установити з нашого Homebrew tap:
+Застосунок для macOS і демон під Linux можна також установити з нашого Homebrew tap:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # лише для свіжих версій Homebrew
-brew install discodrive-daemon      # демон синхронізації
-brew install --cask discodrive      # десктопний клієнт (macOS)
+brew install --cask discodrive      # застосунок для macOS
+brew install discodrive-daemon      # демон синхронізації (Linux)
 ```
 
 Потім під’єднайте демон до сервера й увімкніть автозапуск:
@@ -103,15 +102,13 @@ discodrive install    # або `discodrive run` — запуск у консол
 ```bash
 make daemon                       # під поточну ОС → dist/<os>-<arch>/discodrive
 make daemon OS=linux ARCH=arm64   # крос-компіляція (чистий Go, без CGO)
-make daemon TRAY=1                # з менюбаром / треєм (CGO)
-make daemon-all                   # одразу під усі ОС
+make daemon-all                   # те, що виходить у релізах: linux amd64 + arm64
 ```
 
 ### Десктоп-клієнт
 
 ```bash
-make desktop              # застосунок macOS (universal)
-make dmg-desktop-macos    # macOS .dmg                  → dist/DiscoDrive-<версія>-macos.dmg
+make dmg-macos VERSION=x.y.z  # нативний застосунок macOS, підписаний + нотаризований → dist/DiscoDrive-<версія>-macos.dmg
 make desktop-windows      # Windows .exe + NSIS         → dist/windows/   (крос-збірка з macOS)
 make desktop-linux        # Linux (через Docker, будь-який хост) → dist/linux/
 ```

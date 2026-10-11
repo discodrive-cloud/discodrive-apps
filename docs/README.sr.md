@@ -18,17 +18,16 @@
 
 ### 🔄 Демон за синхронизацију
 
-Позадинска двосмерна синхронизација фасцикле, у Dropbox стилу: локална фасцикла ↔ сервер. Шта се синхронизује — једна фасцикла или цео корен складишта — подешава се **на серверу**.
+Позадинска двосмерна синхронизација фасцикле, у Dropbox стилу: локална фасцикла ↔ сервер. Шта се синхронизује — једна фасцикла или цео корен складишта — подешава се **на серверу**. Објављује се за **Linux** (сервери и NAS); на десктоп рачунарима и телефонима синхронизација фасцикли је уграђена у апликације.
 
 - **Headless** — ради без графичког интерфејса, идеалан за сервере и NAS.
-- **Трака менија / треј** (билд са `TRAY=1`) — икона стања и брзе радње.
 - **E2E сеф** — шифровање на страни клијента у формату компатибилном са [Cryptomator](https://cryptomator.org)-ом: фајлови се шифрују на уређају пре слања.
 - **Без губитка података** — ако се исти фајл промени на два места истовремено, прави се конфликтна копија уместо тихог преписивања.
 - **Аутоматско покретање при пријави.**
 
 ### 🖥️ Десктоп клијент
 
-Вишеплатформска апликација са графичким интерфејсом (macOS, Windows, Linux) са моделом **на захтев**.
+Апликација са графичким интерфејсом са моделом **на захтев**: на macOS-у нативна апликација (DiscoDrive у Finder-у), на Windows-у и Linux-у Wails апликација.
 
 - **Преглед целог складишта** — види се цело стабло фајлова.
 - **Отпремање и преузимање** фајлова и фасцикли, управљање E2E сефовима директно из апликације.
@@ -45,22 +44,22 @@
 
 ## Готови билдови
 
-Готове бинарне датотеке за Linux, Windows и macOS (демон и десктоп клијент) и `.apk` за Android објављују се на страници издања:
+Готови десктоп клијенти за macOS, Windows и Linux, Linux демон и `.apk` за Android објављују се на страници издања:
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) је потписан Developer ID-ом и нотаризован код Apple-а, па се отвара без упозорења. **Windows** (`.exe` + инсталер) **није потписан**: при првом покретању SmartScreen ће приказати упозорење.
 - **iOS** није укључен у издања (треба га сам изградити и инсталирати на iPhone помоћу Xcode-а).
 
-### 🍺 Homebrew (macOS и Linux)
+### 🍺 Homebrew
 
-Демон за синхронизацију може се инсталирати и из нашег Homebrew tap-а:
+macOS апликација и Linux демон могу се инсталирати и из нашег Homebrew tap-а:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # само за новије верзије Homebrew-а
-brew install discodrive-daemon      # демон за синхронизацију
-brew install --cask discodrive      # десктоп клијент (macOS)
+brew install --cask discodrive      # macOS апликација
+brew install discodrive-daemon      # демон за синхронизацију (Linux)
 ```
 
 Затим упарите демон са сервером и укључите аутоматско покретање:
@@ -103,15 +102,13 @@ discodrive install    # или `discodrive run` за рад у првом пла
 ```bash
 make daemon                       # за тренутни ОС → dist/<os>-<arch>/discodrive
 make daemon OS=linux ARCH=arm64   # крос-компилација (чист Go, без CGO)
-make daemon TRAY=1                # са траком менија / трејом (CGO)
-make daemon-all                   # одмах за све ОС
+make daemon-all                   # оно што излази у издањима: linux amd64 + arm64
 ```
 
 ### Десктоп клијент
 
 ```bash
-make desktop              # macOS апликација (universal)
-make dmg-desktop-macos    # macOS .dmg                  → dist/DiscoDrive-<верзија>-macos.dmg
+make dmg-macos VERSION=x.y.z  # нативна macOS апликација, потписана + нотаризована → dist/DiscoDrive-<верзија>-macos.dmg
 make desktop-windows      # Windows .exe + NSIS         → dist/windows/   (крос-билд са macOS-а)
 make desktop-linux        # Linux (преко Docker-а, било који хост) → dist/linux/
 ```

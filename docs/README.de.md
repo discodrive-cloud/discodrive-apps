@@ -18,17 +18,16 @@ Plattformübergreifend: macOS, Windows, Linux und Android. Ein einziges `Makefil
 
 ### 🔄 Sync-Daemon
 
-Bidirektionale Ordnersynchronisation im Hintergrund, Dropbox-Stil: ein lokaler Ordner ↔ Server. Was synchronisiert wird — ein einzelner Ordner oder der gesamte Speicher-Root — wird **auf dem Server** konfiguriert.
+Bidirektionale Ordnersynchronisation im Hintergrund, Dropbox-Stil: ein lokaler Ordner ↔ Server. Was synchronisiert wird — ein einzelner Ordner oder der gesamte Speicher-Root — wird **auf dem Server** konfiguriert. Veröffentlicht für **Linux** (Server und NAS); auf Desktops und Smartphones ist die Ordnersynchronisation in die Apps integriert.
 
 - **Headless** — läuft ohne grafische Oberfläche, ideal für Server und NAS.
-- **Menüleiste / Tray** (Build mit `TRAY=1`) — Status-Icon und Schnellaktionen.
 - **E2E-Tresor** — clientseitige Verschlüsselung in einem [Cryptomator](https://cryptomator.org)-kompatiblen Format: Dateien werden auf dem Gerät verschlüsselt, bevor sie gesendet werden.
 - **Keine Datenverluste** — ändert sich dieselbe Datei an zwei Stellen gleichzeitig, wird eine Konfliktkopie erstellt, statt still zu überschreiben.
 - **Autostart bei der Anmeldung.**
 
 ### 🖥️ Desktop-Client
 
-Eine plattformübergreifende GUI-App (macOS, Windows, Linux) mit **On-Demand**-Modell.
+Eine GUI-App mit **On-Demand**-Modell: auf macOS die native App (DiscoDrive im Finder), auf Windows und Linux die Wails-App.
 
 - **Den gesamten Speicher durchsuchen** — der ganze Dateibaum ist sichtbar.
 - **Hoch- und Herunterladen** von Dateien und Ordnern, Verwaltung von E2E-Tresoren direkt in der App.
@@ -45,22 +44,22 @@ Eine plattformübergreifende GUI-App (macOS, Windows, Linux) mit **On-Demand**-M
 
 ## Fertige Builds
 
-Fertige Binärdateien für Linux, Windows und macOS (Daemon und Desktop-Client) sowie eine `.apk` für Android werden auf der Releases-Seite veröffentlicht:
+Fertige Desktop-Clients für macOS, Windows und Linux, der Linux-Daemon sowie eine `.apk` für Android werden auf der Releases-Seite veröffentlicht:
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) ist mit Developer ID signiert und von Apple notarisiert, öffnet sich also ohne Warnung. **Windows** (`.exe` + Installer) ist **nicht signiert**: beim ersten Start zeigt SmartScreen eine Warnung.
 - **iOS** ist nicht in den Releases enthalten (du musst es selbst bauen und per Xcode auf einem iPhone installieren).
 
-### 🍺 Homebrew (macOS und Linux)
+### 🍺 Homebrew
 
-Der Sync-Daemon lässt sich auch aus unserem Homebrew-Tap installieren:
+Die macOS-App und der Linux-Daemon lassen sich auch aus unserem Homebrew-Tap installieren:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # nur bei neueren Homebrew-Versionen nötig
-brew install discodrive-daemon      # Sync-Daemon
-brew install --cask discodrive      # Desktop-Client (macOS)
+brew install --cask discodrive      # macOS-App
+brew install discodrive-daemon      # Sync-Daemon (Linux)
 ```
 
 Danach den Daemon mit dem Server koppeln und den Autostart aktivieren:
@@ -103,15 +102,13 @@ Die Befehle und Werkzeuge unten gehen von **macOS als Host-System** aus: der Dae
 ```bash
 make daemon                       # für das aktuelle OS → dist/<os>-<arch>/discodrive
 make daemon OS=linux ARCH=arm64   # Cross-Kompilierung (reines Go, kein CGO)
-make daemon TRAY=1                # mit Menüleiste / Tray (CGO)
-make daemon-all                   # alle OS auf einmal
+make daemon-all                   # was Releases ausliefern: linux amd64 + arm64
 ```
 
 ### Desktop-Client
 
 ```bash
-make desktop              # macOS-App (universal)
-make dmg-desktop-macos    # macOS .dmg                  → dist/DiscoDrive-<Version>-macos.dmg
+make dmg-macos VERSION=x.y.z  # native macOS-App, signiert + notarisiert → dist/DiscoDrive-<Version>-macos.dmg
 make desktop-windows      # Windows .exe + NSIS         → dist/windows/   (Cross-Build von macOS)
 make desktop-linux        # Linux (via Docker, jeder Host) → dist/linux/
 ```

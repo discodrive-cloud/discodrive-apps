@@ -18,17 +18,16 @@ Multiplataforma: macOS, Windows, Linux y Android. Un único `Makefile` compila l
 
 ### 🔄 Demonio de sincronización
 
-Sincronización bidireccional de carpetas en segundo plano, al estilo Dropbox: una carpeta local ↔ el servidor. Qué se sincroniza —una carpeta concreta o toda la raíz del almacenamiento— se configura **en el servidor**.
+Sincronización bidireccional de carpetas en segundo plano, al estilo Dropbox: una carpeta local ↔ el servidor. Qué se sincroniza —una carpeta concreta o toda la raíz del almacenamiento— se configura **en el servidor**. Se publica para **Linux** (servidores y NAS); en escritorios y teléfonos la sincronización de carpetas está integrada en las apps.
 
 - **Headless** — funciona sin interfaz gráfica, ideal para servidores y NAS.
-- **Barra de menús / bandeja** (compilación con `TRAY=1`) — icono de estado y acciones rápidas.
 - **Caja fuerte E2E** — cifrado del lado del cliente en un formato compatible con [Cryptomator](https://cryptomator.org): los archivos se cifran en el dispositivo antes de enviarse.
 - **Nunca pierdas datos** — si el mismo archivo cambia en dos sitios a la vez, se crea una copia de conflicto en lugar de sobrescribir en silencio.
 - **Inicio automático al iniciar sesión.**
 
 ### 🖥️ Cliente de escritorio
 
-Una app gráfica multiplataforma (macOS, Windows, Linux) con un modelo **bajo demanda**.
+Una app gráfica con un modelo **bajo demanda**: la app nativa en macOS (DiscoDrive en Finder), la app Wails en Windows y Linux.
 
 - **Explora todo el almacenamiento** — se ve todo el árbol de archivos.
 - **Sube y descarga** archivos y carpetas, gestiona las cajas fuertes E2E desde la propia app.
@@ -45,22 +44,22 @@ Una app gráfica multiplataforma (macOS, Windows, Linux) con un modelo **bajo de
 
 ## Builds listos para usar
 
-Los binarios ya compilados para Linux, Windows y macOS (demonio y cliente de escritorio) y un `.apk` para Android se publican en la página de releases:
+Los clientes de escritorio ya compilados para macOS, Windows y Linux, el demonio para Linux y un `.apk` para Android se publican en la página de releases:
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) está firmado con Developer ID y notarizado por Apple, así que se abre sin advertencias. **Windows** (`.exe` + instalador) **no está firmado**: en el primer arranque SmartScreen mostrará una advertencia.
 - **iOS** no se incluye en las releases (hay que compilarlo uno mismo e instalarlo en un iPhone mediante Xcode).
 
-### 🍺 Homebrew (macOS y Linux)
+### 🍺 Homebrew
 
-El demonio de sincronización también puede instalarse desde nuestro tap de Homebrew:
+La app de macOS y el demonio para Linux también pueden instalarse desde nuestro tap de Homebrew:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # solo en versiones recientes de Homebrew
-brew install discodrive-daemon      # demonio de sincronización
-brew install --cask discodrive      # cliente de escritorio (macOS)
+brew install --cask discodrive      # app de macOS
+brew install discodrive-daemon      # demonio de sincronización (Linux)
 ```
 
 Después, empareja el demonio con tu servidor y activa el arranque automático:
@@ -103,15 +102,13 @@ Los comandos y herramientas de abajo asumen **macOS como sistema anfitrión**: e
 ```bash
 make daemon                       # para el SO actual → dist/<os>-<arch>/discodrive
 make daemon OS=linux ARCH=arm64   # compilación cruzada (Go puro, sin CGO)
-make daemon TRAY=1                # con barra de menús / bandeja (CGO)
-make daemon-all                   # todos los SO a la vez
+make daemon-all                   # lo que incluyen las releases: linux amd64 + arm64
 ```
 
 ### Cliente de escritorio
 
 ```bash
-make desktop              # app de macOS (universal)
-make dmg-desktop-macos    # macOS .dmg                  → dist/DiscoDrive-<versión>-macos.dmg
+make dmg-macos VERSION=x.y.z  # app nativa de macOS, firmada + notarizada → dist/DiscoDrive-<versión>-macos.dmg
 make desktop-windows      # Windows .exe + NSIS         → dist/windows/   (compilación cruzada desde macOS)
 make desktop-linux        # Linux (vía Docker, cualquier anfitrión) → dist/linux/
 ```

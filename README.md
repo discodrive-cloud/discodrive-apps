@@ -18,17 +18,16 @@ Cross-platform: macOS, Windows, Linux, Android and iOS. A single `Makefile` buil
 
 ### 🔄 Sync daemon
 
-Background two-way folder sync, Dropbox-style: a local folder ↔ the server. What to sync — a single folder or the whole storage root — is configured **on the server**.
+Background two-way folder sync, Dropbox-style: a local folder ↔ the server. What to sync — a single folder or the whole storage root — is configured **on the server**. Released for **Linux** (servers and NAS); on desktops and phones folder sync is built into the apps.
 
 - **Headless** — runs without a GUI, ideal for servers and NAS.
-- **Menu bar / tray** (build with `TRAY=1`) — status icon and quick actions.
 - **E2E vault** — client-side encryption in a [Cryptomator](https://cryptomator.org)-compatible format: files are encrypted on the device before they are sent.
 - **Never lose data** — if the same file changes in two places at once, a conflict copy is created instead of a silent overwrite.
 - **Auto-start on login.**
 
 ### 🖥️ Desktop client
 
-A cross-platform GUI app (macOS, Windows, Linux) with an **on-demand** model.
+A GUI app with an **on-demand** model: the native app on macOS (DiscoDrive in Finder), the Wails app on Windows and Linux.
 
 - **Browse the whole storage** — the entire file tree is visible.
 - **Upload and download** files and folders, manage E2E vaults right from the app.
@@ -50,22 +49,22 @@ expiry/revocation, and a sync activity/error view. Native macOS also integrates 
 
 ## Prebuilt releases
 
-Prebuilt binaries for Linux, Windows and macOS (daemon and desktop client) and an `.apk` for Android are published on the releases page:
+Prebuilt desktop clients for macOS, Windows and Linux, the Linux daemon and an `.apk` for Android are published on the releases page:
 
 ### 👉 [github.com/discodrive-cloud/discodrive-apps/releases](https://github.com/discodrive-cloud/discodrive-apps/releases)
 
 - **macOS** (`.dmg`) is signed with Developer ID and notarized by Apple, so it opens without warnings. **Windows** (`.exe` + installer) is **unsigned**: on first launch SmartScreen will show a warning.
 - **iOS** is not included in releases (you need to build it yourself and install it on an iPhone via Xcode).
 
-### 🍺 Homebrew (macOS and Linux)
+### 🍺 Homebrew
 
-The sync daemon can also be installed from our Homebrew tap:
+The macOS app and the Linux daemon can also be installed from our Homebrew tap:
 
 ```sh
 brew tap discodrive-cloud/tap
 brew trust discodrive-cloud/tap   # newer Homebrew versions only
-brew install discodrive-daemon      # sync daemon
-brew install --cask discodrive      # desktop client (macOS)
+brew install --cask discodrive      # macOS app
+brew install discodrive-daemon      # sync daemon (Linux)
 ```
 
 Then pair the daemon with your server and enable autostart:
@@ -108,15 +107,13 @@ The commands and tools below assume **macOS as the host system**: the daemon cro
 ```bash
 make daemon                       # for the current OS → dist/<os>-<arch>/discodrive
 make daemon OS=linux ARCH=arm64   # cross-compile (pure Go, no CGO)
-make daemon TRAY=1                # with menu bar / tray (CGO)
-make daemon-all                   # all OSes at once
+make daemon-all                   # what releases ship: linux amd64 + arm64
 ```
 
 ### Desktop client
 
 ```bash
-make desktop              # macOS app (universal)
-make dmg-desktop-macos    # macOS .dmg                  → dist/DiscoDrive-<version>-macos.dmg
+make dmg-macos VERSION=x.y.z  # native macOS app, signed + notarized → dist/DiscoDrive-<version>-macos.dmg
 make desktop-windows      # Windows .exe + NSIS         → dist/windows/   (cross-built from macOS)
 make desktop-linux        # Linux (via Docker, any host) → dist/linux/
 ```
