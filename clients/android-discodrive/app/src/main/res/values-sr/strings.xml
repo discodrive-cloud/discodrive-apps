@@ -11,6 +11,7 @@
 
     <string name="perm_title">Потребан је приступ складишту</string>
     <string name="perm_body">Дозволите „Приступ свим датотекама“ како би преузете датотеке биле доступне другим апликацијама (нпр. KeePass).</string>
+    <string name="perm_media_body">Аутоматском отпремању потребан је приступ свим фотографијама и видео-снимцима. Ако дозволите приступ само изабраним фотографијама, нове неће видети.</string>
     <string name="perm_grant">Дозволи приступ</string>
 
     <string name="setup_server_url">URL сервера</string>

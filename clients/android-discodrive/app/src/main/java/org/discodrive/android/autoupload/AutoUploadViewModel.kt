@@ -1,5 +1,7 @@
 package org.discodrive.android.autoupload
 
+import org.discodrive.android.BuildConfig
+
 import android.app.Application
 import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
@@ -102,7 +104,9 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
                     Rule.of(
                         dir.path,
                         AutoUploadRunner.defaultDestFor(dir),
-                        mediaOnly = AutoUploadRunner.defaultMediaOnlyFor(dir),
+                        // The play build sees media files only (StorageAccess), so its rules
+                        // say so rather than promise "all files".
+                        mediaOnly = !BuildConfig.ALL_FILES_ACCESS || AutoUploadRunner.defaultMediaOnlyFor(dir),
                     )
                 )
                 if (prefs.autoUpload) observers.start() // watch the new folder too

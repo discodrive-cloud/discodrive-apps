@@ -11,6 +11,7 @@
 
     <string name="perm_title">Speicherzugriff erforderlich</string>
     <string name="perm_body">Erteile „Zugriff auf alle Dateien“, damit heruntergeladene Dateien für andere Apps (z. B. KeePass) erreichbar sind.</string>
+    <string name="perm_media_body">Der automatische Upload braucht Zugriff auf alle Fotos und Videos. Mit Zugriff nur auf ausgewählte Fotos sieht er neue nicht.</string>
     <string name="perm_grant">Zugriff erteilen</string>
 
     <string name="setup_server_url">Server-URL</string>

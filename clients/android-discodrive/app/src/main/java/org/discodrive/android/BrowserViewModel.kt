@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -72,7 +71,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
         watchRefreshWork()
     }
 
-    fun hasStoragePermission(): Boolean = Environment.isExternalStorageManager()
+    fun hasStoragePermission(): Boolean = StorageAccess.granted(getApplication())
 
     private fun isPaired(): Boolean = prefs.deviceToken != null && prefs.serverURL.isNotEmpty()
 

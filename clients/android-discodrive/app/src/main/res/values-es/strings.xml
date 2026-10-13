@@ -11,6 +11,7 @@
 
     <string name="perm_title">Se necesita acceso al almacenamiento</string>
     <string name="perm_body">Concede «Acceso a todos los archivos» para que los archivos descargados sean accesibles por otras apps (p. ej. KeePass).</string>
+    <string name="perm_media_body">La subida automática necesita acceso a todas sus fotos y vídeos. Con acceso solo a las fotos seleccionadas no puede ver las nuevas.</string>
     <string name="perm_grant">Conceder acceso</string>
 
     <string name="setup_server_url">URL del servidor</string>

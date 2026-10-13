@@ -61,12 +61,20 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
         hasPerm = vm.hasStoragePermission()
         vm.openIfPaired()
     }
+    // play: the system asks; once the user has refused for good it no longer does, and the
+    // button opens the app's settings instead.
+    var askedAndRefused by remember { mutableStateOf(false) }
+    val mediaLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        hasPerm = vm.hasStoragePermission()
+        askedAndRefused = !hasPerm
+    }
     when {
         ui.paired && (showFolderSync || showAutoUpload) && !hasPerm -> PermissionGate(onBack = { showFolderSync = false; showAutoUpload = false }) {
-            launcher.launch(
-                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + ctx.packageName))
-            )
+            when {
+                BuildConfig.ALL_FILES_ACCESS -> launcher.launch(StorageAccess.allFilesSettings(ctx))
+                askedAndRefused -> launcher.launch(StorageAccess.appSettings(ctx))
+                else -> mediaLauncher.launch(StorageAccess.mediaPermissions)
+            }
         }
         vaultUi.open -> VaultScreen(vaultVm, vaultUi)
         vaultUi.loading || vaultUi.error != null ->
@@ -116,7 +124,7 @@ fun PermissionGate(onBack: () -> Unit, onGrant: () -> Unit) {
     ) {
         Spacer(Modifier.height(80.dp))
         Text(stringResource(R.string.perm_title), style = MaterialTheme.typography.titleLarge)
-        Text(stringResource(R.string.perm_body))
+        Text(stringResource(if (BuildConfig.ALL_FILES_ACCESS) R.string.perm_body else R.string.perm_media_body))
         Button(onClick = onGrant) { Text(stringResource(R.string.perm_grant)) }
         TextButton(onClick = onBack) { Text(stringResource(R.string.back)) }
     }

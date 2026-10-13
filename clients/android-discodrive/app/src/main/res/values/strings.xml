@@ -16,6 +16,7 @@
     <!-- Permission gate -->
     <string name="perm_title">Storage access needed</string>
     <string name="perm_body">Grant “All files access” so downloaded files are reachable by other apps (e.g. KeePass).</string>
+    <string name="perm_media_body">Auto-upload needs access to all your photos and videos. With access to selected photos only, it cannot see new ones.</string>
     <string name="perm_grant">Grant access</string>
 
     <!-- Setup / pairing -->

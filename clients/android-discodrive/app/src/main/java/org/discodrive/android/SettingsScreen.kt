@@ -93,17 +93,17 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
                 }
             }
             HorizontalDivider()
-            // Both read the phone's folders by path, which needs All Files Access: the play
-            // build has neither until they move to storage it can get on Play.
+            Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onAutoUpload() }.padding(vertical = 8.dp)) {
+                Text(stringResource(R.string.au_title), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    stringResource(if (vm.autoUploadOn) R.string.on else R.string.off),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            HorizontalDivider()
+            // Folder sync reads and writes any folder by path, which needs All Files Access:
+            // the play build goes without it (see StorageAccess).
             if (BuildConfig.ALL_FILES_ACCESS) {
-                Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onAutoUpload() }.padding(vertical = 8.dp)) {
-                    Text(stringResource(R.string.au_title), style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        stringResource(if (vm.autoUploadOn) R.string.on else R.string.off),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                HorizontalDivider()
                 Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onFolderSync() }.padding(vertical = 8.dp)) {
                     Text(stringResource(R.string.sync_title), style = MaterialTheme.typography.labelLarge)
                     Text(

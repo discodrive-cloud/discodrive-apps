@@ -11,6 +11,7 @@
 
     <string name="perm_title">Требуется доступ к хранилищу</string>
     <string name="perm_body">Предоставьте «Доступ ко всем файлам», чтобы загруженные файлы были доступны другим приложениям (напр. KeePass).</string>
+    <string name="perm_media_body">Автозагрузке нужен доступ ко всем фото и видео. Если разрешить доступ только к выбранным фото, новые она не увидит.</string>
     <string name="perm_grant">Предоставить доступ</string>
 
     <string name="setup_server_url">URL сервера</string>

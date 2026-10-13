@@ -21,6 +21,15 @@ class FolderObservers private constructor(private val context: Context) {
     companion object {
         @Volatile private var instance: FolderObservers? = null
 
+        /**
+         * A camera writes a photo, then its thumbnail, then touches the folder — several
+         * events for one picture; waiting turns that burst into a single pass. It must also
+         * outlast [SourceScanner.SETTLE_MS]: a pass any sooner finds the new photo still
+         * "being written", skips it, and nothing starts another until the periodic run up
+         * to 20 minutes later.
+         */
+        const val DEBOUNCE_MS = SourceScanner.SETTLE_MS + 2_000L
+
         fun get(context: Context): FolderObservers = instance ?: synchronized(this) {
             instance ?: FolderObservers(context.applicationContext).also { instance = it }
         }
@@ -29,12 +38,6 @@ class FolderObservers private constructor(private val context: Context) {
     private val observers = mutableListOf<FileObserver>()
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
-
-    /**
-     * A camera writes a photo, then its thumbnail, then touches the folder — several events
-     * for one picture. Waiting a moment turns that burst into a single pass.
-     */
-    private val debounceMs = 5_000L
 
     @Synchronized
     fun start() {
@@ -71,7 +74,7 @@ class FolderObservers private constructor(private val context: Context) {
                 if (prefs.autoUpload) AutoUploadWorker.runNow(context, prefs.wifiOnly)
             }
             pending = r
-            handler.postDelayed(r, debounceMs)
+            handler.postDelayed(r, DEBOUNCE_MS)
         }
     }
 }

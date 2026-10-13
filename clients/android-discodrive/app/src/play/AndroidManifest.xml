@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Auto-upload in the Google Play build: photos and videos instead of All Files Access
+         (see StorageAccess). READ_EXTERNAL_STORAGE covers Android 11 and 12. Declaring the
+         partial-access permission makes Android 14 hand over a choice the app can see and
+         explain, instead of a silent compatibility grant. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION"/>
+</manifest>

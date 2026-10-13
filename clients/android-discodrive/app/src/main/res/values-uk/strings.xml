@@ -11,6 +11,7 @@
 
     <string name="perm_title">Потрібен доступ до сховища</string>
     <string name="perm_body">Надайте «Доступ до всіх файлів», щоб завантажені файли були доступні іншим застосункам (напр. KeePass).</string>
+    <string name="perm_media_body">Автозавантаженню потрібен доступ до всіх фото й відео. Якщо дозволити доступ лише до вибраних фото, нових воно не побачить.</string>
     <string name="perm_grant">Надати доступ</string>
 
     <string name="setup_server_url">URL сервера</string>

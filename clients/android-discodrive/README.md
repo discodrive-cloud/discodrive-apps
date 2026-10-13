@@ -17,8 +17,11 @@ with the same key:
 - **full** — the APK on GitHub Releases (`make app-android`). It has All Files Access, which
   the sync folder and auto-upload need to read the phone's folders by path.
 - **play** — the bundle for Google Play (`make app-android-play`, `bundlePlayRelease`). Play
-  restricts All Files Access, so this build does not request it, and folder sync and
-  auto-upload are not offered.
+  restricts All Files Access, so this build asks for photos and videos instead
+  (`READ_MEDIA_IMAGES/VIDEO`, `ACCESS_MEDIA_LOCATION`). Auto-upload reads the same paths with
+  them, but only media files are visible, so its rules are media only. Folder sync is not
+  offered. Play Console asks for a photo and video permissions declaration (auto-upload is
+  the app's core backup feature).
 
 Since Android 12, Google Play does not update an app that was installed from somewhere else,
 so the two do not replace each other.

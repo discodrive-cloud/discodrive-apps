@@ -11,6 +11,7 @@
 
     <string name="perm_title">Accès au stockage requis</string>
     <string name="perm_body">Accordez « Accès à tous les fichiers » pour que les fichiers téléchargés soient accessibles aux autres applis (p. ex. KeePass).</string>
+    <string name="perm_media_body">L’envoi automatique a besoin d’accéder à toutes vos photos et vidéos. Avec un accès limité aux photos sélectionnées, il ne voit pas les nouvelles.</string>
     <string name="perm_grant">Accorder l\'accès</string>
 
     <string name="setup_server_url">URL du serveur</string>

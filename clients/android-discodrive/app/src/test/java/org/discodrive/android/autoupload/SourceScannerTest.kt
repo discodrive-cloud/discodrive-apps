@@ -144,4 +144,11 @@ class SourceScannerTest {
         val b = file("IMG_b.jpg", ageMs = 60_000)
         assertEquals(listOf(a, b), SourceScanner.preexisting(listOf(a, b), createdAt = 0L))
     }
+
+    @Test
+    fun folderWatchWaitsOutTheSettleWindow() {
+        // A pass sooner than SETTLE_MS after the event skips the new photo as unfinished,
+        // and then nothing uploads it until the periodic run.
+        assertTrue(FolderObservers.DEBOUNCE_MS > SourceScanner.SETTLE_MS)
+    }
 }
