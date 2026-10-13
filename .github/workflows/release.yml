@@ -348,6 +348,10 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The default also installs the long-gone "tools" package, which current runner
+          # images refuse; the platform and NDK come from the next step.
+          packages: platform-tools
       - name: Install NDK + gomobile
         run: |
           sdkmanager "ndk;26.3.11579264" "platforms;android-36" "build-tools;35.0.0"
