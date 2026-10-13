@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.1.0 — 2026-10-13
 
 - iOS: add opt-in encrypted Calendar/Contacts setup without manual account-password entry (experimental; requires server support).
 
@@ -53,6 +53,17 @@ All notable changes to this project are documented in this file.
   inside the apps — and the tray flavour and the darwin/Windows daemon builds are no longer
   published. Homebrew: `brew install --cask discodrive` installs the native app, the
   `discodrive-daemon` formula is Linux-only and `discodrive-daemon-tray` is retired.
+- Android: the APK is now signed with the release key. A phone with an earlier APK has to
+  uninstall it once (sign out first, so the server revokes the device) before installing
+  this one; after that, updates install over each other.
+- Android: targets Android 16 (API 36). Two builds of the same app: the APK on GitHub keeps
+  All Files Access, folder sync and auto-upload from any folder; the Google Play build asks
+  for photos and videos instead, so its auto-upload takes media only and folder sync is not
+  offered.
+- Android: every new pairing deletes what an earlier one left on the phone (file index,
+  cache, vault index and previews, upload journal) before the new account is shown.
+- Android: Enter in the server field pairs; Settings link to the privacy policy and the
+  contact address; an empty folder says so instead of showing a blank list.
 
 - Native macOS: document Developer ID archive export and add distribution verification
   to reject Debug identities and device-restricted development bundles.
@@ -104,6 +115,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Android: a new photo in a watched folder waited for the periodic pass, up to 20 minutes;
+  it now goes up within seconds.
+- Android: unpairing also deletes the vault index and the decrypted vault previews.
 - Mobile sync: a new pairing invalidates retained mirror state before any uploads;
   iOS preserves the entire old Sync folder and creates a fresh server mirror.
 
