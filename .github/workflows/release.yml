@@ -97,8 +97,10 @@ jobs:
   # carried at all, sign-macos rejects any. On workflow_dispatch (no tag) the version is
   # 0.0.0 and sign-macos does not run: a manual run proves the build, nothing more.
   macos-app:
-    # Xcode 26+: the app icon is an Icon Composer document.
-    runs-on: macos-26
+    # Xcode 27, the one releases are built with locally (the image is named by its Xcode,
+    # arm64 only; the build is still universal). macos-26 tops out at Xcode 26.6, whose
+    # Swift 6.3 crashes compiling the app ("While emitting IR", a reabstraction thunk).
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -107,14 +109,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: daemon/go.sum
-      - name: Select the newest Xcode
-        # The image defaults to an older Xcode than the one releases are built with
-        # locally; Swift 6.3 (Xcode 26.6) crashed compiling the app ("While emitting IR"
-        # in a reabstraction thunk). Take the newest installed one.
-        run: |
-          ls -d /Applications/Xcode*.app
-          XC=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
-          sudo xcode-select -s "$XC/Contents/Developer"
       - name: Install xcodegen
         run: |
           brew install xcodegen
