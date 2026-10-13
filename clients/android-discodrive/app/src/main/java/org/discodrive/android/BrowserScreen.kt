@@ -104,6 +104,16 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
                     textAlign = TextAlign.Center,
                 )
             }
+            // Without it an empty folder looked like a list that failed to load.
+            else if (!ui.loading && !ui.syncing && ui.entries.isEmpty() && ui.error == null) {
+                Text(
+                    stringResource(R.string.browse_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(ui.entries, key = { it.id }) { e ->
                     ListItem(

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- All Files Access: the sync folder lives at /sdcard/DiscoDriveSync so it stays visible
+         in file managers and survives uninstall (a deliberate, user-facing synced folder,
+         mirroring the desktop app), and auto-upload reads its source folders by path.
+         Only this flavor, installed by hand from GitHub Releases, asks for it: Google Play
+         restricts the permission, so the play flavor goes without it. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+</manifest>

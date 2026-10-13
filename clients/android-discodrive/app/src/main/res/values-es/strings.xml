@@ -54,6 +54,7 @@
     <string name="menu_lock_vault">Bloquear bóveda</string>
     <string name="vault_unlocking">Desbloqueando bóveda…</string>
     <string name="browse_first_sync">Obteniendo la lista de archivos…</string>
+    <string name="browse_empty">Esta carpeta está vacía</string>
     <string name="vault_open_failed">No se pudo abrir la bóveda</string>
 
     <string name="settings_title">Ajustes</string>
@@ -64,6 +65,8 @@
     <string name="settings_unpair_confirm_title">¿Desemparejar dispositivo?</string>
     <string name="settings_unpair_confirm_body">Esto elimina el emparejamiento y el índice local de este dispositivo.</string>
     <string name="settings_version">Versión</string>
+    <string name="settings_privacy">Política de privacidad</string>
+    <string name="settings_contact">Contacto</string>
 
     <string name="cd_back">Atrás</string>
     <string name="cd_refresh">Actualizar</string>
@@ -83,7 +86,7 @@
     <string name="au_when">CUÁNDO SUBIR</string>
     <string name="au_wifi">Solo por Wi-Fi</string>
     <string name="au_charging">Solo mientras se carga</string>
-    <string name="au_battery">No por debajo del 20 % de batería</string>
+    <string name="au_battery" formatted="false">No por debajo del 20 % de batería</string>
     <string name="au_roaming">Pausar en itinerancia</string>
     <string name="au_upload_now">Subir ahora</string>
     <string name="au_log">Registro</string>

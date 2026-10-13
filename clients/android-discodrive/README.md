@@ -9,7 +9,19 @@ daemon is required.
 1. From `daemon/`, run `gomobile bind -target=android -androidapi 21 -ldflags='-extldflags=-Wl,-z,max-page-size=16384' -o mobile/build/kfmobile.aar ./mobile`.
 2. Copy `daemon/mobile/build/kfmobile.aar` to `clients/android-discodrive/app/libs/kfmobile.aar`.
 3. Open this directory in Android Studio with the project's existing Gradle/AGP versions.
-4. Build `assembleDebug` and run `testDebugUnitTest`, or select a device and Run.
+4. Build `assembleFullDebug` and run `test`, or select a device and Run.
+
+There are two builds (product flavors) of the same app, `org.discodrive.android`, signed
+with the same key:
+
+- **full** — the APK on GitHub Releases (`make app-android`). It has All Files Access, which
+  the sync folder and auto-upload need to read the phone's folders by path.
+- **play** — the bundle for Google Play (`make app-android-play`, `bundlePlayRelease`). Play
+  restricts All Files Access, so this build does not request it, and folder sync and
+  auto-upload are not offered.
+
+Since Android 12, Google Play does not update an app that was installed from somewhere else,
+so the two do not replace each other.
 
 Android 11 or later is required. Do not uninstall an existing app merely to update it.
 

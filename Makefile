@@ -174,8 +174,13 @@ app-ios-fastsync: bind-ios
 	cd clients/ios-fastsync && xcodegen generate && \
 	  xcodebuild -project DiscoDriveFastSync.xcodeproj -scheme DiscoDriveFastSync -sdk iphoneos -derivedDataPath build build
 
+# The full build (APK for GitHub, All Files Access); app-android-play is the Google Play
+# bundle without it. Unsigned unless DISCODRIVE_KEYSTORE & co. are set.
 app-android: bind-android
-	cd clients/android-discodrive && $(GRADLE_DD) assembleDebug
+	cd clients/android-discodrive && $(GRADLE_DD) assembleFullDebug
+
+app-android-play: bind-android
+	cd clients/android-discodrive && $(GRADLE_DD) bundlePlayRelease
 
 app-android-fastsync: bind-android
 	cd clients/android-fastsync && $(GRADLE_FS) assembleDebug

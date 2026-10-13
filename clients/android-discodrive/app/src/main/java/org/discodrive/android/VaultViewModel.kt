@@ -31,8 +31,8 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(VaultState())
     val ui: StateFlow<VaultState> = _ui.asStateFlow()
 
-    private val indexDbPath: String get() = File(getApplication<Application>().filesDir, "vault-index.db").path
-    private val tmpDir: String get() = File(getApplication<Application>().cacheDir, "vault").path
+    private val indexDbPath: String get() = indexFile(getApplication()).path
+    private val tmpDir: String get() = previewDir(getApplication()).path
 
     fun open(server: String, token: String, vaultRoot: String, password: String, serverPin: String) {
         if (vault != null || _ui.value.loading) return
@@ -194,3 +194,22 @@ private fun displayName(ctx: Context, uri: Uri): String {
     }
     return name
 }
+
+/** Where a vault's index and its decrypted previews live on the device. */
+object VaultFiles {
+    /**
+     * Deletes them. Belongs to unpairing and to every new pairing: the index describes
+     * another account's vaults, and the previews are their plaintext.
+     */
+    fun wipe(context: Context) {
+        val preview = previewDir(context)
+        check(!preview.exists() || preview.deleteRecursively()) { "Could not remove the previous vault previews" }
+        val db = indexFile(context)
+        listOf(db, File(db.path + "-wal"), File(db.path + "-shm")).forEach {
+            check(!it.exists() || it.delete()) { "Could not remove the previous vault index" }
+        }
+    }
+}
+
+private fun indexFile(context: Context) = File(context.filesDir, "vault-index.db")
+private fun previewDir(context: Context) = File(context.cacheDir, "vault")

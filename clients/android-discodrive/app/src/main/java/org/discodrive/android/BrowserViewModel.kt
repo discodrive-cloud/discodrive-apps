@@ -293,8 +293,16 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         }
         withContext(Dispatchers.IO) {
-            SyncHolder.close()
-            BrowserHolder.close()
+            // Whatever an earlier pairing left behind goes before the new token is stored.
+            // Unpairing deletes it too, but not every way out of a pairing passes there:
+            // undecryptable settings are reset without it, and an install over the top keeps
+            // app data. A failed cleanup fails the pairing rather than show the new account
+            // another one's files. The sync folder itself stays; the core sets it aside.
+            val app = getApplication<Application>()
+            SyncHolder.wipe(app)
+            BrowserHolder.wipe(app)
+            VaultFiles.wipe(app)
+            UploadJournal.wipe(app)
             prefs.saveServer(pending.server, token, pending.pin)
             prefs.pendingPairing = null
             DriveDocumentsProvider.notifyRoots(getApplication())
@@ -509,6 +517,7 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     SyncHolder.wipe(getApplication())
                     BrowserHolder.wipe(getApplication())
+                    VaultFiles.wipe(getApplication())
                     // The journal records what went to THIS server; kept, it would stop
                     // every one of those photos from ever reaching the next one.
                     // Under the pairing generation: a folder scan still running from

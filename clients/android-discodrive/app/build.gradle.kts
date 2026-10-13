@@ -21,11 +21,11 @@ base { archivesName.set("discodrive-$appVersion") }
 
 android {
     namespace = "org.discodrive.android"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         applicationId = "org.discodrive.android"
         minSdk = 30
-        targetSdk = 34
+        targetSdk = 36
         // Bumped on every release: Android refuses to install a build over one with the
         // same code, so leaving it behind means updating only by reinstalling.
         versionCode = appVersionCode
@@ -53,6 +53,21 @@ android {
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
+    // Two builds from one code base, the same package and the same key. "full" is the APK on
+    // GitHub: All Files Access, so the sync folder and auto-upload read ordinary paths.
+    // "play" is the Google Play bundle: Play only grants that permission to a few kinds of
+    // app, so this build does not ask for it and leaves out what depends on it.
+    flavorDimensions += "store"
+    productFlavors {
+        create("full") {
+            dimension = "store"
+            buildConfigField("boolean", "ALL_FILES_ACCESS", "true")
+        }
+        create("play") {
+            dimension = "store"
+            buildConfigField("boolean", "ALL_FILES_ACCESS", "false")
+        }
+    }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -64,14 +79,14 @@ dependencies {
     implementation(files("libs/kfmobile.aar"))
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
-    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
     testImplementation("junit:junit:4.13.2")
     // android.jar's org.json is a stub that throws in unit tests; the real implementation
     // lets the rule-serialization tests run on the JVM.

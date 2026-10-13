@@ -350,7 +350,7 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
       - name: Install NDK + gomobile
         run: |
-          sdkmanager "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "ndk;26.3.11579264" "platforms;android-36" "build-tools;35.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
           # gobind is installed pinned, so `gomobile init` — which would fetch gobind@latest
           # and with it whatever Go version x/mobile asks for that week — is not needed.
@@ -414,18 +414,26 @@ jobs:
           # Folder sync lives inside the full client now; the separate Fast Sync app is no
           # longer released for Android. Wrapper committed under clients/android-discodrive
           # (see gradle/wrapper) — a pinned version, not whatever ubuntu-latest ships.
-          (cd clients/android-discodrive && ./gradlew assembleRelease)
+          # full: the APK attached to the release. play: the bundle for Google Play, kept
+          # as a workflow artifact and uploaded to Play Console by hand.
+          (cd clients/android-discodrive && ./gradlew assembleFullRelease bundlePlayRelease)
       - name: Collect apks
         run: |
-          mkdir -p out
-          find clients/android-discodrive -name '*-release.apk' -path '*/outputs/*' -exec cp {} out/ \;
-          ls -la out
+          mkdir -p out out-play
+          find clients/android-discodrive -name '*-full-release.apk' -path '*/outputs/*' -exec cp {} out/ \;
+          find clients/android-discodrive -name '*-play-release.aab' -path '*/outputs/*' -exec cp {} out-play/ \;
+          ls -la out out-play
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: android
           path: out/*.apk
           # A tag build with no APK is already a hard failure above (exit 1); a
           # workflow_dispatch run without ANDROID_KEYSTORE_B64 configured stays green.
+          if-no-files-found: ${{ startsWith(github.ref, 'refs/tags/') && 'error' || 'warn' }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-play
+          path: out-play/*.aab
           if-no-files-found: ${{ startsWith(github.ref, 'refs/tags/') && 'error' || 'warn' }}
 
   release:
@@ -455,10 +463,11 @@ jobs:
       - name: Flatten
         # macos-unsigned is the intermediate handoff from macos-app to sign-macos
         # (the unsigned .app, tarred) — not a release asset; excluded
-        # so it never reaches the published release.
+        # so it never reaches the published release. android-play is the Google Play
+        # bundle: it goes to Play Console, not to GitHub.
         run: |
           mkdir -p release
-          find artifacts -type f -not -path 'artifacts/macos-unsigned/*' -exec cp -n {} release/ \;
+          find artifacts -type f -not -path 'artifacts/macos-unsigned/*' -not -path 'artifacts/android-play/*' -exec cp -n {} release/ \;
           ls -la release
       - name: Extract release notes from CHANGELOG.md
         run: |

@@ -54,6 +54,7 @@
     <string name="menu_lock_vault">Закључај сеф</string>
     <string name="vault_unlocking">Откључавање сефа…</string>
     <string name="browse_first_sync">Преузимање листе фајлова…</string>
+    <string name="browse_empty">Ова фасцикла је празна</string>
     <string name="vault_open_failed">Није могуће отворити сеф</string>
 
     <string name="settings_title">Подешавања</string>
@@ -64,6 +65,8 @@
     <string name="settings_unpair_confirm_title">Распарити уређај?</string>
     <string name="settings_unpair_confirm_body">Ово уклања упаривање и локални индекс са овог уређаја.</string>
     <string name="settings_version">Верзија</string>
+    <string name="settings_privacy">Политика приватности</string>
+    <string name="settings_contact">Контакт</string>
 
     <string name="cd_back">Назад</string>
     <string name="cd_refresh">Освежи</string>
@@ -83,7 +86,7 @@
     <string name="au_when">КАДА ОТПРЕМАТИ</string>
     <string name="au_wifi">Само преко Wi-Fi</string>
     <string name="au_charging">Само док се пуни</string>
-    <string name="au_battery">Не испод 20% батерије</string>
+    <string name="au_battery" formatted="false">Не испод 20% батерије</string>
     <string name="au_roaming">Пауза у ромингу</string>
     <string name="au_upload_now">Отпреми одмах</string>
     <string name="au_log">Дневник</string>

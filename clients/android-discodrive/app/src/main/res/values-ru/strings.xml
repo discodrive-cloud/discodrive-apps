@@ -54,6 +54,7 @@
     <string name="menu_lock_vault">Заблокировать хранилище</string>
     <string name="vault_unlocking">Разблокировка хранилища…</string>
     <string name="browse_first_sync">Получаем список файлов…</string>
+    <string name="browse_empty">Папка пуста</string>
     <string name="vault_open_failed">Не удалось открыть хранилище</string>
 
     <string name="settings_title">Настройки</string>
@@ -64,6 +65,8 @@
     <string name="settings_unpair_confirm_title">Разорвать пару с устройством?</string>
     <string name="settings_unpair_confirm_body">Это удалит сопряжение и локальный индекс с этого устройства.</string>
     <string name="settings_version">Версия</string>
+    <string name="settings_privacy">Политика конфиденциальности</string>
+    <string name="settings_contact">Написать нам</string>
 
     <string name="cd_back">Назад</string>
     <string name="cd_refresh">Обновить</string>
@@ -83,7 +86,7 @@
     <string name="au_when">КОГДА ЗАГРУЖАТЬ</string>
     <string name="au_wifi">Только по Wi-Fi</string>
     <string name="au_charging">Только при зарядке</string>
-    <string name="au_battery">Не ниже 20% батареи</string>
+    <string name="au_battery" formatted="false">Не ниже 20% батареи</string>
     <string name="au_roaming">Пауза в роуминге</string>
     <string name="au_upload_now">Загрузить сейчас</string>
     <string name="au_log">Журнал</string>

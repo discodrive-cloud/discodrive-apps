@@ -54,6 +54,7 @@
     <string name="menu_lock_vault">Tresor sperren</string>
     <string name="vault_unlocking">Tresor wird entsperrt …</string>
     <string name="browse_first_sync">Dateiliste wird abgerufen…</string>
+    <string name="browse_empty">Dieser Ordner ist leer</string>
     <string name="vault_open_failed">Tresor konnte nicht geöffnet werden</string>
 
     <string name="settings_title">Einstellungen</string>
@@ -64,6 +65,8 @@
     <string name="settings_unpair_confirm_title">Gerät entkoppeln?</string>
     <string name="settings_unpair_confirm_body">Dies entfernt die Kopplung und den lokalen Index von diesem Gerät.</string>
     <string name="settings_version">Version</string>
+    <string name="settings_privacy">Datenschutzerklärung</string>
+    <string name="settings_contact">Kontakt</string>
 
     <string name="cd_back">Zurück</string>
     <string name="cd_refresh">Aktualisieren</string>
@@ -83,7 +86,7 @@
     <string name="au_when">WANN HOCHLADEN</string>
     <string name="au_wifi">Nur über WLAN</string>
     <string name="au_charging">Nur beim Laden</string>
-    <string name="au_battery">Nicht unter 20 % Akku</string>
+    <string name="au_battery" formatted="false">Nicht unter 20 % Akku</string>
     <string name="au_roaming">Im Roaming pausieren</string>
     <string name="au_upload_now">Jetzt hochladen</string>
     <string name="au_log">Protokoll</string>

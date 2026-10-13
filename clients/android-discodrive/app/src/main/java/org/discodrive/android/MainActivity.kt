@@ -11,11 +11,13 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,7 +25,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
@@ -31,6 +35,10 @@ class MainActivity : AppCompatActivity() {
     private val vm: BrowserViewModel by viewModels()
     private val vaultVm: VaultViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Android 15+ draws every app under the system bars anyway (targetSdk 35); asking
+        // for it explicitly also gives the bar icons the right contrast in light and dark.
+        // Scaffold screens pad for the bars themselves, the bare ones use safeDrawingPadding.
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent { DiscoDriveTheme { Root(vm, vaultVm) } }
     }
@@ -82,7 +90,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
 @Composable
 fun VaultOpeningScreen(loading: Boolean, error: String?, onBack: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().padding(28.dp),
+        Modifier.fillMaxSize().safeDrawingPadding().padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -102,7 +110,7 @@ fun VaultOpeningScreen(loading: Boolean, error: String?, onBack: () -> Unit) {
 fun PermissionGate(onBack: () -> Unit, onGrant: () -> Unit) {
     BackHandler(onBack = onBack)
     Column(
-        Modifier.fillMaxSize().padding(28.dp),
+        Modifier.fillMaxSize().safeDrawingPadding().padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -117,10 +125,11 @@ fun PermissionGate(onBack: () -> Unit, onGrant: () -> Unit) {
 @Composable
 fun SetupScreen(vm: BrowserViewModel, ui: BrowseState) {
     val ctx = LocalContext.current
+    val focus = LocalFocusManager.current
     var server by remember { mutableStateOf("https://") }
     val openUrl: (String) -> Unit = { url -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(
-        Modifier.fillMaxSize().padding(28.dp),
+        Modifier.fillMaxSize().safeDrawingPadding().padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -129,7 +138,12 @@ fun SetupScreen(vm: BrowserViewModel, ui: BrowseState) {
         OutlinedTextField(
             value = server, onValueChange = { server = it }, singleLine = true,
             label = { Text(stringResource(R.string.setup_server_url)) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            // Enter on the keyboard pairs, as the button does.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = {
+                focus.clearFocus()
+                if (ui.pendingUserCode == null && !ui.loading) vm.pair(server, openUrl)
+            }),
             modifier = Modifier.fillMaxWidth()
         )
         if (ui.pendingUserCode != null) {

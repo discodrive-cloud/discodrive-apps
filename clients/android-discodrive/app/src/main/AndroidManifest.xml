@@ -4,12 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Auto-upload checks whether the current network is Wi-Fi / roaming before sending. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    <!-- All Files Access: the sync folder lives at /sdcard/DiscoDriveSync so it stays visible
-         in file managers and survives uninstall (a deliberate, user-facing synced folder,
-         mirroring the desktop app). The app is sideloaded via GitHub Releases, not Play
-         Store, so Play's MANAGE_EXTERNAL_STORAGE policy does not apply. If this ever ships
-         on Play, migrate to scoped storage (getExternalFilesDir / SAF) to drop this. -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <!-- All Files Access is declared by the full flavor only (src/full/AndroidManifest.xml). -->
     <!-- Auto-upload runs as a foreground service: a video over a mobile connection outlives
          any background allowance, and the user gets a visible, cancellable notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>

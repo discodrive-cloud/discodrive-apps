@@ -6,7 +6,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.platform.LocalContext
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -90,22 +93,26 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
                 }
             }
             HorizontalDivider()
-            Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onAutoUpload() }.padding(vertical = 8.dp)) {
-                Text(stringResource(R.string.au_title), style = MaterialTheme.typography.labelLarge)
-                Text(
-                    stringResource(if (vm.autoUploadOn) R.string.on else R.string.off),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            // Both read the phone's folders by path, which needs All Files Access: the play
+            // build has neither until they move to storage it can get on Play.
+            if (BuildConfig.ALL_FILES_ACCESS) {
+                Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onAutoUpload() }.padding(vertical = 8.dp)) {
+                    Text(stringResource(R.string.au_title), style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        stringResource(if (vm.autoUploadOn) R.string.on else R.string.off),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                HorizontalDivider()
+                Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onFolderSync() }.padding(vertical = 8.dp)) {
+                    Text(stringResource(R.string.sync_title), style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        stringResource(if (vm.folderSyncOn) R.string.on else R.string.off),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                HorizontalDivider()
             }
-            HorizontalDivider()
-            Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onFolderSync() }.padding(vertical = 8.dp)) {
-                Text(stringResource(R.string.sync_title), style = MaterialTheme.typography.labelLarge)
-                Text(
-                    stringResource(if (vm.folderSyncOn) R.string.on else R.string.off),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            HorizontalDivider()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.diagnostics_title), style = MaterialTheme.typography.labelLarge)
                 Row {
@@ -125,7 +132,21 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
             }
             HorizontalDivider()
             Button(onClick = { unpairDialog = true }) { Text(stringResource(R.string.settings_unpair)) }
-            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            // Store listings link to the same policy; the app points at it too, and at the
+            // one address for questions. The landing has English and Russian pages only.
+            val email = stringResource(R.string.contact_email)
+            Column {
+                // No side padding: the links line up with the text above them.
+                TextButton(contentPadding = PaddingValues(vertical = 8.dp), onClick = {
+                    val ru = context.resources.configuration.locales[0].language == "ru"
+                    open(context, Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://discodrive.app/" + (if (ru) "ru/" else "") + "privacy")))
+                }) { Text(stringResource(R.string.settings_privacy)) }
+                TextButton(contentPadding = PaddingValues(vertical = 8.dp), onClick = {
+                    open(context, Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email")))
+                }) { Text(stringResource(R.string.settings_contact) + " · " + email) }
+            }
             Text(
                 stringResource(R.string.settings_version) + " " + BuildConfig.VERSION_NAME,
                 style = MaterialTheme.typography.bodySmall
@@ -144,4 +165,9 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
             dismissButton = { TextButton(onClick = { unpairDialog = false }) { Text(stringResource(R.string.cancel)) } }
         )
     }
+}
+
+/** A phone without a browser or a mail app is rare, not impossible: then nothing happens. */
+private fun open(context: Context, intent: Intent) {
+    try { context.startActivity(intent) } catch (_: ActivityNotFoundException) { }
 }
