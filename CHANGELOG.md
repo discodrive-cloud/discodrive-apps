@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.1.1 — 2026-10-16
+
+### Fixed
+
+- Android: auto-upload and folder sync ask for permission to show notifications. From
+  Android 13 the upload progress notification stayed hidden without it.
+- Android: auto-upload kept failing after its destination folder was deleted on the server;
+  it now creates the folder again on the next pass. Deleting a folder on the server also
+  removes its contents from the app's file list on Android and in the Windows and Linux
+  apps, where they could linger.
+
 ## 0.1.0 — 2026-10-13
 
 - iOS: add opt-in encrypted Calendar/Contacts setup without manual account-password entry (experimental; requires server support).
