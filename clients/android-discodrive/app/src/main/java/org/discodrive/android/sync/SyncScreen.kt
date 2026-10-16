@@ -1,6 +1,7 @@
 package org.discodrive.android.sync
 
 import androidx.compose.foundation.layout.*
+import org.discodrive.android.rememberNotificationPermissionRequest
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,8 +22,12 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SyncScreen(vm: SyncViewModel, onBack: () -> Unit) {
+    val askNotifications = rememberNotificationPermissionRequest()
     BackHandler(onBack = onBack)
     val ui by vm.ui.collectAsState()
+    // Whenever the feature is on: just switched on, or on since before the app asked. The
+    // state arrives after the first frame, so this keys on it rather than running once.
+    LaunchedEffect(ui.enabled) { if (ui.enabled) askNotifications() }
     var confirmDelete by remember { mutableStateOf(false) }
     val activity = remember(ui.activity) { runCatching { JSONObject(ui.activity) }.getOrDefault(JSONObject()) }
     Scaffold(topBar = {

@@ -392,6 +392,37 @@ func (b *Batch) Delete(nodeID string) error {
 	return err
 }
 
+// DeleteSubtree removes nodeID and, when it is the only node at its path, everything below
+// that path: the change feed deletes a folder with one event for the folder alone, and its
+// contents must not outlive it. The same rules as [Index.SubtreeOf]: a ghost sharing the
+// path takes only itself, and the prefix compare keeps "Docs" and "docs" apart. An unknown
+// id is a no-op.
+func (b *Batch) DeleteSubtree(nodeID string) error {
+	var relPath string
+	var isDir int
+	err := b.tx.QueryRow("SELECT rel_path, is_dir FROM nodes WHERE node_id = ?", nodeID).Scan(&relPath, &isDir)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if isDir != 0 {
+		var others int
+		if err := b.tx.QueryRow("SELECT COUNT(*) FROM nodes WHERE rel_path = ? AND node_id != ?",
+			relPath, nodeID).Scan(&others); err != nil {
+			return err
+		}
+		if others == 0 {
+			if _, err := b.tx.Exec(`DELETE FROM nodes WHERE substr(rel_path, 1, length(?1) + 1) = ?1 || '/'`,
+				relPath); err != nil {
+				return err
+			}
+		}
+	}
+	return b.Delete(nodeID)
+}
+
 func (b *Batch) SetCursor(seq int64) error {
 	_, err := b.tx.Exec(setCursorSQL, strconv.FormatInt(seq, 10))
 	return err

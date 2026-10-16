@@ -97,3 +97,74 @@ func TestBatchRollsBackOnError(t *testing.T) {
 		t.Errorf("cursor = %d, want 0 — a rolled-back page must not advance it", c)
 	}
 }
+
+// The change feed deletes a folder with one event for the folder alone. Applied by node id
+// only, everything below it stayed in the index: a re-created folder of the same name then
+// resolved its children to the dead node ids, and uploads into them failed with 404.
+func TestBatchDeleteSubtreeTakesTheFolderContents(t *testing.T) {
+	idx, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer idx.Close()
+	for _, n := range []Node{
+		{NodeID: "up", RelPath: "Uploads", IsDir: true, Version: 1},
+		{NodeID: "dev", RelPath: "Uploads/Pixel", IsDir: true, Version: 1},
+		{NodeID: "img", RelPath: "Uploads/Pixel/a.jpg", Version: 1},
+		{NodeID: "top", RelPath: "Uploads/b.jpg", Version: 1},
+		// Neighbours that only look related.
+		{NodeID: "sib", RelPath: "Uploads2/c.jpg", Version: 1},
+		{NodeID: "case", RelPath: "uploads/d.jpg", Version: 1},
+	} {
+		if err := idx.Put(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := idx.Batch(func(b *Batch) error { return b.DeleteSubtree("up") }); err != nil {
+		t.Fatalf("Batch: %v", err)
+	}
+	for _, id := range []string{"up", "dev", "img", "top"} {
+		if _, ok, _ := idx.Get(id); ok {
+			t.Errorf("%s is under the deleted folder, it must be gone", id)
+		}
+	}
+	for _, id := range []string{"sib", "case"} {
+		if _, ok, _ := idx.Get(id); !ok {
+			t.Errorf("%s is not under the deleted folder, it must stay", id)
+		}
+	}
+	// Unknown ids are a no-op: the feed can delete a node this index never saw.
+	if err := idx.Batch(func(b *Batch) error { return b.DeleteSubtree("nope") }); err != nil {
+		t.Errorf("unknown node: %v", err)
+	}
+}
+
+// A ghost (a second node recorded at the same path) must not take the live node's tree
+// with it — the rule SubtreeOf already follows.
+func TestBatchDeleteSubtreeOfSharedPathIsTheNodeOnly(t *testing.T) {
+	idx, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer idx.Close()
+	for _, n := range []Node{
+		{NodeID: "ghost", RelPath: "Docs", IsDir: true, Version: 1},
+		{NodeID: "live", RelPath: "Docs", IsDir: true, Version: 2},
+		{NodeID: "f", RelPath: "Docs/x.txt", Version: 1},
+	} {
+		if err := idx.Put(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := idx.Batch(func(b *Batch) error { return b.DeleteSubtree("ghost") }); err != nil {
+		t.Fatalf("Batch: %v", err)
+	}
+	if _, ok, _ := idx.Get("ghost"); ok {
+		t.Error("ghost must be gone")
+	}
+	for _, id := range []string{"live", "f"} {
+		if _, ok, _ := idx.Get(id); !ok {
+			t.Errorf("%s belongs to the live folder, it must stay", id)
+		}
+	}
+}

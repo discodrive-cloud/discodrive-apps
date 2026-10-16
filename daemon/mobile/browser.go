@@ -87,7 +87,9 @@ func pullChanges(ctx context.Context, client *protocol.Client, idx *index.Index)
 					continue
 				}
 				if c.Deleted {
-					if err := b.Delete(c.NodeID); err != nil {
+					// A folder's delete event stands for its contents too: the feed sends
+					// no events for what was inside.
+					if err := b.DeleteSubtree(c.NodeID); err != nil {
 						return err
 					}
 				} else if err := b.Put(index.Node{
@@ -333,7 +335,14 @@ func (b *Browser) Upload(localPath, parentNodeID string) error {
 func (b *Browser) UploadAs(localPath, parentNodeID, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), uploadDeadline)
 	defer cancel()
-	return uploadFile(ctx, b.client, localPath, parentNodeID, name, b.chunkSize)
+	err := uploadFile(ctx, b.client, localPath, parentNodeID, name, b.chunkSize)
+	if parentNodeID == "" {
+		return err
+	}
+	// A 404 here is about the destination folder once the server confirms it is gone
+	// (deleted on another device, with the delete not pulled yet). Forgetting it lets
+	// EnsureFolder create it again; kept, every later upload would aim at the dead id.
+	return b.forgetIfConfirmedGone(parentNodeID, err)
 }
 
 // EnsureFolder returns the node id of the child folder called name under parentNodeID

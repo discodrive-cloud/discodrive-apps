@@ -270,3 +270,29 @@ func TestRemoveLocalKeepsRecordWhenRemovalFails(t *testing.T) {
 		t.Fatal("lost the cache record after removal failed")
 	}
 }
+
+// The server deletes a folder with one change for the folder. Its contents used to stay in
+// the index, so EnsureFolder later handed auto-upload the dead id of a subfolder.
+func TestRefreshFolderDeleteTakesItsContents(t *testing.T) {
+	changes := `{"changes":[
+		{"seq":1,"op":"create","node_id":"up","path":"DeviceUploads","is_dir":true,"version":1,"content_hash":"","size":0,"deleted":false},
+		{"seq":2,"op":"create","node_id":"dev","path":"DeviceUploads/Pixel","is_dir":true,"version":1,"content_hash":"","size":0,"deleted":false},
+		{"seq":3,"op":"create","node_id":"img","path":"DeviceUploads/Pixel/a.jpg","is_dir":false,"version":1,"content_hash":"","size":5,"deleted":false},
+		{"seq":4,"op":"delete","node_id":"up","path":"DeviceUploads","is_dir":true,"version":2,"content_hash":"","size":0,"deleted":true}
+	],"cursor":4,"has_more":false}`
+	srv := browseMux(changes, "")
+	defer srv.Close()
+	b, err := NewBrowser(srv.URL, "kfd", t.TempDir(), filepath.Join(t.TempDir(), "i.db"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if err := b.Refresh(); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	for _, p := range []string{"DeviceUploads", "DeviceUploads/Pixel", "DeviceUploads/Pixel/a.jpg"} {
+		if n, ok, _ := b.idx.GetByPath(p); ok {
+			t.Errorf("%s (%s) outlived the deleted folder", p, n.NodeID)
+		}
+	}
+}

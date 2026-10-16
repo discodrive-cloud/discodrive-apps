@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"bytes"
+	"discodrive.org/daemon/internal/index"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -324,5 +326,42 @@ func TestUploadSendsSmallFilesInOneRequest(t *testing.T) {
 	}
 	if u.multipart != 1 || len(u.inits) != 0 {
 		t.Fatalf("multipart=%d inits=%d, want the single-request path only", u.multipart, len(u.inits))
+	}
+}
+
+// An upload into a folder the server no longer has: the folder and its subtree leave the
+// index and the error says the node is gone, so EnsureFolder creates the destination again
+// on the next auto-upload pass instead of answering with the dead id forever.
+func TestUploadAsIntoDeletedFolderForgetsIt(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth/device/token", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"token": "jwt"})
+	})
+	notFound := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
+	}
+	mux.HandleFunc("POST /upload/init", notFound)
+	mux.HandleFunc("POST /files/upload", notFound)
+	mux.HandleFunc("GET /files/{id}", notFound)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	b := newTestBrowser(t, srv.URL)
+	for _, n := range []index.Node{
+		{NodeID: "dev", RelPath: "DeviceUploads/Pixel", IsDir: true, Version: 1},
+		{NodeID: "old", RelPath: "DeviceUploads/Pixel/a.jpg", Version: 1},
+	} {
+		if err := b.idx.Put(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := b.UploadAs(writeFile(t, 1<<10, time.Now()), "dev", "b.jpg")
+	if err == nil || !strings.Contains(err.Error(), NodeGoneMarker) {
+		t.Fatalf("err = %v, want the node-gone marker", err)
+	}
+	for _, id := range []string{"dev", "old"} {
+		if _, ok, _ := b.idx.Get(id); ok {
+			t.Errorf("%s must be forgotten", id)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package org.discodrive.android.autoupload
 
 import androidx.compose.foundation.clickable
+import org.discodrive.android.rememberNotificationPermissionRequest
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,7 +29,11 @@ import org.discodrive.android.explainError
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
+    val askNotifications = rememberNotificationPermissionRequest()
     val state by vm.state.collectAsState()
+    // Whenever the feature is on: just switched on, or on since before the app asked. The
+    // state arrives after the first frame, so this keys on it rather than running once.
+    LaunchedEffect(state.enabled) { if (state.enabled) askNotifications() }
     var picking by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var askBackfill by remember { mutableStateOf(false) }
