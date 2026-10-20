@@ -753,16 +753,17 @@ func (a *App) Vaults() []VaultInfo {
 	return out
 }
 
-// CreateVault creates an encrypted vault named name (at the vault root) protected by
-// password, uploads it, and returns the recovery phrase to show the user.
-func (a *App) CreateVault(name, password string) (string, error) {
+// CreateVault creates an encrypted vault in a new folder name inside parentRelPath
+// ("" = root) protected by password, uploads it, and returns the recovery phrase to show
+// the user. A name already taken there fails with desktop.ErrVaultNameTaken.
+func (a *App) CreateVault(parentRelPath, name, password string) (string, error) {
 	a.accountMu.RLock()
 	defer a.accountMu.RUnlock()
 	ctrl, _, _, ok := a.account()
 	if !ok {
 		return "", nil
 	}
-	return ctrl.CreateVault(a.ctx, "", name, password)
+	return ctrl.CreateVault(a.ctx, parentRelPath, name, password)
 }
 
 // CloseAllVaults closes every open vault (re-encrypt + upload). Called when leaving the

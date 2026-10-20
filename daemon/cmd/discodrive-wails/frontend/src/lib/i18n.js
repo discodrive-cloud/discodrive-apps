@@ -102,6 +102,7 @@ const messages = {
     'vaults.openFolder': 'Open folder', 'vaults.addFiles': 'Add files…', 'vaults.openState': 'open',
     'vaults.vaultName': 'Vault name', 'vaults.password': 'Vault password',
     'vaults.createTitle': 'New vault', 'vaults.openTitle': 'Open “{name}”',
+    'vaults.location': 'Location:', 'vaults.changeLocation': 'Change…', 'vaults.locationTitle': 'Where to create the vault', 'vaults.createHere': 'Create here',
     'vaults.recoveryTitle': 'Save your recovery phrase',
     'vaults.recoveryWarn': 'This 44-word phrase is the only way to recover the vault if you forget the password. Store it somewhere safe — it is not saved anywhere else.',
     'vaults.savedIt': 'I’ve saved it', 'vaults.forgot': 'Forgot password? Use recovery phrase',
@@ -132,6 +133,7 @@ const messages = {
     'uploads.nameTooLong': 'File name is too long (server limit 255 bytes).',
     'errors.nodeGone': 'This item no longer exists on the server. The list has been updated.',
     'errors.trashBlocked': 'Some items could not be removed because a folder still contains files that are not in the trash. Restore or move them first.',
+    'errors.vaultNameTaken': 'A file or folder with this name already exists here. Choose another name or location — a vault needs a folder of its own.', 'errors.vaultParentMissing': 'The chosen folder no longer exists. Choose another location.',
     'app.legacyVaults': "Decrypted vault files from an earlier session or another client may contain unsaved changes. Please close the other client and preserve the files you need separately before signing out.",
     'app.quitBlocked': "Could not save an open vault. Please close your vaults successfully before quitting. The application remains open.",
     'settings.unpairVaultSaveFailed': 'Couldn\'t save an open vault, or decrypted vault files from an earlier session are still on this computer, so this device stays signed in. Close your vaults and try again, or sign out anyway.',
@@ -249,6 +251,7 @@ const messages = {
     'vaults.openFolder': 'Открыть папку', 'vaults.addFiles': 'Добавить файлы…', 'vaults.openState': 'открыт',
     'vaults.vaultName': 'Имя сейфа', 'vaults.password': 'Пароль сейфа',
     'vaults.createTitle': 'Новый сейф', 'vaults.openTitle': 'Открыть «{name}»',
+    'vaults.location': 'Где:', 'vaults.changeLocation': 'Изменить…', 'vaults.locationTitle': 'Где создать сейф', 'vaults.createHere': 'Создать здесь',
     'vaults.recoveryTitle': 'Сохраните фразу восстановления',
     'vaults.recoveryWarn': 'Эта фраза из 44 слов — единственный способ восстановить сейф, если вы забудете пароль. Сохраните её в надёжном месте — больше она нигде не хранится.',
     'vaults.savedIt': 'Я сохранил', 'vaults.forgot': 'Забыли пароль? Войдите по фразе восстановления',
@@ -279,6 +282,7 @@ const messages = {
     'uploads.nameTooLong': 'Имя файла слишком длинное (лимит сервера — 255 байт).',
     'errors.nodeGone': 'Этого объекта больше нет на сервере. Список обновлён.',
     'errors.trashBlocked': 'Некоторые объекты не удалены: папка всё ещё содержит файлы, которых нет в корзине. Сначала восстановите или переместите их.',
+    'errors.vaultNameTaken': 'Здесь уже есть файл или папка с таким именем. Выберите другое имя или место — сейфу нужна своя папка.', 'errors.vaultParentMissing': 'Выбранной папки больше нет. Выберите другое место.',
     'app.legacyVaults': "Найдены расшифрованные файлы сейфа от прежнего сеанса или другого клиента. Они могут содержать несохранённые изменения. Закройте другой клиент и сохраните нужные файлы отдельно перед выходом из аккаунта.",
     'app.quitBlocked': "Не удалось сохранить открытый сейф. Пожалуйста, сохраните и закройте сейфы перед завершением работы. Приложение остаётся открытым.",
     'settings.unpairVaultSaveFailed': 'Не удалось сохранить открытый сейф, или на этом компьютере остались расшифрованные файлы сейфа с прошлого сеанса, поэтому выход из аккаунта не выполнен. Закройте сейфы и повторите попытку или всё равно выйдите.',
@@ -396,6 +400,7 @@ const messages = {
     'vaults.openFolder': 'Відкрити папку', 'vaults.addFiles': 'Додати файли…', 'vaults.openState': 'відкрито',
     'vaults.vaultName': 'Назва сейфа', 'vaults.password': 'Пароль сейфа',
     'vaults.createTitle': 'Новий сейф', 'vaults.openTitle': 'Відкрити «{name}»',
+    'vaults.location': 'Де:', 'vaults.changeLocation': 'Змінити…', 'vaults.locationTitle': 'Де створити сейф', 'vaults.createHere': 'Створити тут',
     'vaults.recoveryTitle': 'Збережіть фразу відновлення',
     'vaults.recoveryWarn': 'Ця фраза з 44 слів — єдиний спосіб відновити сейф, якщо ви забудете пароль. Збережіть її в надійному місці — більше вона ніде не зберігається.',
     'vaults.savedIt': 'Я зберіг', 'vaults.forgot': 'Забули пароль? Увійдіть за фразою відновлення',
@@ -426,6 +431,7 @@ const messages = {
     'uploads.nameTooLong': 'Ім’я файлу задовге (ліміт сервера — 255 байт).',
     'errors.nodeGone': 'Цього об’єкта більше немає на сервері. Список оновлено.',
     'errors.trashBlocked': 'Деякі об’єкти не видалено: папка ще містить файли, яких немає в кошику. Спершу відновіть або перемістіть їх.',
+    'errors.vaultNameTaken': 'Тут уже є файл або папка з такою назвою. Виберіть іншу назву або місце — сейфу потрібна власна папка.', 'errors.vaultParentMissing': 'Вибраної папки більше немає. Виберіть інше місце.',
     'app.legacyVaults': "Знайдено розшифровані файли сейфа з попереднього сеансу або іншого клієнта. Вони можуть містити незбережені зміни. Закрийте інший клієнт і збережіть потрібні файли окремо перед виходом з облікового запису.",
     'app.quitBlocked': "Не вдалося зберегти відкритий сейф. Будь ласка, збережіть і закрийте сейфи перед завершенням роботи. Застосунок залишається відкритим.",
     'settings.unpairVaultSaveFailed': 'Не вдалося зберегти відкритий сейф, або на цьому комп’ютері залишилися розшифровані файли сейфа з попереднього сеансу, тому вихід не виконано. Закрийте сейфи й спробуйте ще раз або все одно вийдіть.',
@@ -543,6 +549,7 @@ const messages = {
     'vaults.openFolder': 'Ordner öffnen', 'vaults.addFiles': 'Dateien hinzufügen…', 'vaults.openState': 'offen',
     'vaults.vaultName': 'Tresorname', 'vaults.password': 'Tresor-Passwort',
     'vaults.createTitle': 'Neuer Tresor', 'vaults.openTitle': '„{name}“ öffnen',
+    'vaults.location': 'Ort:', 'vaults.changeLocation': 'Ändern…', 'vaults.locationTitle': 'Wo der Tresor erstellt wird', 'vaults.createHere': 'Hier erstellen',
     'vaults.recoveryTitle': 'Wiederherstellungsphrase speichern',
     'vaults.recoveryWarn': 'Diese 44-Wort-Phrase ist die einzige Möglichkeit, den Tresor wiederherzustellen, falls Sie das Passwort vergessen. Bewahren Sie sie sicher auf — sie wird nirgendwo sonst gespeichert.',
     'vaults.savedIt': 'Gespeichert', 'vaults.forgot': 'Passwort vergessen? Wiederherstellungsphrase verwenden',
@@ -573,6 +580,7 @@ const messages = {
     'uploads.nameTooLong': 'Dateiname ist zu lang (Server-Limit 255 Bytes).',
     'errors.nodeGone': 'Dieses Objekt existiert nicht mehr auf dem Server. Die Liste wurde aktualisiert.',
     'errors.trashBlocked': 'Einige Objekte konnten nicht entfernt werden, weil ein Ordner noch Dateien enthält, die nicht im Papierkorb sind. Stellen Sie sie zuerst wieder her oder verschieben Sie sie.',
+    'errors.vaultNameTaken': 'Hier gibt es bereits eine Datei oder einen Ordner mit diesem Namen. Wählen Sie einen anderen Namen oder Ort – ein Tresor braucht einen eigenen Ordner.', 'errors.vaultParentMissing': 'Der gewählte Ordner existiert nicht mehr. Wählen Sie einen anderen Ort.',
     'app.legacyVaults': "Entschlüsselte Tresordateien einer früheren Sitzung oder eines anderen Clients können ungespeicherte Änderungen enthalten. Bitte schließen Sie den anderen Client und sichern Sie benötigte Dateien separat, bevor Sie sich abmelden.",
     'app.quitBlocked': "Ein geöffneter Tresor konnte nicht gespeichert werden. Bitte speichern und schließen Sie Ihre Tresore vor dem Beenden. Die Anwendung bleibt geöffnet.",
     'settings.unpairVaultSaveFailed': 'Ein geöffneter Tresor konnte nicht gespeichert werden, oder entschlüsselte Tresordateien aus einer früheren Sitzung liegen noch auf diesem Computer. Dieses Gerät bleibt daher angemeldet. Schließen Sie Ihre Tresore und versuchen Sie es erneut, oder melden Sie sich trotzdem ab.',
@@ -690,6 +698,7 @@ const messages = {
     'vaults.openFolder': 'Ouvrir le dossier', 'vaults.addFiles': 'Ajouter des fichiers…', 'vaults.openState': 'ouvert',
     'vaults.vaultName': 'Nom du coffre', 'vaults.password': 'Mot de passe du coffre',
     'vaults.createTitle': 'Nouveau coffre', 'vaults.openTitle': 'Ouvrir « {name} »',
+    'vaults.location': 'Emplacement :', 'vaults.changeLocation': 'Modifier…', 'vaults.locationTitle': 'Où créer le coffre', 'vaults.createHere': 'Créer ici',
     'vaults.recoveryTitle': 'Enregistrez votre phrase de récupération',
     'vaults.recoveryWarn': 'Cette phrase de 44 mots est le seul moyen de récupérer le coffre si vous oubliez le mot de passe. Conservez-la en lieu sûr — elle n’est enregistrée nulle part ailleurs.',
     'vaults.savedIt': 'Je l’ai enregistrée', 'vaults.forgot': 'Mot de passe oublié ? Utilisez la phrase de récupération',
@@ -720,6 +729,7 @@ const messages = {
     'uploads.nameTooLong': 'Nom de fichier trop long (limite serveur : 255 octets).',
     'errors.nodeGone': 'Cet élément n’existe plus sur le serveur. La liste a été mise à jour.',
     'errors.trashBlocked': 'Certains éléments n’ont pas pu être supprimés, car un dossier contient encore des fichiers qui ne sont pas dans la corbeille. Restaurez-les ou déplacez-les d’abord.',
+    'errors.vaultNameTaken': 'Un fichier ou un dossier portant ce nom existe déjà ici. Choisissez un autre nom ou un autre emplacement : un coffre a besoin de son propre dossier.', 'errors.vaultParentMissing': 'Le dossier choisi n’existe plus. Choisissez un autre emplacement.',
     'app.legacyVaults': "Des fichiers déchiffrés d’une session précédente ou d’un autre client peuvent contenir des modifications non enregistrées. Veuillez fermer l’autre client et conserver séparément les fichiers nécessaires avant de vous déconnecter.",
     'app.quitBlocked': "Impossible d’enregistrer un coffre ouvert. Veuillez enregistrer et fermer vos coffres avant de quitter. L’application reste ouverte.",
     'settings.unpairVaultSaveFailed': 'Un coffre ouvert n’a pas pu être enregistré, ou des fichiers de coffre déchiffrés lors d’une session précédente sont encore sur cet ordinateur : cet appareil reste donc connecté. Fermez vos coffres et réessayez, ou déconnectez-vous quand même.',
@@ -837,6 +847,7 @@ const messages = {
     'vaults.openFolder': 'Abrir carpeta', 'vaults.addFiles': 'Añadir archivos…', 'vaults.openState': 'abierta',
     'vaults.vaultName': 'Nombre de la caja fuerte', 'vaults.password': 'Contraseña de la caja fuerte',
     'vaults.createTitle': 'Nueva caja fuerte', 'vaults.openTitle': 'Abrir «{name}»',
+    'vaults.location': 'Ubicación:', 'vaults.changeLocation': 'Cambiar…', 'vaults.locationTitle': 'Dónde crear la caja fuerte', 'vaults.createHere': 'Crear aquí',
     'vaults.recoveryTitle': 'Guarda tu frase de recuperación',
     'vaults.recoveryWarn': 'Esta frase de 44 palabras es la única forma de recuperar la caja fuerte si olvidas la contraseña. Guárdala en un lugar seguro — no se almacena en ningún otro sitio.',
     'vaults.savedIt': 'La he guardado', 'vaults.forgot': '¿Olvidaste la contraseña? Usa la frase de recuperación',
@@ -867,6 +878,7 @@ const messages = {
     'uploads.nameTooLong': 'El nombre del archivo es demasiado largo (límite del servidor: 255 bytes).',
     'errors.nodeGone': 'Este elemento ya no existe en el servidor. La lista se ha actualizado.',
     'errors.trashBlocked': 'Algunos elementos no se pudieron eliminar porque una carpeta aún contiene archivos que no están en la papelera. Restáurelos o muévalos primero.',
+    'errors.vaultNameTaken': 'Ya existe aquí un archivo o una carpeta con este nombre. Elija otro nombre o ubicación: una caja fuerte necesita su propia carpeta.', 'errors.vaultParentMissing': 'La carpeta elegida ya no existe. Elija otra ubicación.',
     'app.legacyVaults': "Los archivos descifrados de una sesión anterior u otro cliente pueden contener cambios sin guardar. Cierre el otro cliente y conserve por separado los archivos necesarios antes de cerrar la sesión.",
     'app.quitBlocked': "No se pudo guardar una caja fuerte abierta. Guarde y cierre sus cajas fuertes antes de salir. La aplicación permanece abierta.",
     'settings.unpairVaultSaveFailed': 'No se pudo guardar una caja fuerte abierta, o en este equipo quedan archivos descifrados de una sesión anterior, así que este dispositivo sigue con la sesión iniciada. Cierre sus cajas fuertes e inténtelo de nuevo, o cierre la sesión de todos modos.',
@@ -984,6 +996,7 @@ const messages = {
     'vaults.openFolder': 'Отвори фасциклу', 'vaults.addFiles': 'Додај датотеке…', 'vaults.openState': 'отворен',
     'vaults.vaultName': 'Назив сефа', 'vaults.password': 'Лозинка сефа',
     'vaults.createTitle': 'Нови сеф', 'vaults.openTitle': 'Отвори „{name}“',
+    'vaults.location': 'Где:', 'vaults.changeLocation': 'Промени…', 'vaults.locationTitle': 'Где направити сеф', 'vaults.createHere': 'Направи овде',
     'vaults.recoveryTitle': 'Сачувајте фразу за опоравак',
     'vaults.recoveryWarn': 'Ова фраза од 44 речи једини је начин да опоравите сеф ако заборавите лозинку. Чувајте је на сигурном месту — нигде другде се не чува.',
     'vaults.savedIt': 'Сачувао сам', 'vaults.forgot': 'Заборавили лозинку? Користите фразу за опоравак',
@@ -1014,6 +1027,7 @@ const messages = {
     'uploads.nameTooLong': 'Име датотеке је предугачко (ограничење сервера 255 бајтова).',
     'errors.nodeGone': 'Ова ставка више не постоји на серверу. Листа је освежена.',
     'errors.trashBlocked': 'Неке ставке нису уклоњене јер фасцикла још садржи датотеке које нису у отпаду. Прво их вратите или преместите.',
+    'errors.vaultNameTaken': 'Овде већ постоји датотека или фасцикла са тим именом. Изаберите друго име или место — сефу је потребна сопствена фасцикла.', 'errors.vaultParentMissing': 'Изабрана фасцикла више не постоји. Изаберите друго место.',
     'app.legacyVaults': "Дешифроване датотеке из претходне сесије или другог клијента могу садржати несачуване измене. Затворите други клијент и сачувајте потребне датотеке засебно пре одјаве.",
     'app.quitBlocked': "Није могуће сачувати отворени сеф. Молимо вас да сачувате и затворите сефове пре изласка. Апликација остаје отворена.",
     'settings.unpairVaultSaveFailed': 'Отворени сеф није могао да се сачува или су на овом рачунару још увек дешифроване датотеке сефа из претходне сесије, па овај уређај остаје пријављен. Затворите сефове и покушајте поново или се ипак одјавите.',
@@ -1065,6 +1079,10 @@ export function errorText(e) {
   const s = String(e)
   if (isNodeGone(e)) return t('errors.nodeGone')
   if (isTrashBlocked(e)) return t('errors.trashBlocked')
+  // desktop.ErrVaultNameTaken / ErrVaultParentMissing put their tag first.
+  const m = typeof e === 'string' ? e : (e?.message ?? s)
+  if (m.startsWith('vault_name_taken:')) return t('errors.vaultNameTaken')
+  if (m.startsWith('vault_parent_missing:')) return t('errors.vaultParentMissing')
   const i = s.indexOf('server certificate changed')
   return i < 0 ? s : `${t('pairing.certChanged')} (${s.slice(i)})`
 }

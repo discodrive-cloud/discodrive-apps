@@ -10,6 +10,7 @@ const props = defineProps({
   open: Boolean,
   title: { type: String, default: 'Move to…' },
   excludeId: { type: String, default: '' },
+  confirmLabel: { type: String, default: '' }, // '' = "Move here"
 })
 const emit = defineEmits(['pick', 'close'])
 
@@ -59,7 +60,7 @@ watch(() => props.open, async (v) => {
     </div>
     <template #footer>
       <button class="btn-ghost" @click="emit('close')">{{ t('common.cancel') }}</button>
-      <button class="btn-accent" @click="emit('pick', selected.id)">{{ t('picker.moveHere') }}</button>
+      <button class="btn-accent" @click="emit('pick', selected.id, selected.relPath)">{{ confirmLabel || t('picker.moveHere') }}</button>
     </template>
   </Dialog>
 </template>

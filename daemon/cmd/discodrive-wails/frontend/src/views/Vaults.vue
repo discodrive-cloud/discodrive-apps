@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ShieldPlus, RefreshCw, Copy } from 'lucide-vue-next'
+import { ShieldPlus, RefreshCw, Copy, FolderOpen } from 'lucide-vue-next'
 import { api } from '../lib/api.js'
-import { t } from '../lib/i18n.js'
+import { t, errorText } from '../lib/i18n.js'
 import VaultRow from '../components/VaultRow.vue'
 import Dialog from '../components/Dialog.vue'
+import FolderPicker from '../components/FolderPicker.vue'
 
 const vaults = ref([])
 const busy = ref(false)
@@ -13,6 +14,7 @@ const status = ref('') // errors (red)
 const notice = ref('') // info/success (neutral)
 const dialog = ref(null) // {kind:'create'|'open'|'recovery', ...}
 const activeVaultRel = ref('') // last opened vault — target for drag-dropped files
+const picking = ref(false) // choosing the new vault's parent folder (create dialog hidden meanwhile)
 
 async function reload() {
   vaults.value = (await api.vaults()) || []
@@ -32,7 +34,11 @@ async function vaultOp(relPath, fn) {
   }
 }
 
-function openCreate() { dialog.value = { kind: 'create', name: '', password: '' } }
+function openCreate() { dialog.value = { kind: 'create', name: '', password: '', parent: '', error: '' } }
+function pickParent(_id, relPath) {
+  picking.value = false
+  if (dialog.value?.kind === 'create') dialog.value.parent = relPath || ''
+}
 function onOpen(v) { dialog.value = { kind: 'open', vault: v, password: '', phrase: '', mode: 'password' } }
 const onOpenFolder = (v) => { api.openVaultFolder(v.relPath).catch((e) => (status.value = String(e))) }
 const onClose = (v) => vaultOp(v.relPath, () => api.closeVault(v.relPath))
@@ -70,14 +76,15 @@ async function confirmCreate() {
   const d = dialog.value
   busy.value = true
   status.value = ''
+  d.error = ''
   try {
-    const phrase = await api.createVault(d.name.trim(), d.password)
+    const phrase = await api.createVault(d.parent, d.name.trim(), d.password)
     await reload()
     // Show the recovery phrase — the only way back in if the password is lost.
     dialog.value = phrase ? { kind: 'recovery', phrase } : null
   } catch (e) {
-    status.value = String(e)
-    dialog.value = null
+    // Keep the dialog so the user can pick another name or folder.
+    d.error = errorText(e)
   } finally {
     busy.value = false
   }
@@ -162,8 +169,17 @@ defineExpose({ reload, dropFiles, showError })
       </ul>
     </div>
 
-    <Dialog :open="!!dialog && dialog.kind === 'create'" :title="t('vaults.createTitle')" @close="dialog = null">
+    <Dialog :open="!!dialog && dialog.kind === 'create' && !picking" :title="t('vaults.createTitle')" @close="dialog = null">
       <div class="space-y-2">
+        <div class="flex items-center gap-2 text-sm">
+          <span class="shrink-0 text-muted">{{ t('vaults.location') }}</span>
+          <span class="min-w-0 flex-1 truncate text-ink" :title="dialog.parent || t('picker.root')">
+            {{ dialog.parent ? '/' + dialog.parent : t('picker.root') }}
+          </span>
+          <button class="btn-ghost shrink-0" :disabled="busy" @click="picking = true">
+            <FolderOpen :size="14" /> {{ t('vaults.changeLocation') }}
+          </button>
+        </div>
         <input
           v-model="dialog.name"
           class="w-full rounded border border-line bg-panel2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
@@ -176,6 +192,7 @@ defineExpose({ reload, dropFiles, showError })
           :placeholder="t('vaults.password')"
           @keyup.enter="confirmCreate"
         />
+        <p v-if="dialog.error" class="text-xs text-danger">{{ dialog.error }}</p>
       </div>
       <template #footer>
         <button class="btn-ghost" @click="dialog = null">{{ t('common.cancel') }}</button>
@@ -184,6 +201,14 @@ defineExpose({ reload, dropFiles, showError })
         </button>
       </template>
     </Dialog>
+
+    <FolderPicker
+      :open="picking"
+      :title="t('vaults.locationTitle')"
+      :confirm-label="t('vaults.createHere')"
+      @pick="pickParent"
+      @close="picking = false"
+    />
 
     <Dialog :open="!!dialog && dialog.kind === 'open'" :title="dialog && dialog.kind === 'open' ? t('vaults.openTitle', { name: dialog.vault.name }) : ''" @close="dialog = null">
       <template v-if="dialog && dialog.kind === 'open'">

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -36,11 +37,26 @@ type VaultRef struct {
 	RelPath string // server-relative path of the vault folder
 }
 
+// ErrVaultNameTaken: the vault's folder name is already used on the server by a folder
+// (empty or not) or a file. The text starts with a stable tag the Wails UI localizes.
+var ErrVaultNameTaken = errors.New("vault_name_taken: a file or folder with this name already exists")
+
+// ErrVaultParentMissing: the folder chosen for the new vault is not a folder on the server.
+var ErrVaultParentMissing = errors.New("vault_parent_missing: the destination folder no longer exists")
+
 // CreateVault creates an encrypted Cryptomator vault locally and uploads its whole
 // ciphertext tree to the server under parentRelPath/name (parentRelPath "" = root).
 // Returns the vault's recovery phrase (44 words) so the UI can show it to the user —
 // it is the only way back in if the password is lost.
+//
+// The vault gets a folder of its own: if parentRelPath/name is already taken (by a
+// folder, even an empty one, or a file) it fails with ErrVaultNameTaken before anything
+// is uploaded, instead of mixing ciphertext into the user's plain files.
 func (c *Controller) CreateVault(ctx context.Context, parentRelPath, name, password string) (string, error) {
+	serverBase, err := c.checkNewVaultPath(ctx, parentRelPath, name)
+	if err != nil {
+		return "", err
+	}
 	tmp, err := os.MkdirTemp(c.tempDir(), "ddvault-")
 	if err != nil {
 		return "", err
@@ -53,10 +69,6 @@ func (c *Controller) CreateVault(ctx context.Context, parentRelPath, name, passw
 	}
 	phrase := v.RecoveryKey()
 
-	serverBase := name
-	if parentRelPath != "" {
-		serverBase = parentRelPath + "/" + name
-	}
 	if err := c.uploadTree(ctx, tmp, serverBase); err != nil {
 		return "", err
 	}
@@ -64,6 +76,54 @@ func (c *Controller) CreateVault(ctx context.Context, parentRelPath, name, passw
 	// and ListVaults immediately, without the user pressing Refresh.
 	_, err = c.Refresh(ctx)
 	return phrase, err
+}
+
+// checkNewVaultPath validates the new vault's location against a freshly refreshed index
+// and returns its server path. parentRelPath must be an existing folder ("" = root) and
+// name a single free component.
+func (c *Controller) checkNewVaultPath(ctx context.Context, parentRelPath, name string) (string, error) {
+	if err := vault.CheckPlainName(name); err != nil {
+		return "", err
+	}
+	// A backslash is a separator for Windows clients, wherever this one runs.
+	if strings.Contains(name, `\`) {
+		return "", fmt.Errorf("%w: %q", vault.ErrInvalidName, name)
+	}
+	if parentRelPath != "" {
+		for part := range strings.SplitSeq(parentRelPath, "/") {
+			if err := vault.CheckPlainName(part); err != nil {
+				return "", fmt.Errorf("%w: %q", vault.ErrInvalidName, parentRelPath)
+			}
+		}
+	}
+	// Check against the server's current tree, not a stale index.
+	if _, err := c.Refresh(ctx); err != nil {
+		return "", err
+	}
+	if parentRelPath != "" {
+		n, ok, err := c.idx.GetByPath(parentRelPath)
+		if err != nil {
+			return "", err
+		}
+		if !ok || !n.IsDir {
+			return "", ErrVaultParentMissing
+		}
+	}
+	serverBase := name
+	if parentRelPath != "" {
+		serverBase = parentRelPath + "/" + name
+	}
+	// Case-insensitively: on Windows and macOS "docs" and "Docs" are one local folder.
+	nodes, err := c.idx.All()
+	if err != nil {
+		return "", err
+	}
+	for _, n := range nodes {
+		if strings.EqualFold(n.RelPath, serverBase) {
+			return "", ErrVaultNameTaken
+		}
+	}
+	return serverBase, nil
 }
 
 // CloseAllVaults re-encrypts and uploads every open vault, ending all sessions. Used
@@ -87,7 +147,7 @@ func (c *Controller) CloseAllVaults(ctx context.Context) error {
 }
 
 // uploadTree walks localRoot and recreates it on the server under serverBase using
-// EnsureDir (directories) and PushFile (files, baseVersion nil).
+// EnsureDir (directories) and PushFile (files, create-only).
 func (c *Controller) uploadTree(ctx context.Context, localRoot, serverBase string) error {
 	defer c.trimVaultCache()
 	return filepath.Walk(localRoot, func(p string, info os.FileInfo, err error) error {
@@ -113,11 +173,24 @@ func (c *Controller) uploadTree(ctx context.Context, localRoot, serverBase strin
 			return err
 		}
 		defer f.Close()
-		_, _, err = c.srv.PushFile(ctx, serverBase+"/"+rel, nil, f, info.ModTime())
-		if err == nil {
-			c.cacheVaultCiphertext(p)
+		// Base version 0 matches no existing file: a name taken since the check (another
+		// vault's masterkey above all) gets our copy filed beside it as a conflict, which
+		// is removed again, and the creation fails instead of writing over it.
+		base := int64(0)
+		node, conflict, err := c.srv.PushFile(ctx, serverBase+"/"+rel, &base, f, info.ModTime())
+		if err != nil {
+			return err
 		}
-		return err
+		if conflict {
+			if node.NodeID != "" {
+				if err := c.srv.DeleteNode(ctx, node.NodeID); err != nil {
+					return fmt.Errorf("vault: upload conflict cleanup: %w", err)
+				}
+			}
+			return ErrVaultNameTaken
+		}
+		c.cacheVaultCiphertext(p)
+		return nil
 	})
 }
 

@@ -56,7 +56,8 @@ export const api = {
   unpairAnyway: () => app().UnpairAnyway(), // resolves to { recoveryDir, recovered: [paths] }
   // vaults
   vaults: () => app().Vaults(),
-  createVault: (name, password) => app().CreateVault(name, password), // resolves to recovery phrase
+  // parentRelPath '' = root; resolves to the recovery phrase
+  createVault: (parentRelPath, name, password) => app().CreateVault(parentRelPath, name, password),
   closeAllVaults: () => app().CloseAllVaults(),
   openVault: (relPath, password) => app().OpenVault(relPath, password),
   openVaultWithRecovery: (relPath, phrase) => app().OpenVaultWithRecovery(relPath, phrase),
