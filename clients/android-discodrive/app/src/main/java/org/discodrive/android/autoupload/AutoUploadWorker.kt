@@ -61,7 +61,7 @@ class AutoUploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             BrowserHolder.use(applicationContext) { browser ->
                 val runner = AutoUploadRunner(browser, journal, prefs)
                 runner.seedIfNeeded()
-                runner.runOnce(
+                val result = runner.runOnce(
                     progress = { done, total, name ->
                         setForegroundSafely(
                             applicationContext.getString(R.string.autoupload_progress, done + 1, total), name,
@@ -69,15 +69,24 @@ class AutoUploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
                     },
                     isCancelled = { isStopped },
                 )
+                // A stopped pass proves nothing either way.
+                if (!isStopped) recordProblem(prefs, result.problem)
             }
             Result.success()
         } catch (e: Exception) {
+            recordProblem(prefs, UploadProblem.classify(e))
             // The files stay in the journal as deferred; retrying the whole pass on a
             // schedule beats hammering it now.
             Result.success()
         } finally {
             journal.close()
         }
+    }
+
+    private fun recordProblem(prefs: Prefs, problem: UploadProblem?) {
+        // Unpaired during the pass: nothing it learned belongs to the next pairing.
+        if (prefs.deviceToken == null) return
+        prefs.autoUploadProblem = prefs.autoUploadProblem.after(problem)
     }
 
     /**

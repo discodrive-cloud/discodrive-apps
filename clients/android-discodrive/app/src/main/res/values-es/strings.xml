@@ -104,6 +104,11 @@
     <string name="au_blocked_charging">Esperando el cargador</string>
     <string name="au_blocked_battery">Batería demasiado baja</string>
     <string name="au_blocked_network">Esperando conexión</string>
+    <string name="au_err_disk_full">No queda espacio libre en el teléfono. Libere algo de espacio y la subida continuará.</string>
+    <string name="au_err_network">No se puede contactar con el servidor ahora. La subida se reintentará sola.</string>
+    <string name="au_err_server">El servidor tuvo un problema. La subida se reintentará sola.</string>
+    <string name="au_err_auth">El servidor no aceptó el inicio de sesión de este dispositivo. Abra DiscoDrive; si sigue ocurriendo, vuelva a conectar el dispositivo.</string>
+    <string name="au_err_other">Algunos archivos aún no se han podido subir. La subida se reintentará sola.</string>
     <string name="au_add_failed">No se pudo añadir la carpeta: %1$s</string>
     <string name="au_pick_folder">Elige una carpeta para subir</string>
     <string name="au_backfill">Subir también los archivos existentes</string>

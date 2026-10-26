@@ -104,6 +104,11 @@
     <string name="au_blocked_charging">En attente du chargeur</string>
     <string name="au_blocked_battery">Batterie trop faible</string>
     <string name="au_blocked_network">En attente de connexion</string>
+    <string name="au_err_disk_full">Le téléphone n’a plus assez d’espace libre. Libérez un peu d’espace et l’envoi reprendra.</string>
+    <string name="au_err_network">Le serveur est injoignable pour le moment. L’envoi sera réessayé automatiquement.</string>
+    <string name="au_err_server">Le serveur a rencontré un problème. L’envoi sera réessayé automatiquement.</string>
+    <string name="au_err_auth">Le serveur n’a pas accepté la connexion de cet appareil. Ouvrez DiscoDrive ; si cela se reproduit, reconnectez l’appareil.</string>
+    <string name="au_err_other">Certains fichiers n’ont pas encore pu être envoyés. L’envoi sera réessayé automatiquement.</string>
     <string name="au_add_failed">Impossible d\'ajouter le dossier : %1$s</string>
     <string name="au_pick_folder">Choisir un dossier à envoyer</string>
     <string name="au_backfill">Envoyer aussi les fichiers existants</string>

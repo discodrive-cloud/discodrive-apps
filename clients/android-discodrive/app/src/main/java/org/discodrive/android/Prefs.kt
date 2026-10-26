@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import org.discodrive.android.autoupload.ProblemState
 import org.discodrive.android.autoupload.Rule
+import org.discodrive.android.autoupload.UploadProblem
 
 class Prefs internal constructor(private val sp: SharedPreferences) {
     constructor(context: Context) : this(open(context))
@@ -176,6 +178,18 @@ class Prefs internal constructor(private val sp: SharedPreferences) {
     var pauseOnRoaming: Boolean
         get() = sp.getBoolean("pauseOnRoaming", true)
         set(v) { sp.edit().putBoolean("pauseOnRoaming", v).apply() }
+
+    /** What the last auto-upload passes ran into; written by the worker, read by the screen. */
+    var autoUploadProblem: ProblemState
+        get() = ProblemState(
+            sp.getString("autoUploadProblem", null)
+                ?.let { name -> UploadProblem.entries.firstOrNull { it.name == name } },
+            sp.getInt("autoUploadProblemStreak", 0),
+        ).let { if (it.problem == null) ProblemState() else it }
+        set(v) {
+            sp.edit().putString("autoUploadProblem", v.problem?.name)
+                .putInt("autoUploadProblemStreak", v.streak).apply()
+        }
 
     fun clear() { check(sp.edit().clear().commit()) { "Could not clear the pairing" } }
 }

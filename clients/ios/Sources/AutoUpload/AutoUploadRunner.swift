@@ -12,6 +12,8 @@ struct RunResult: Sendable {
     var deferred = 0
     var blocked: UploadBlock = .none
     var error: String?
+    /// What `error` means for the person looking at the screen, when it is known.
+    var problem: UploadProblem?
 }
 
 /// One pass of auto-upload: find the photos that have not been dealt with, decide a name for
@@ -63,7 +65,7 @@ actor AutoUploadRunner {
             return result
         }
 
-        let queued: [PhotoTransfer]
+        var queued: [PhotoTransfer]
         let candidates: [PhotoAssetStamp]
         do {
             queued = try await transfers.queued()
@@ -74,7 +76,11 @@ actor AutoUploadRunner {
 
         let destID: String
         do { destID = try await resolveDestination() }
-        catch { result.error = "cannot reach the server: \(error)"; return result }
+        catch {
+            result.error = "cannot reach the server: \(error)"
+            result.problem = UploadProblem.classify(error)
+            return result
+        }
 
         // The listing is what the collision check reads. Pulling it once per pass keeps the
         // check honest about files added from another device without a request per photo.
@@ -85,6 +91,7 @@ actor AutoUploadRunner {
             }
         } catch {
             result.error = "cannot list the destination: \(error)"
+            result.problem = UploadProblem.classify(error)
             return result
         }
 
@@ -93,6 +100,7 @@ actor AutoUploadRunner {
         let byID = Dictionary(uniqueKeysWithValues: assets.map { ($0.localIdentifier, $0) })
 
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("autoupload", isDirectory: true)
+        var staged = queued.reduce(Int64(0)) { $0 + $1.bytes }
 
         for (i, item) in candidates.enumerated() {
             if isCancelled() { break }
@@ -116,6 +124,15 @@ actor AutoUploadRunner {
                                       retryAfter: Self.retryAfter)) == false {
                 result.deferred += 1
                 continue
+            }
+            // Each export is a full-size copy: stop while the device still has room, not
+            // when a write fails. Queued uploads free their copies and start the next pass.
+            switch StagingBudget.decide(stagedBytes: staged, queuedCount: queued.count, freeBytes: Self.freeBytes()) {
+            case .export: break
+            case .queueFull: return result
+            case .lowSpace:
+                if queued.isEmpty { result.blocked = .lowStorage }
+                return result
             }
 
             do {
@@ -146,6 +163,13 @@ actor AutoUploadRunner {
 
                 let bytes = Int64((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)??.int64Value ?? 0)
                 guard !isCancelled() else { break }
+                // The copy itself may have used up the margin. With uploads already waiting,
+                // drop it and let those drain first; the only item may always go.
+                if !queued.isEmpty,
+                   StagingBudget.decide(stagedBytes: staged + bytes, queuedCount: queued.count,
+                                        freeBytes: Self.freeBytes()) == .lowSpace {
+                    break
+                }
                 let job = PhotoTransfer(account: api.transferIdentity, assetID: item.id,
                                         modified: item.modified, created: described.created,
                                         parentID: destID, name: name, sha: sha, bytes: bytes)
@@ -154,6 +178,8 @@ actor AutoUploadRunner {
                 // journal only after /complete is acknowledged (or reconciled by hash).
                 taken[name] = ""
                 result.queued += 1
+                queued.append(job)
+                staged += bytes
             } catch is CancellationError {
                 break
             } catch UploadError.fileChangedDuringUpload {
@@ -162,6 +188,13 @@ actor AutoUploadRunner {
                 try? journal.markDeferred(assetID: item.id, modified: item.modified,
                                           error: "changed while uploading")
                 result.deferred += 1
+            } catch where UploadProblem.classify(error) == .diskFull {
+                // Every further export would fail the same way.
+                try? journal.markDeferred(assetID: item.id, modified: item.modified,
+                                          error: String(describing: error).prefix(300).description)
+                result.deferred += 1
+                if queued.isEmpty { result.blocked = .lowStorage }
+                break
             } catch {
                 try? journal.markDeferred(assetID: item.id, modified: item.modified,
                                           error: String(describing: error).prefix(300).description)
@@ -181,6 +214,14 @@ actor AutoUploadRunner {
         let dest = try await api.ensureFolder(parentID: root, name: Self.deviceFolder)
         settings.destID = dest
         return dest
+    }
+
+    /// Space the system can give an app for work the user asked for, purgeable caches
+    /// included. Nil when the volume does not say.
+    static func freeBytes() -> Int64? {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        return (try? home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
     }
 
     static func sha256(of url: URL) throws -> String {

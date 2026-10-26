@@ -104,6 +104,11 @@
     <string name="au_blocked_charging">Чека се пуњач</string>
     <string name="au_blocked_battery">Батерија је прениска</string>
     <string name="au_blocked_network">Чека се веза</string>
+    <string name="au_err_disk_full">На телефону нема довољно слободног простора. Ослободите мало простора и отпремање ће се наставити.</string>
+    <string name="au_err_network">Сервер тренутно није доступан. Отпремање ће се само поновити.</string>
+    <string name="au_err_server">На серверу је дошло до грешке. Отпремање ће се само поновити.</string>
+    <string name="au_err_auth">Сервер није прихватио пријаву са овог уређаја. Отворите DiscoDrive; ако се понавља, поново повежите уређај.</string>
+    <string name="au_err_other">Неке датотеке још нису отпремљене. Отпремање ће се само поновити.</string>
     <string name="au_add_failed">Фасцикла није додата: %1$s</string>
     <string name="au_pick_folder">Изаберите фасциклу за отпремање</string>
     <string name="au_backfill">Отпреми и постојеће датотеке</string>

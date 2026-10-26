@@ -35,6 +35,8 @@ data class AutoUploadState(
     val queued: Int? = null,
     /** Adding a folder failed (its scan, the journal, the stored list), already translated. */
     val error: String? = null,
+    /** What the last uploads ran into, already translated; null when there is nothing to say. */
+    val problem: String? = null,
 )
 
 class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
@@ -63,6 +65,7 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
                 pauseOnRoaming = prefs.pauseOnRoaming,
                 sent = counts.sent, skipped = counts.skipped, deferred = counts.deferred,
                 blocked = blockedText(),
+                problem = problemText(),
             )
         }
     }
@@ -211,6 +214,19 @@ class AutoUploadViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun addFailedText(e: Exception): String =
         getApplication<Application>().getString(R.string.au_add_failed, e.message ?: e.toString())
+
+    private fun problemText(): String? {
+        if (!prefs.autoUpload) return null
+        val ctx = getApplication<Application>()
+        return when (prefs.autoUploadProblem.visible ?: return null) {
+            UploadProblem.DISK_FULL -> ctx.getString(R.string.au_err_disk_full)
+            UploadProblem.NETWORK -> ctx.getString(R.string.au_err_network)
+            UploadProblem.SERVER -> ctx.getString(R.string.au_err_server)
+            UploadProblem.AUTH -> ctx.getString(R.string.au_err_auth)
+            UploadProblem.CERTIFICATE -> ctx.getString(R.string.cert_changed)
+            UploadProblem.OTHER -> ctx.getString(R.string.au_err_other)
+        }
+    }
 
     private fun blockedText(): String? {
         if (!prefs.autoUpload) return null

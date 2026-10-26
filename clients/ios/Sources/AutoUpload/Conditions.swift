@@ -9,6 +9,8 @@ enum UploadBlock: Sendable, Equatable {
     case needsWiFi
     case notCharging
     case lowBattery
+    /// The phone has no room left to prepare the next photo for upload.
+    case lowStorage
 }
 
 /// The network and power rules that gate a pass.

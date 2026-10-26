@@ -15,6 +15,8 @@ data class RunResult(
     val deferred: Int,
     val blocked: Block = Block.NONE,
     val error: String? = null,
+    /** What [error] (or the last file that failed) means for the person; null on a clean pass. */
+    val problem: UploadProblem? = null,
 )
 
 /**
@@ -122,7 +124,8 @@ class AutoUploadRunner(
         try {
             browser.refresh()
         } catch (e: Exception) {
-            return RunResult(0, 0, 0, error = "cannot reach the server: ${e.message}")
+            return RunResult(0, 0, 0, error = "cannot reach the server: ${e.message}",
+                problem = UploadProblem.classify(e))
         }
 
         val rules = prefs.rules.filter { it.enabled }
@@ -143,6 +146,7 @@ class AutoUploadRunner(
         var deferred = 0
         var done = 0
         var lastError: String? = null
+        passProblem = null
         // Names taken earlier in this batch, per destination. The index is refreshed once at
         // the end, so without this a later file could be handed a name the batch already used
         // and would overwrite it.
@@ -155,6 +159,7 @@ class AutoUploadRunner(
             } catch (e: Exception) {
                 // One unreachable destination must not stop the other folders.
                 lastError = "${rule.sourceLabel}: ${e.message}"
+                passProblem = UploadProblem.classify(e)
                 continue
             }
             val taken = claimed.getOrPut(destID) { HashSet() }
@@ -171,10 +176,13 @@ class AutoUploadRunner(
         }
         // One refresh for the whole batch: UploadAs deliberately leaves the index alone.
         if (uploaded > 0) runCatching { browser.refresh() }
-        return RunResult(uploaded, skipped, deferred, error = lastError)
+        return RunResult(uploaded, skipped, deferred, error = lastError, problem = passProblem)
     }
 
     private enum class Outcome { UPLOADED, SKIPPED, DEFERRED }
+
+    /** The latest failure of the pass in flight, for the screen. */
+    private var passProblem: UploadProblem? = null
 
     private fun uploadOne(file: File, destID: String, claimed: MutableSet<String>): Outcome {
         if (!journal.mayRetry(file, MAX_ATTEMPTS, RETRY_AFTER_MS)) return Outcome.DEFERRED
@@ -217,6 +225,7 @@ class AutoUploadRunner(
                 journal.markDeferred(file, "changed while uploading")
             } else {
                 journal.markDeferred(file, msg.take(300))
+                passProblem = UploadProblem.classify(e)
                 // The destination may have been deleted or moved on the server: resolve it
                 // again next pass (creating a folder that exists is a no-op).
                 forgetDestination(destID)

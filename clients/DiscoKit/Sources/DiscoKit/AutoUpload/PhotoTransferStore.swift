@@ -22,6 +22,9 @@ public struct PhotoTransfer: Codable, Sendable, Equatable {
     public var attempts = 0
     public var retryAt = Date.distantPast
     public var lastError: String?
+    // Optional: records written before these existed must still decode.
+    public var problem: UploadProblem?
+    public var failedAt: Date?
 
     public init(account: String, assetID: String, modified: Date, created: Date,
                 parentID: String, name: String, sha: String, bytes: Int64) {
@@ -32,11 +35,24 @@ public struct PhotoTransfer: Codable, Sendable, Equatable {
         self.chunkSize = 64 << 20
     }
 
+    public mutating func deferRetry(_ error: Error, now: Date = Date()) {
+        deferRetry(String(describing: error), now: now)
+        problem = UploadProblem.classify(error)
+    }
+
     public mutating func deferRetry(_ error: String, now: Date = Date()) {
         attempts += 1
         lastError = String(error.prefix(300))
+        problem = .other
+        failedAt = now
         // Keep retrying; a temporary outage never silently parks a photo for a day.
         retryAt = now.addingTimeInterval(min(3600, 30 * pow(2, Double(min(attempts - 1, 7)))))
+    }
+
+    /// After a step went through: the earlier failure no longer describes this job.
+    public mutating func clearFailure() {
+        attempts = 0; retryAt = .distantPast
+        lastError = nil; problem = nil; failedAt = nil
     }
 }
 

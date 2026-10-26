@@ -127,6 +127,11 @@
     <string name="au_blocked_charging">Waiting for the charger</string>
     <string name="au_blocked_battery">Battery too low</string>
     <string name="au_blocked_network">Waiting for a connection</string>
+    <string name="au_err_disk_full">Not enough free space on the phone. Free up some space and uploading will continue.</string>
+    <string name="au_err_network">The server can’t be reached right now. Uploading will try again by itself.</string>
+    <string name="au_err_server">The server ran into a problem. Uploading will try again by itself.</string>
+    <string name="au_err_auth">The server didn’t accept this device’s sign-in. Open DiscoDrive; if it keeps happening, connect the device again.</string>
+    <string name="au_err_other">Some files couldn’t be uploaded yet. Uploading will try again by itself.</string>
     <string name="au_add_failed">Could not add the folder: %1$s</string>
     <string name="au_pick_folder">Pick a folder to upload</string>
     <string name="au_backfill">Upload existing files too</string>

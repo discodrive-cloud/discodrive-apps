@@ -104,6 +104,11 @@
     <string name="au_blocked_charging">Warte auf das Ladegerät</string>
     <string name="au_blocked_battery">Akku zu schwach</string>
     <string name="au_blocked_network">Warte auf Verbindung</string>
+    <string name="au_err_disk_full">Auf dem Telefon ist kein Speicherplatz mehr frei. Geben Sie etwas Speicher frei, dann geht der Upload weiter.</string>
+    <string name="au_err_network">Der Server ist gerade nicht erreichbar. Der Upload wird automatisch erneut versucht.</string>
+    <string name="au_err_server">Auf dem Server ist ein Fehler aufgetreten. Der Upload wird automatisch erneut versucht.</string>
+    <string name="au_err_auth">Der Server hat die Anmeldung dieses Geräts nicht akzeptiert. Öffnen Sie DiscoDrive; wenn es wieder passiert, verbinden Sie das Gerät neu.</string>
+    <string name="au_err_other">Einige Dateien konnten noch nicht hochgeladen werden. Der Upload wird automatisch erneut versucht.</string>
     <string name="au_add_failed">Ordner konnte nicht hinzugefügt werden: %1$s</string>
     <string name="au_pick_folder">Ordner zum Hochladen wählen</string>
     <string name="au_backfill">Auch vorhandene Dateien hochladen</string>

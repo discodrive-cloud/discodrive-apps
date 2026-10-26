@@ -71,10 +71,11 @@ struct AutoUploadView: View {
                     }
                 } else if let blocked = blockedText {
                     Text(blocked).font(.footnote).foregroundStyle(.orange)
-                } else if let failure = service.lastResult?.error {
+                } else if let result = service.lastResult, let failure = result.error {
                     // Without this a failed pass looks exactly like an idle one: counters at
                     // zero and no hint of why.
-                    Text(failure).font(.footnote).foregroundStyle(.red)
+                    Text(result.problem.map { app.t($0.messageKey) } ?? failure)
+                        .font(.footnote).foregroundStyle(.red)
                 }
                 if let note = queuedNote {
                     Text(note).font(.footnote).foregroundStyle(.secondary)
@@ -84,8 +85,8 @@ struct AutoUploadView: View {
                 if service.queuedTransfers > 0, service.progressText == nil {
                     Button(app.t("au.stop")) { service.stopPass(); queuedNote = app.t("au.stopped") }
                 }
-                if let error = service.transferError {
-                    Text(error).font(.footnote).foregroundStyle(.orange)
+                if let problem = service.transferProblem {
+                    Text(app.t(problem.messageKey)).font(.footnote).foregroundStyle(.orange)
                 }
                 Text(app.t("au.stats")
                     .replacingOccurrences(of: "%1", with: "\(counts.sent)")
@@ -132,6 +133,7 @@ struct AutoUploadView: View {
         case .needsWiFi: return app.t("au.blocked.wifi")
         case .notCharging: return app.t("au.blocked.charging")
         case .lowBattery: return app.t("au.blocked.battery")
+        case .lowStorage: return app.t("au.blocked.storage")
         }
     }
 

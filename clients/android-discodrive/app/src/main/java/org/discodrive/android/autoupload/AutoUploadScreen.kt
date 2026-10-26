@@ -63,6 +63,10 @@ fun AutoUploadScreen(vm: AutoUploadViewModel, onBack: () -> Unit) {
                     Spacer(Modifier.height(4.dp))
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
+                state.problem?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
                 state.error?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(explainError(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)

@@ -28,6 +28,8 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
     private var retryTask: Task<Void, Never>?
     private var retryNotBefore: [String: Date] = [:]
     var onChange: (() -> Void)?
+    /// When a chunk or a file last went through. Failures older than this are not shown.
+    private(set) var lastProgress: Date?
 
     init(api: APIClient, store: PhotoTransferStore, journal: UploadJournal,
          settings: AutoUploadSettings = .shared, configuration: URLSessionConfiguration? = nil) {
@@ -41,7 +43,9 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
             config.waitsForConnectivity = true
         }
         config.httpMaximumConnectionsPerHost = 2
-        config.timeoutIntervalForRequest = 60
+        // A 64 MiB part on a slow, long-haul uplink can sit without a reply for a while;
+        // nothing here is interactive, so waiting longer beats failing and starting over.
+        config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 24 * 60 * 60
         session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }
@@ -234,7 +238,7 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
         } catch {
             guard valid, !paused, settings.enabled else { return }
             if case APIError.http(404) = error { job.uploadID = nil; job.nextChunk = 0 }
-            job.deferRetry(String(describing: error))
+            job.deferRetry(error)
             retryNotBefore[job.id] = job.retryAt
             do { try store.save(job); retryNotBefore[job.id] = nil } catch { Self.log.error("checkpoint failed: \(String(describing: error), privacy: .public)") }
         }
@@ -247,6 +251,7 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
                              bytes: job.bytes, sha: job.sha, serverName: job.name)
         try store.remove(job)
         retryNotBefore[job.id] = nil
+        lastProgress = Date()
         Self.log.notice("published: \(job.id, privacy: .public)")
     }
 
@@ -271,27 +276,28 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
                 let next = try checked(JSONDecoder().decode(Reply.self, from: data).next_chunk, job: job)
                 guard next > job.nextChunk else { throw APIError.badResponse }
                 job.nextChunk = next
-                job.attempts = 0; job.retryAt = .distantPast; job.lastError = nil
+                job.clearFailure()
                 retryNotBefore[job.id] = nil
+                lastProgress = Date()
             } else if error == nil && status == 413 && job.transferChunkSize > (1 << 20) {
                 // Reverse proxies can impose a lower body limit than the server. Start
                 // a fresh session with smaller parts; never change an existing offset.
                 if let id = job.uploadID { try? await api.uploadAbort(uploadID: id) }
                 try checkActive()
                 job.chunkSize = max(1 << 20, job.transferChunkSize / 2)
-                job.uploadID = nil; job.nextChunk = 0; job.retryAt = .distantPast
-                job.lastError = nil
+                job.uploadID = nil; job.nextChunk = 0
+                job.clearFailure()
             } else {
                 if status == 401 { await api.resetAuth() }
                 try checkActive()
                 if status == 404 { job.uploadID = nil; job.nextChunk = 0 }
-                job.deferRetry(error.map { String(describing: $0) } ?? "HTTP \(status)")
+                job.deferRetry(error ?? APIError.http(status))
             }
             try store.save(job)
         } catch {
             // Preserve the file and server session even for malformed replies.
             if valid, !paused, var job = try? queued().first(where: { $0.id == id }) {
-                job.deferRetry(String(describing: error))
+                job.deferRetry(error)
                 retryNotBefore[job.id] = job.retryAt
                 try? store.save(job)
             }

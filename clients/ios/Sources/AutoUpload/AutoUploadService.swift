@@ -20,7 +20,7 @@ final class AutoUploadService: NSObject, ObservableObject {
     static let refreshTaskID = "org.discodrive.ios.autoupload.refresh"
 
     @Published private(set) var queuedTransfers = 0
-    @Published private(set) var transferError: String?
+    @Published private(set) var transferProblem: UploadProblem?
     private var transfers: BackgroundPhotoUploader?
     @Published private(set) var running = false
     @Published private(set) var progressText: String?
@@ -74,7 +74,7 @@ final class AutoUploadService: NSObject, ObservableObject {
             guard let self, let transfers, self.transfers === transfers else { return }
             let jobs = (try? transfers.queued()) ?? []
             self.queuedTransfers = jobs.count
-            self.transferError = jobs.first(where: { $0.lastError != nil })?.lastError
+            self.transferProblem = PhotoTransfer.visibleProblem(in: jobs, lastProgress: transfers.lastProgress)
             // Drain a bounded export batch before discovering more archive items.
             if jobs.isEmpty, self.settings.enabled, !self.running {
                 Task { await self.runPass() }
@@ -88,7 +88,7 @@ final class AutoUploadService: NSObject, ObservableObject {
     func restoreTransfers() {
         guard let api = apiProvider?() else { return }
         do { _ = try uploader(for: api) }
-        catch { transferError = String(describing: error) }
+        catch { transferProblem = UploadProblem.classify(error) }
     }
 
     func handleTransferEvents(identifier: String, completion: @escaping () -> Void) {
@@ -160,7 +160,7 @@ final class AutoUploadService: NSObject, ObservableObject {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
         stopPass()
-        do { try await transfers?.logout() } catch { transferError = String(describing: error) }
+        do { try await transfers?.logout() } catch { Self.log.error("transfer logout failed: \(String(describing: error), privacy: .public)") }
         transfers = nil; queuedTransfers = 0
         _ = await passTask?.value
         settings.seeded = false
@@ -200,7 +200,7 @@ final class AutoUploadService: NSObject, ObservableObject {
                 result.skipped += pass.skipped
                 result.deferred += pass.deferred
                 result.blocked = pass.blocked
-                if let error = pass.error { result.error = error }
+                if let error = pass.error { result.error = error; result.problem = pass.problem }
                 self.lastResult = result
                 Self.log.notice("discovery pass finished: queued=\(pass.queued) deferred=\(pass.deferred) blocked=\(String(describing: pass.blocked), privacy: .public) error=\(pass.error ?? "none", privacy: .public)")
             } while self.passRequested && self.settings.enabled &&
@@ -240,6 +240,7 @@ final class AutoUploadService: NSObject, ObservableObject {
             }, isCancelled: { Task.isCancelled })
         } catch {
             var r = RunResult(); r.error = String(describing: error)
+            r.problem = UploadProblem.classify(error)
             lastResult = r
             return r
         }
@@ -391,13 +392,13 @@ final class AutoUploadService: NSObject, ObservableObject {
                 request.requiresExternalPower = self.settings.chargingOnly
                 request.earliestBeginDate = replacing.contains(Self.taskID) ? Date(timeIntervalSinceNow: 15 * 60) : (existing?.earliestBeginDate ?? Date(timeIntervalSinceNow: 15 * 60))
                 do { try self.submitBackgroundRequest(request) }
-                catch { self.transferError = String(describing: error) }
+                catch { Self.log.error("background request refused: \(String(describing: error), privacy: .public)") }
             }
             if replacing.contains(Self.refreshTaskID) || !pending.contains(where: { $0.identifier == Self.refreshTaskID }) {
                 let request = BGAppRefreshTaskRequest(identifier: Self.refreshTaskID)
                 request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60)
                 do { try self.submitBackgroundRequest(request) }
-                catch { self.transferError = String(describing: error) }
+                catch { Self.log.error("background request refused: \(String(describing: error), privacy: .public)") }
             }
         }
     }

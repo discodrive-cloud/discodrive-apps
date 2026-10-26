@@ -104,6 +104,11 @@
     <string name="au_blocked_charging">Очікування зарядки</string>
     <string name="au_blocked_battery">Замало заряду</string>
     <string name="au_blocked_network">Очікування мережі</string>
+    <string name="au_err_disk_full">На телефоні закінчилося місце. Звільніть трохи місця — завантаження продовжиться.</string>
+    <string name="au_err_network">Сервер зараз недоступний. Завантаження повториться саме.</string>
+    <string name="au_err_server">На сервері сталася помилка. Завантаження повториться саме.</string>
+    <string name="au_err_auth">Сервер не прийняв вхід із цього пристрою. Відкрийте DiscoDrive; якщо помилка повторюється, підключіть пристрій знову.</string>
+    <string name="au_err_other">Деякі файли поки не вдалося завантажити. Завантаження повториться саме.</string>
     <string name="au_add_failed">Не вдалося додати теку: %1$s</string>
     <string name="au_pick_folder">Виберіть теку для завантаження</string>
     <string name="au_backfill">Завантажити й старі файли</string>
