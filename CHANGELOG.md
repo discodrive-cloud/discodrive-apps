@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Android: auto-upload explains why uploads are not going through (no space, no
+  connection, a server or sign-in problem) in the app's language. Until now failures only
+  raised the "deferred" counter.
+- Wails: creating a vault refuses a name already taken in the chosen parent folder.
+
+## 0.1.2 — 2026-10-26
+
+iOS only (App Store / TestFlight).
+
+### Fixed
+
+- iOS: photo auto-upload could fill the phone's storage: it kept up to 20 full-size
+  copies waiting for upload. Copies are now capped by size and stop while there is still
+  free space; with no room at all the screen says so.
+- iOS: upload errors are shown as a short sentence in the app's language instead of the
+  raw system error, a single network hiccup is retried quietly, and a message disappears
+  once uploads go through again. Slow connections no longer time out after 60 seconds.
+
 ## 0.1.1 — 2026-10-16
 
 ### Fixed
