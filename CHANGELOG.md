@@ -11,6 +11,16 @@ All notable changes to this project are documented in this file.
   raised the "deferred" counter.
 - Wails: creating a vault refuses a name already taken in the chosen parent folder.
 
+## 0.1.3 — 2026-10-27
+
+iOS only (App Store / TestFlight).
+
+### Fixed
+
+- iOS: photo auto-upload gives storage back. Switching it off deletes the copies waiting
+  for upload, and copies left behind by an interrupted upload, a crash or a former server
+  connection are removed on the next launch. Before, only deleting the app freed them.
+
 ## 0.1.2 — 2026-10-26
 
 iOS only (App Store / TestFlight).
