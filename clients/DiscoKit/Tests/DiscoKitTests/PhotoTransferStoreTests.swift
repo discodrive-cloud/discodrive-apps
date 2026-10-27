@@ -76,4 +76,35 @@ final class PhotoTransferStoreTests: XCTestCase {
         XCTAssertEqual(restored.transferChunkSize, 8 << 20)
     }
 
+    func testSweepDropsOtherAccountsAndOrphanFoldersButKeepsTheCurrentQueue() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try PhotoTransferStore(directory: root)
+        func stage(_ account: String, asset: String) throws -> PhotoTransfer {
+            let file = root.appendingPathComponent(UUID().uuidString)
+            try Data(repeating: 7, count: 1000).write(to: file)
+            let job = PhotoTransfer(account: account, assetID: asset, modified: Date(timeIntervalSince1970: 1),
+                                    created: Date(), parentID: "p", name: "a.dng", sha: "s", bytes: 1000)
+            try store.stage(job, exportedFile: file)
+            return job
+        }
+        let mine = try stage("current", asset: "1")
+        let former = try stage("former-pairing", asset: "2")
+        // A copy left by a crash between moving the export and recording it.
+        let orphan = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: orphan, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 500).write(to: orphan.appendingPathComponent("asset"))
+
+        let freed = try store.sweep(keepingAccount: "current")
+
+        XCTAssertEqual(freed, 1500)
+        XCTAssertEqual(try store.all(account: "current"), [mine])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.assetURL(mine).path))
+        XCTAssertTrue(try store.all(account: "former-pairing").isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.assetURL(former).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path))
+        // The database itself is not a stray.
+        XCTAssertNoThrow(try PhotoTransferStore(directory: root).all(account: "current"))
+        XCTAssertEqual(try store.sweep(keepingAccount: "current"), 0)
+    }
 }

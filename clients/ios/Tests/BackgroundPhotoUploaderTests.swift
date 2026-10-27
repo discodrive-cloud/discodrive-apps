@@ -136,6 +136,23 @@ final class BackgroundPhotoUploaderTests: XCTestCase {
         XCTAssertEqual(server.opens, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.assetURL(job).path))
     }
+    func testSwitchingOffFreesTheCopiesButKeepsTheQueueUsable() async throws {
+        let server = PhotoServer()
+        let (root, settings, _, journal, store, uploader, job) = try fixture(server)
+        defer { settings.reset(); try? FileManager.default.removeItem(at: root) }
+        settings.enabled = false
+        await uploader.discardQueue()
+        XCTAssertTrue(try store.all(account: job.account).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.assetURL(job).path))
+        // Not sent: switching back on exports the photo again.
+        XCTAssertFalse(try journal.isKnown(assetID: job.assetID, modified: job.modified))
+        settings.enabled = true
+        await uploader.resume()
+        let export = root.appendingPathComponent("again")
+        try Data(repeating: 0x5a, count: 9).write(to: export)
+        try uploader.enqueue(job, exportedFile: export)
+        try await waitUntil { try journal.isKnown(assetID: job.assetID, modified: job.modified) }
+    }
     func testExpiredAuthenticationKeepsExportAndRefreshesToken() async throws {
         let server = PhotoServer(); server.rejectFirstChunk = 401
         let (root, settings, _, journal, store, uploader, job) = try fixture(server)

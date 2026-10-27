@@ -171,6 +171,40 @@ public final class PhotoTransferStore: @unchecked Sendable {
         try? FileManager.default.removeItem(at: directory.appendingPathComponent(job.id, isDirectory: true))
     }
 
+    /// Removes what no current job owns: queues of former pairings (their background
+    /// session is gone with them) and job folders whose record never got written. Returns
+    /// the bytes freed. Call it before this account's queue starts moving.
+    @discardableResult
+    public func sweep(keepingAccount account: String) throws -> Int64 {
+        let stale = try db.read { db in
+            try String.fetchAll(db, sql: "SELECT DISTINCT account FROM photo_transfers WHERE account != ?", arguments: [account])
+        }
+        var freed: Int64 = 0
+        for other in stale {
+            for job in try all(account: other) {
+                freed += Self.size(of: directory.appendingPathComponent(job.id, isDirectory: true))
+                try remove(job)
+            }
+        }
+        let known = Set(try db.read { db in try String.fetchAll(db, sql: "SELECT id FROM photo_transfers") })
+        let entries = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey])
+        for entry in entries where (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            && !known.contains(entry.lastPathComponent) {
+            freed += Self.size(of: entry)
+            try FileManager.default.removeItem(at: entry)
+        }
+        return freed
+    }
+
+    private static func size(of folder: URL) -> Int64 {
+        let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey])
+        var total: Int64 = 0
+        while let file = files?.nextObject() as? URL {
+            total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
+    }
+
     public func wipe(account: String) throws {
         for job in try all(account: account) { try remove(job) }
     }

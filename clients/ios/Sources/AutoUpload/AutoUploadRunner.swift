@@ -100,6 +100,9 @@ actor AutoUploadRunner {
         let byID = Dictionary(uniqueKeysWithValues: assets.map { ($0.localIdentifier, $0) })
 
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("autoupload", isDirectory: true)
+        // Passes never overlap, so anything here is a partial export of a process that was
+        // killed mid-copy (background time ran out). iOS does not clear tmp on its own schedule.
+        try? FileManager.default.removeItem(at: tmp)
         var staged = queued.reduce(Int64(0)) { $0 + $1.bytes }
 
         for (i, item) in candidates.enumerated() {

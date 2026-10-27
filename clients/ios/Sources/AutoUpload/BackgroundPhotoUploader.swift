@@ -98,6 +98,16 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
         active.removeAll()
     }
 
+    /// Stops every transfer and deletes the queued copies; nothing is marked sent, so the
+    /// photos are discovered again later.
+    func discardQueue() async {
+        await pause()
+        do { try store.wipe(account: api.transferIdentity) }
+        catch { Self.log.error("discard failed: \(String(describing: error), privacy: .public)") }
+        retryNotBefore.removeAll()
+        onChange?()
+    }
+
     func invalidate() {
         valid = false; paused = true
         retryTask?.cancel()

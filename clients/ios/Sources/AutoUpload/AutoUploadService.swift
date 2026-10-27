@@ -68,8 +68,17 @@ final class AutoUploadService: NSObject, ObservableObject {
         let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                appropriateFor: nil, create: true)
             .appendingPathComponent("DiscoDrive/PhotoTransfers", isDirectory: true)
-        let transfers = BackgroundPhotoUploader(api: api, store: try PhotoTransferStore(directory: root),
-                                               journal: try openJournal())
+        let store = try PhotoTransferStore(directory: root)
+        if self.transfers == nil {
+            // First queue of this process: nothing is staging yet. Copies of a former pairing
+            // or of a crash between moving and recording an export would otherwise stay
+            // until the app is deleted.
+            do {
+                let freed = try store.sweep(keepingAccount: api.transferIdentity)
+                if freed > 0 { Self.log.notice("swept \(freed) bytes of stale exports") }
+            } catch { Self.log.error("sweep failed: \(String(describing: error), privacy: .public)") }
+        }
+        let transfers = BackgroundPhotoUploader(api: api, store: store, journal: try openJournal())
         transfers.onChange = { [weak self, weak transfers] in
             guard let self, let transfers, self.transfers === transfers else { return }
             let jobs = (try? transfers.queued()) ?? []
@@ -146,7 +155,9 @@ final class AutoUploadService: NSObject, ObservableObject {
             // Switching off has to stop what is happening now, not just what would happen
             // next: a back-fill of a few thousand photos would otherwise run to completion.
             stopPass()
-            await transfers?.pause()
+            // Switched off, the copies waiting for upload are just occupied space. The
+            // photos stay in the library and are exported again if it is switched back on.
+            await transfers?.discardQueue()
             stopObserving()
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskID)
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
