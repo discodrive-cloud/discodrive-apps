@@ -25,14 +25,24 @@ public struct PhotoTransfer: Codable, Sendable, Equatable {
     // Optional: records written before these existed must still decode.
     public var problem: UploadProblem?
     public var failedAt: Date?
+    /// Which file of the asset this is. Nil: a job queued by a former version, one file
+    /// per asset (see ``LegacyUpload``).
+    public var part: PhotoPart?
+    /// The edit replaces its own earlier upload: it goes up under `name` as a new version
+    /// of that file instead of looking for a free name.
+    public var replaces: Bool?
+    public var replacesFile: Bool { replaces ?? false }
 
     public init(account: String, assetID: String, modified: Date, created: Date,
-                parentID: String, name: String, sha: String, bytes: Int64) {
+                parentID: String, name: String, sha: String, bytes: Int64,
+                part: PhotoPart? = nil, replaces: Bool = false) {
         id = UUID().uuidString
         self.account = account; self.assetID = assetID; self.modified = modified
         self.created = created; self.parentID = parentID; self.name = name
         self.sha = sha; self.bytes = bytes
         self.chunkSize = 64 << 20
+        self.part = part
+        self.replaces = replaces ? true : nil
     }
 
     public mutating func deferRetry(_ error: Error, now: Date = Date()) {
@@ -71,13 +81,24 @@ public final class PhotoTransferStore: @unchecked Sendable {
         #endif
         db = try DatabaseQueue(path: directory.appendingPathComponent("queue.sqlite").path)
         try db.write { db in
+            // A former queue holds one job per asset version; parts need the part in the key.
+            let former = try db.tableExists("photo_transfers")
+                && !(try db.columns(in: "photo_transfers").contains { $0.name == "part" })
+            if former { try db.execute(sql: "ALTER TABLE photo_transfers RENAME TO photo_transfers_v1") }
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS photo_transfers (
                     id TEXT PRIMARY KEY, account TEXT NOT NULL, asset TEXT NOT NULL,
-                    modified INTEGER NOT NULL, payload BLOB NOT NULL,
-                    UNIQUE(account, asset, modified)
+                    modified INTEGER NOT NULL, part TEXT NOT NULL DEFAULT '', payload BLOB NOT NULL,
+                    UNIQUE(account, asset, modified, part)
                 )
                 """)
+            if former {
+                try db.execute(sql: """
+                    INSERT INTO photo_transfers(id, account, asset, modified, part, payload)
+                    SELECT id, account, asset, modified, '', payload FROM photo_transfers_v1;
+                    DROP TABLE photo_transfers_v1;
+                    """)
+            }
         }
     }
 
@@ -97,12 +118,15 @@ public final class PhotoTransferStore: @unchecked Sendable {
 
     public func save(_ job: PhotoTransfer) throws {
         let payload = try JSONEncoder().encode(job)
-        try db.write { db in
-            try db.execute(sql: """
-                INSERT INTO photo_transfers(id, account, asset, modified, payload) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
-                """, arguments: [job.id, job.account, job.assetID, Int64(job.modified.timeIntervalSince1970 * 1000), payload])
-        }
+        try db.write { db in try Self.insert(job, payload: payload, into: db) }
+    }
+
+    private static func insert(_ job: PhotoTransfer, payload: Data, into db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO photo_transfers(id, account, asset, modified, part, payload) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+            """, arguments: [job.id, job.account, job.assetID, Int64(job.modified.timeIntervalSince1970 * 1000),
+                             job.part?.rawValue ?? "", payload])
     }
 
     /// Moves only an app-owned export, never a PhotoKit original. Persist before handing
@@ -118,6 +142,31 @@ public final class PhotoTransferStore: @unchecked Sendable {
             try save(job)
         } catch {
             try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    /// Stages the parts of one asset together: either all are queued or none is. A part
+    /// published while its sibling is still being queued would mark the asset done.
+    public func stage(_ items: [(job: PhotoTransfer, file: URL)]) throws {
+        var moved: [PhotoTransfer] = []
+        do {
+            for (job, file) in items {
+                let folder = directory.appendingPathComponent(job.id, isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                moved.append(job)
+                try FileManager.default.moveItem(at: file, to: assetURL(job))
+                #if os(iOS)
+                try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: assetURL(job).path)
+                #endif
+            }
+            let payloads = try items.map { try JSONEncoder().encode($0.job) }
+            try db.write { db in
+                for (item, payload) in zip(items, payloads) { try Self.insert(item.job, payload: payload, into: db) }
+            }
+        } catch {
+            for job in moved { try? FileManager.default.removeItem(at: directory.appendingPathComponent(job.id, isDirectory: true)) }
+            for (_, file) in items { try? FileManager.default.removeItem(at: file) }
             throw error
         }
     }

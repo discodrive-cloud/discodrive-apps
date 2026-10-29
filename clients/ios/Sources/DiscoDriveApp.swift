@@ -79,9 +79,21 @@ struct DiscoDriveApp: App {
                 #if DEBUG
                 // Drives one pass end to end for automated checks, since the simulator
                 // cannot flip the switch by hand.
-                if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_AUTOUPLOAD"] == "1" {
+                let env = ProcessInfo.processInfo.environment
+                // An isolated server for the run: the device token of a pairing made by the
+                // harness, the certificate trusted as it is (a local stand is self-signed).
+                // DISCODRIVE_TEST_PIN: the certificate's SHA-256, as the pairing screen shows it.
+                if let server = env["DISCODRIVE_TEST_SERVER"].flatMap(URL.init(string:)),
+                   let token = env["DISCODRIVE_TEST_TOKEN"], !token.isEmpty {
+                    app.activate(serverURL: server, token: token, pin: env["DISCODRIVE_TEST_PIN"])
+                }
+                if env["DISCODRIVE_TEST_AUTOUPLOAD"] == "1" {
                     Task {
                         let status = await PhotoLibrarySource.requestAccess()
+                        // Library changes the run checks: Live Photos, edits, reverts.
+                        var seeded = "-"
+                        if let steps = env["DISCODRIVE_TEST_SEED"] { seeded = await E2ESeed.run(steps) }
+                        while !app.paired { try? await Task.sleep(for: .milliseconds(200)) }
                         await AutoUploadService.shared.setEnabled(true)
                         let r = await AutoUploadService.shared.runPass()
                         // A background launch swallows stdout, so the result goes to a file
@@ -93,7 +105,7 @@ struct DiscoDriveApp: App {
                         photos=\(status.rawValue) enabled=\(AutoUploadSettings.shared.enabled) \
                         journal_sent=\(totals?.sent ?? -1) journal_skipped=\(totals?.skipped ?? -1) \
                         journal_deferred=\(totals?.deferred ?? -1) \
-                        lastpass_blocked=\(r.blocked) lastpass_error=\(r.error ?? "-")
+                        lastpass_blocked=\(r.blocked) lastpass_error=\(r.error ?? "-") seed=\(seeded)
                         """
                         let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                             .appendingPathComponent("autoupload_result.txt")
@@ -105,3 +117,4 @@ struct DiscoDriveApp: App {
         }
     }
 }
+

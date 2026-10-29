@@ -42,6 +42,9 @@ public struct JournalCounts: Sendable {
 ///
 /// Identity is the asset's local identifier plus its modification date: editing a photo in
 /// Photos bumps that date, and the edited version is genuinely new content.
+///
+/// An asset goes up in parts (``PhotoPart``); `upload_parts` remembers each one on the
+/// server, so a later edit replaces only the edit and the original never goes twice.
 public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is internally synchronized
     private let dbQueue: DatabaseQueue
 
@@ -72,6 +75,20 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
                 CREATE TABLE IF NOT EXISTS photo_discovery_cursor(id INTEGER PRIMARY KEY CHECK(id = 1), token BLOB NOT NULL);
                 CREATE TABLE IF NOT EXISTS photo_discovery_pending(asset_id TEXT PRIMARY KEY, modified INTEGER NOT NULL);
                 CREATE INDEX IF NOT EXISTS idx_photo_pending_modified ON photo_discovery_pending(modified DESC);
+                CREATE TABLE IF NOT EXISTS upload_parts(
+                  asset_id TEXT NOT NULL,
+                  part TEXT NOT NULL,
+                  sha TEXT NOT NULL,
+                  server_name TEXT NOT NULL,
+                  at INTEGER NOT NULL,
+                  PRIMARY KEY(asset_id, part)
+                );
+                CREATE TABLE IF NOT EXISTS legacy_uploads(
+                  asset_id TEXT PRIMARY KEY,
+                  modified INTEGER NOT NULL,
+                  sha TEXT,
+                  server_name TEXT
+                );
             """)
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
             if version < 1 {
@@ -83,15 +100,30 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
                     """, arguments: [UploadState.sent.rawValue])
                 try db.execute(sql: "PRAGMA user_version = 1")
             }
+            if version < 2 {
+                // Uploads from before parts: one file each, the edit in place of the original
+                // when there was one, and no Live video. Look at each once more.
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO legacy_uploads(asset_id, modified, sha, server_name)
+                    SELECT asset_id, modified, sha, server_name FROM uploads WHERE state = ?
+                    """, arguments: [UploadState.sent.rawValue])
+                try db.execute(sql: """
+                    INSERT INTO photo_discovery_pending(asset_id, modified)
+                    SELECT asset_id, modified FROM legacy_uploads WHERE true
+                    ON CONFLICT(asset_id) DO NOTHING
+                    """)
+                try db.execute(sql: "PRAGMA user_version = 2")
+            }
         }
     }
 
     /// True when this exact version of the asset was already handled. A deferred asset is
-    /// NOT known: it is meant to be retried.
+    /// NOT known: it is meant to be retried; nor is a former upload still to be looked at.
     public func isKnown(assetID: String, modified: Date) throws -> Bool {
         try dbQueue.read { db in
             let row = try Row.fetchOne(db, sql: """
                 SELECT state FROM uploads WHERE asset_id = ? AND modified = ?
+                  AND NOT EXISTS(SELECT 1 FROM legacy_uploads l WHERE l.asset_id = uploads.asset_id)
             """, arguments: [assetID, Int64(modified.timeIntervalSince1970 * 1000)])
             guard let row else { return false }
             return (row["state"] as String?) != UploadState.deferred.rawValue
@@ -122,10 +154,68 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
     /// Records an upload. `modified` must be the value the upload actually read, not
     /// today's: an asset edited mid-upload would otherwise be stored under its NEW identity
     /// and the edit would never be sent.
+    ///
+    /// `legacy`: the upload of a transfer queued by a former version (one file, see
+    /// ``LegacyUpload``); it is looked at once more, like the former uploads.
     public func markSent(assetID: String, modified: Date, bytes: Int64,
-                         sha: String?, serverName: String) throws {
+                         sha: String?, serverName: String, legacy: Bool = false) throws {
         try put(assetID: assetID, modified: modified, bytes: bytes, sha: sha,
                 serverName: serverName, state: .sent, error: nil, attempts: 0)
+        guard legacy else { return }
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO legacy_uploads(asset_id, modified, sha, server_name) VALUES (?, ?, ?, ?)
+                """, arguments: [assetID, Int64(modified.timeIntervalSince1970 * 1000), sha, serverName])
+            try db.execute(sql: """
+                INSERT INTO photo_discovery_pending(asset_id, modified) VALUES (?, ?)
+                ON CONFLICT(asset_id) DO NOTHING
+                """, arguments: [assetID, Int64(modified.timeIntervalSince1970 * 1000)])
+        }
+    }
+
+    /// The parts of an asset on the server, as last sent.
+    public func parts(assetID: String) throws -> [PhotoPart: RecordedPart] {
+        try dbQueue.read { db in
+            var out: [PhotoPart: RecordedPart] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT part, sha, server_name FROM upload_parts WHERE asset_id = ?",
+                                        arguments: [assetID]) {
+                guard let part = PhotoPart(rawValue: row["part"]) else { continue }
+                out[part] = RecordedPart(sha: row["sha"], serverName: row["server_name"])
+            }
+            return out
+        }
+    }
+
+    public func recordPart(assetID: String, part: PhotoPart, sha: String, serverName: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO upload_parts(asset_id, part, sha, server_name, at) VALUES (?, ?, ?, ?, ?)
+                """, arguments: [assetID, part.rawValue, sha, serverName, Int64(Date().timeIntervalSince1970 * 1000)])
+        }
+    }
+
+    public func forgetPart(assetID: String, part: PhotoPart) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM upload_parts WHERE asset_id = ? AND part = ?", arguments: [assetID, part.rawValue])
+        }
+    }
+
+    /// A former upload of this asset still to be looked at.
+    public func legacyUpload(assetID: String) throws -> LegacyUpload? {
+        try dbQueue.read { db in
+            try Row.fetchOne(db, sql: "SELECT modified, sha, server_name FROM legacy_uploads WHERE asset_id = ?",
+                             arguments: [assetID]).map {
+                LegacyUpload(modified: Date(timeIntervalSince1970: Double($0["modified"] as Int64) / 1000),
+                             sha: $0["sha"], serverName: $0["server_name"])
+            }
+        }
+    }
+
+    /// The former upload has been turned into parts.
+    public func forgetLegacy(assetID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM legacy_uploads WHERE asset_id = ?", arguments: [assetID])
+        }
     }
 
     public func markDeferred(assetID: String, modified: Date, error: String) throws {
@@ -178,7 +268,10 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
     /// what was sent to this one says nothing about what that one has.
     public func wipe() throws {
         try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM uploads; DELETE FROM photo_discovery_pending; DELETE FROM photo_discovery_cursor")
+            try db.execute(sql: """
+                DELETE FROM uploads; DELETE FROM photo_discovery_pending; DELETE FROM photo_discovery_cursor;
+                DELETE FROM upload_parts; DELETE FROM legacy_uploads
+                """)
         }
     }
 
@@ -234,7 +327,8 @@ public final class UploadJournal: @unchecked Sendable {   // dbQueue (GRDB) is i
                 }
                 let known = try Bool.fetchOne(db, sql: """
                     SELECT EXISTS(SELECT 1 FROM uploads WHERE asset_id = ? AND modified = ? AND state != ?)
-                    """, arguments: [asset.id, modified, UploadState.deferred.rawValue]) ?? false
+                      AND NOT EXISTS(SELECT 1 FROM legacy_uploads WHERE asset_id = ?)
+                    """, arguments: [asset.id, modified, UploadState.deferred.rawValue, asset.id]) ?? false
                 if known {
                     try db.execute(sql: "DELETE FROM photo_discovery_pending WHERE asset_id = ?", arguments: [asset.id])
                 } else {

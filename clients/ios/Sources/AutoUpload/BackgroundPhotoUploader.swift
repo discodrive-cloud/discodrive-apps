@@ -74,10 +74,11 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
 
     func queued() throws -> [PhotoTransfer] { try store.all(account: api.transferIdentity) }
 
-    func enqueue(_ job: PhotoTransfer, exportedFile: URL) throws {
-        guard valid, settings.enabled, !paused, job.account == api.transferIdentity else { throw CancellationError() }
-        guard try !store.contains(account: job.account, assetID: job.assetID, modified: job.modified) else { return }
-        try store.stage(job, exportedFile: exportedFile)
+    /// Queues the parts of one asset together (see ``PhotoTransferStore/stage(_:)``).
+    func enqueue(_ jobs: [(job: PhotoTransfer, file: URL)]) throws {
+        guard valid, settings.enabled, !paused,
+              jobs.allSatisfy({ $0.job.account == api.transferIdentity }) else { throw CancellationError() }
+        try store.stage(jobs)
         onChange?()
         pump()
     }
@@ -186,7 +187,9 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
                 // asset's queue slot forever. The photo library remains authoritative.
                 try store.remove(job); return
             }
-            if try journal.isKnown(assetID: job.assetID, modified: job.modified) {
+            if let part = job.part {
+                if try journal.parts(assetID: job.assetID)[part]?.sha == job.sha { try markSent(job); return }
+            } else if try journal.isKnown(assetID: job.assetID, modified: job.modified) {
                 try store.remove(job); return
             }
             if let uploadID = job.uploadID {
@@ -209,14 +212,30 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
                 for reserved in try queued() where reserved.id != job.id && reserved.parentID == job.parentID {
                     if names[reserved.name] == nil { names[reserved.name] = "" }
                 }
-                switch NameResolver.resolve(job.name, exists: { name in
-                    guard let hash = names[name] else { return .absent }
-                    return hash == job.sha ? .same : .different
-                }) {
-                case .alreadyThere:
+                // The edit and the Live video take the original's name as it landed.
+                if job.part == .edit || job.part == .live, !job.replacesFile,
+                   let original = try journal.parts(assetID: job.assetID)[.original], !original.serverName.isEmpty {
+                    job.name = job.part == .edit
+                        ? PhotoParts.editName(original: original.serverName, resource: job.name)
+                        : PhotoParts.liveName(original: original.serverName, resource: job.name)
+                }
+                // A new version of the edit this phone sent goes under the same name, on
+                // purpose, but only over that file: one the user put there since is theirs.
+                let sent = job.part.flatMap { try? journal.parts(assetID: job.assetID)[$0]?.sha }
+                if job.replacesFile, names[job.name] == job.sha {
                     try markSent(job); return
-                case .upload(let name): job.name = name
-                case .noFreeName: throw APIError.http(409)
+                } else if job.replacesFile, names[job.name] == nil || names[job.name] == sent {
+                    // Ours, or gone: upload under the recorded name.
+                } else {
+                    switch NameResolver.resolve(job.name, exists: { name in
+                        guard let hash = names[name] else { return .absent }
+                        return hash == job.sha ? .same : .different
+                    }) {
+                    case .alreadyThere:
+                        try markSent(job); return
+                    case .upload(let name): job.name = name
+                    case .noFreeName: throw APIError.http(409)
+                    }
                 }
                 let opened = try await api.uploadInit(parentID: job.parentID, name: job.name, size: job.bytes, modifiedAt: job.created)
                 try checkActive()
@@ -257,9 +276,22 @@ final class BackgroundPhotoUploader: NSObject, URLSessionDataDelegate {
     private func markSent(_ job: PhotoTransfer) throws {
         // Journal first: a crash between these operations is cleaned up on restore,
         // without republishing the asset or recreating a file deleted on the server.
-        try journal.markSent(assetID: job.assetID, modified: job.modified,
-                             bytes: job.bytes, sha: job.sha, serverName: job.name)
-        try store.remove(job)
+        if let part = job.part {
+            try journal.recordPart(assetID: job.assetID, part: part, sha: job.sha, serverName: job.name)
+            try store.remove(job)
+            // The asset is done when no part of this version is left in the queue.
+            if try !queued().contains(where: { $0.assetID == job.assetID && $0.modified == job.modified }) {
+                let original = try journal.parts(assetID: job.assetID)[.original]
+                try journal.markSent(assetID: job.assetID, modified: job.modified, bytes: job.bytes,
+                                     sha: original?.sha ?? job.sha,
+                                     serverName: original.map(\.serverName).flatMap { $0.isEmpty ? nil : $0 } ?? job.name)
+            }
+        } else {
+            // Queued by a former version: one file, looked at again as a former upload.
+            try journal.markSent(assetID: job.assetID, modified: job.modified,
+                                 bytes: job.bytes, sha: job.sha, serverName: job.name, legacy: true)
+            try store.remove(job)
+        }
         retryNotBefore[job.id] = nil
         lastProgress = Date()
         Self.log.notice("published: \(job.id, privacy: .public)")

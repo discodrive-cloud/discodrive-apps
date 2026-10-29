@@ -64,21 +64,33 @@ enum PhotoLibrarySource {
         )
     }
 
-    /// Writes the asset's bytes to a temporary file and hands back the URL.
+    /// The resources of an asset by part: the camera's file, the adjusted render when the
+    /// asset is edited, a Live Photo's video. The edit of a Live Photo's video is left out:
+    /// the gallery would hang both videos on the card.
+    struct Parts {
+        let original: PHAssetResource
+        let edit: PHAssetResource?
+        let live: PHAssetResource?
+    }
+
+    static func parts(of asset: PHAsset) -> Parts? {
+        let resources = PHAssetResource.assetResources(for: asset)
+        let video = asset.mediaType == .video
+        guard let original = resources.first(where: { $0.type == (video ? .video : .photo) })
+            ?? resources.first(where: { $0.type == .photo || $0.type == .video }) else { return nil }
+        return Parts(original: original,
+                     edit: resources.first { $0.type == (video ? .fullSizeVideo : .fullSizePhoto) },
+                     live: video ? nil : resources.first { $0.type == .pairedVideo })
+    }
+
+    /// Writes one resource's bytes to a temporary file and hands back the URL.
     ///
     /// `isNetworkAccessAllowed` matters: with "Optimise iPhone Storage" the full-size
     /// original lives in iCloud and a local-only read would either fail or silently hand
     /// back a thumbnail-grade copy.
-    static func export(_ asset: PHAsset, to directory: URL) async throws -> (url: URL, item: PhotoItem) {
-        guard let item = describe(asset) else { throw PhotoSourceError.noResource }
-        let resources = PHAssetResource.assetResources(for: asset)
-        let preferred = resources.first { $0.type == .fullSizePhoto || $0.type == .fullSizeVideo }
-            ?? resources.first { $0.type == .photo || $0.type == .video }
-            ?? resources.first
-        guard let resource = preferred else { throw PhotoSourceError.noResource }
-
+    nonisolated(nonsending) static func export(_ resource: PHAssetResource, to directory: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let dest = directory.appendingPathComponent(UUID().uuidString + "-" + item.filename)
+        let dest = directory.appendingPathComponent(UUID().uuidString + "-" + resource.originalFilename)
         try? FileManager.default.removeItem(at: dest)
 
         let options = PHAssetResourceRequestOptions()
@@ -95,7 +107,7 @@ enum PhotoLibrarySource {
             try? FileManager.default.removeItem(at: dest)
             throw error
         }
-        return (dest, item)
+        return dest
     }
 }
 

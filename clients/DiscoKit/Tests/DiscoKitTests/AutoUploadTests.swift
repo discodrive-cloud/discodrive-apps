@@ -78,8 +78,10 @@ final class UploadJournalTests: XCTestCase {
         try db.write { try $0.execute(sql: "PRAGMA user_version = 0") }   // a journal from before
         let j = try UploadJournal(dbQueue: db)
         XCTAssertFalse(try j.isKnown(assetID: "lost", modified: v))
-        XCTAssertTrue(try j.isKnown(assetID: "sent", modified: v))
-        XCTAssertTrue(try j.isKnown(assetID: "same", modified: v))
+        XCTAssertNil(try j.legacyUpload(assetID: "lost"))
+        // Real uploads stay recorded, as former uploads to be split into parts.
+        XCTAssertEqual(try j.legacyUpload(assetID: "sent")?.serverName, "FullSizeRender-3.jpg")
+        XCTAssertEqual(try j.legacyUpload(assetID: "same")?.sha, "H3")
     }
 
     func testGivenUpAssetIsRetriedDaily() throws {
