@@ -8,7 +8,7 @@
 
 **Les applis clientes DiscoDrive — pour tous vos appareils.** Un démon de synchronisation en arrière-plan, un client de bureau et des applis mobiles natives dans un seul dépôt.
 
-Ceci est le dépôt des clients pour le [serveur DiscoDrive](https://github.com/kosmosoid/discodrive) — votre cloud personnel pour fichiers, calendriers, contacts, tâches, musique et livres.
+Ceci est le dépôt des clients pour le [serveur DiscoDrive](https://github.com/discodrive-cloud/discodrive) — votre cloud personnel pour fichiers, calendriers, contacts, tâches, musique et livres.
 
 Multiplateforme : macOS, Windows, Linux et Android. Un seul `Makefile` construit la bonne variante pour le bon OS.
 

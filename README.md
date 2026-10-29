@@ -8,7 +8,7 @@
 
 **DiscoDrive client apps — for all your devices.** A background sync daemon, a desktop client and native mobile apps in one repository.
 
-This is the client repository for the [DiscoDrive server](https://github.com/kosmosoid/discodrive) — your own private cloud for files, calendars, contacts, tasks, music and books.
+This is the client repository for the [DiscoDrive server](https://github.com/discodrive-cloud/discodrive) — your own private cloud for files, calendars, contacts, tasks, music and books.
 
 Cross-platform: macOS, Windows, Linux, Android and iOS. A single `Makefile` builds the right variant for the right OS.
 
