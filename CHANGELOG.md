@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- iOS, Android: auto-upload skips photos that are already in the server's gallery,
+- Android: auto-upload skips photos that are already in the server's gallery,
   for example ones imported from another device or app.
 
 ### Fixed
@@ -15,6 +15,19 @@ All notable changes to this project are documented in this file.
   connection, a server or sign-in problem) in the app's language. Until now failures only
   raised the "deferred" counter.
 - Wails: creating a vault refuses a name already taken in the chosen parent folder.
+
+## 0.1.5 — 2026-10-30
+
+iOS only (App Store / TestFlight).
+
+### Changed
+
+- iOS: photo auto-upload sends a photo as its parts: the original, the edit made in Photos
+  (as `<name>_E.*` beside it) and a Live Photo's video. Editing again replaces the edit on
+  the server, reverting the edit moves it to the server's trash. Photos sent by earlier
+  versions — where the edit went up instead of the original — are sorted out once.
+- iOS: auto-upload skips photos that are already in the server's gallery, for example ones
+  imported from another device or app.
 
 ## 0.1.3 — 2026-10-27
 
