@@ -200,7 +200,12 @@ class AutoUploadRunner(
                 else Core.existsWithHash(browser, destID, candidate, sha)
             }
             val name = when (resolution) {
-                is Resolution.Upload -> resolution.name
+                is Resolution.Upload -> if (inGallery(sha)) {
+                    // The gallery has it under another folder or name (imported earlier,
+                    // sent from another device): the same bytes would only be a copy.
+                    journal.markSent(file, serverName = file.name, sha = sha, size = size, mtime = mtime)
+                    return Outcome.SKIPPED
+                } else resolution.name
                 Resolution.AlreadyThere -> {
                     // Already on the server byte for byte: record it so the next pass does
                     // not hash it again.
@@ -232,6 +237,16 @@ class AutoUploadRunner(
             }
             Outcome.DEFERRED
         }
+    }
+
+    /**
+     * Whether the gallery already holds this content. A failed check uploads: a copy costs
+     * space, a wrong skip would lose the photo.
+     */
+    private fun inGallery(sha: String): Boolean = try {
+        Core.inGallery(browser, sha)
+    } catch (e: Exception) {
+        false
     }
 
     private fun forgetDestination(destID: String) {

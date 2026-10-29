@@ -534,6 +534,23 @@ public actor APIClient {
         return try JSONDecoder().decode(Out.self, from: data).id
     }
 
+    /// Which of the sha256 hashes the user's photo gallery already holds, in any folder and
+    /// under any name. A server without the gallery (404: older than the route; 409: built
+    /// without media tools) knows none.
+    public func knownPhotoHashes(_ hashes: [String]) async throws -> Set<String> {
+        guard !hashes.isEmpty else { return [] }
+        let body = try JSONEncoder().encode(["hashes": hashes])
+        let data: Data
+        do {
+            data = try await send("POST", path: "me/photos/v1/known", body: body,
+                                  contentType: "application/json", ok: [200])
+        } catch APIError.http(let code) where code == 404 || code == 409 {
+            return []
+        }
+        struct Out: Decodable { let known: [String] }
+        return Set(try JSONDecoder().decode(Out.self, from: data).known.map { $0.lowercased() })
+    }
+
     // MARK: - Chunked upload (/upload/*)
 
     /// An open upload session: where to send chunks, and which one the server wants next.

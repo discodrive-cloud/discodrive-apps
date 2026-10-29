@@ -43,6 +43,12 @@ object Core {
     fun existsWithHash(b: Browser, parentNodeID: String, name: String, sha: String): String =
         b.existsWithHash(parentNodeID, name, sha)
 
+    /**
+     * Whether the photo gallery already holds this content in any folder (one round trip).
+     * False when the server has no gallery.
+     */
+    fun inGallery(b: Browser, sha: String): Boolean = b.inGallery(sha)
+
     /** Node id of the destination folder, created on first use. */
     fun ensureFolder(b: Browser, parentNodeID: String, name: String): String =
         b.ensureFolder(parentNodeID, name)

@@ -86,6 +86,34 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(lang, "ru")
     }
 
+    func testKnownPhotoHashes() async throws {
+        var status = 200
+        MockURLProtocol.handler = { req in
+            if req.url!.path == "/auth/device/token" { return (200, [:], Data(#"{"token":"J"}"#.utf8)) }
+            if req.url!.path == "/me/photos/v1/known" && req.httpMethod == "POST" {
+                return (status, [:], status == 200 ? Data(#"{"known":["AA"]}"#.utf8) : Data())
+            }
+            return (500, [:], Data())
+        }
+        let client = APIClient(baseURL: URL(string: "https://x.test")!,
+                               deviceToken: "D", session: MockURLProtocol.session())
+        let known = try await client.knownPhotoHashes(["aa", "bb"])
+        XCTAssertEqual(known, ["aa"])
+        // A server without the gallery knows none; other failures surface.
+        for code in [404, 409] {
+            status = code
+            let none = try await client.knownPhotoHashes(["aa"])
+            XCTAssertTrue(none.isEmpty, "HTTP \(code)")
+        }
+        status = 500
+        do {
+            _ = try await client.knownPhotoHashes(["aa"])
+            XCTFail("Expected HTTP failure")
+        } catch APIError.http(let code) {
+            XCTAssertEqual(code, 500)
+        }
+    }
+
     func testSetLanguageSendsPut() async throws {
         var method = ""
         MockURLProtocol.handler = { req in

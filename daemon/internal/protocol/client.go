@@ -641,6 +641,37 @@ func okClose(resp *http.Response, what string) error {
 	return nil
 }
 
+// KnownPhotoHashes asks which of the sha256 hashes the user's photo gallery already
+// holds (POST /me/photos/v1/known), in any folder and under any name. A server without the
+// gallery (404: older than the route; 409: built without media tools) knows none.
+func (c *Client) KnownPhotoHashes(ctx context.Context, hashes []string) (map[string]bool, error) {
+	known := map[string]bool{}
+	if len(hashes) == 0 {
+		return known, nil
+	}
+	resp, err := c.doJSON(ctx, http.MethodPost, "/me/photos/v1/known", map[string]any{"hashes": hashes})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusConflict:
+		return known, nil
+	case resp.StatusCode != http.StatusOK:
+		return nil, statusErr(resp, "POST /me/photos/v1/known")
+	}
+	var out struct {
+		Known []string `json:"known"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	for _, h := range out.Known {
+		known[strings.ToLower(h)] = true
+	}
+	return known, nil
+}
+
 // --- chunked upload (/upload/*), mirrors the web UI's resumable protocol ---
 
 // UploadInit starts a chunked upload of name under parentID ("" = root). Returns the

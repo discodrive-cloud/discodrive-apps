@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- iOS, Android: auto-upload skips photos that are already in the server's gallery,
+  for example ones imported from another device or app.
+
 ### Fixed
 
 - Android: auto-upload explains why uploads are not going through (no space, no

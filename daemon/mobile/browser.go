@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"discodrive.org/daemon/internal/index"
 	"discodrive.org/daemon/internal/localname"
@@ -283,6 +284,18 @@ func (b *Browser) ExistsWithHash(parentNodeID, name, sha string) (string, error)
 	default:
 		return ExistsDifferent, nil
 	}
+}
+
+// InGallery reports whether the user's photo gallery already holds a file with this
+// sha256, in any folder and under any name: auto-upload then has nothing to send. Unlike
+// ExistsWithHash it asks the server (one round trip). A server without the gallery
+// answers false.
+func (b *Browser) InGallery(sha string) (bool, error) {
+	known, err := b.client.KnownPhotoHashes(context.Background(), []string{sha})
+	if err != nil {
+		return false, err
+	}
+	return known[strings.ToLower(sha)], nil
 }
 
 // Mkdir creates a folder under parentNodeID ("" = root), then refreshes the index.

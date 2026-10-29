@@ -163,6 +163,14 @@ actor AutoUploadRunner {
                     result.deferred += 1
                     continue
                 }
+                if await inGallery(sha) {
+                    // The gallery has it under another folder or name (imported earlier,
+                    // sent from another device): the same bytes would only be a copy.
+                    try journal.markSent(assetID: item.id, modified: item.modified,
+                                         bytes: 0, sha: sha, serverName: described.filename)
+                    result.skipped += 1
+                    continue
+                }
 
                 let bytes = Int64((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)??.int64Value ?? 0)
                 guard !isCancelled() else { break }
@@ -208,6 +216,12 @@ actor AutoUploadRunner {
             }
         }
         return result
+    }
+
+    /// Whether the gallery already holds this content. A failed check uploads: a copy costs
+    /// space, a wrong skip would lose the photo.
+    private func inGallery(_ sha: String) async -> Bool {
+        (try? await api.knownPhotoHashes([sha]).contains(sha)) ?? false
     }
 
     /// `/DeviceUploads/<device>`, created on first use and cached by node id afterwards.
