@@ -8,7 +8,7 @@
 
 **DiscoDrive client apps — for all your devices.** A background sync daemon, a desktop client and native mobile apps in one repository.
 
-This is the client repository for the [DiscoDrive server](https://github.com/discodrive-cloud/discodrive) — your own private cloud for files, calendars, contacts, tasks, music and books.
+This is the client repository for the [DiscoDrive server](https://github.com/discodrive-cloud/discodrive) — your own private cloud for files, photos, calendars, contacts, tasks, music and books.
 
 Cross-platform: macOS, Windows, Linux, Android and iOS. A single `Makefile` builds the right variant for the right OS.
 
@@ -44,6 +44,7 @@ expiry/revocation, and a sync activity/error view. Native macOS also integrates 
 - **iOS recovery and sharing** — server Trash, version history/restoration, read-only links and email sharing, and sync activity in Settings. Ordinary files are available in Files; vaults stay inside the app.
 - **Full clients** — `android-discodrive` (Android) and `ios` (iOS): on-demand access to the whole storage.
 - **Folder sync** — built into the Android and iOS clients. iOS keeps its mirror in Documents/Sync and preserves existing contents separately after each new pairing. Background work follows iOS scheduling limits; `ios-fastsync` remains the minimal dedicated variant.
+- **Photo auto-upload** — iOS and Android send new photos and videos to your server by themselves, ready for the server's photo gallery. On iOS, Live Photos come with their video and edited photos with their original, and what is already on the server is not sent again.
 
 ---
 

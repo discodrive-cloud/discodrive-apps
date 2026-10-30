@@ -8,7 +8,7 @@
 
 **Las apps cliente de DiscoDrive — para todos tus dispositivos.** Un demonio de sincronización en segundo plano, un cliente de escritorio y apps móviles nativas en un solo repositorio.
 
-Este es el repositorio de los clientes del [servidor DiscoDrive](https://github.com/discodrive-cloud/discodrive) — tu nube personal para archivos, calendarios, contactos, tareas, música y libros.
+Este es el repositorio de los clientes del [servidor DiscoDrive](https://github.com/discodrive-cloud/discodrive) — tu nube personal para archivos, fotos, calendarios, contactos, tareas, música y libros.
 
 Multiplataforma: macOS, Windows, Linux y Android. Un único `Makefile` compila la variante adecuada para cada SO.
 
@@ -39,6 +39,7 @@ Una app gráfica con un modelo **bajo demanda**: la app nativa en macOS (DiscoDr
 
 - **Clientes completos** — `android-discodrive` (Android) e `ios` (iOS): acceso bajo demanda a todo el almacenamiento.
 - **Folder-sync** — en Android va integrado en el cliente completo (Ajustes → Sincronización de carpeta); `ios-fastsync` es la app mínima de iOS para la sincronización completa de una carpeta elegida.
+- **Subida automática de fotos** — iOS y Android envían por sí solos las fotos y vídeos nuevos a tu servidor, listos para la galería de fotos del servidor. En iOS, las Live Photos llegan con su vídeo y las fotos editadas con su original, y lo que ya está en el servidor no se vuelve a enviar.
 
 ---
 
