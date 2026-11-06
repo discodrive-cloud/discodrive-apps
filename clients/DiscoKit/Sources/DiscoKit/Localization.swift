@@ -578,6 +578,21 @@ public enum L10n {
             "sr": "Потврдите уређај у претраживачу који се отворио, па сачекајте…",
             "de": "Bestätigen Sie das Gerät im geöffneten Browser und warten Sie dann…",
         ],
+        // iOS: the sign-in page is shown inside the app (Safari View Controller).
+        "pair.confirmHintInApp": [
+            "en": "Sign in and confirm the device on the page that opened, then wait…",
+            "ru": "Войдите и подтвердите устройство на открывшейся странице, затем подождите…",
+            "uk": "Увійдіть і підтвердьте пристрій на відкритій сторінці, потім зачекайте…",
+            "fr": "Connectez-vous et confirmez l’appareil sur la page qui s’est ouverte, puis patientez…",
+            "es": "Inicia sesión y confirma el dispositivo en la página que se abrió y espera…",
+            "sr": "Пријавите се и потврдите уређај на страници која се отворила, па сачекајте…",
+            "de": "Melden Sie sich an, bestätigen Sie das Gerät auf der geöffneten Seite und warten Sie dann…",
+        ],
+        "pair.openSignIn": [
+            "en": "Open sign-in page", "ru": "Открыть страницу входа", "uk": "Відкрити сторінку входу",
+            "fr": "Ouvrir la page de connexion", "es": "Abrir la página de inicio de sesión",
+            "sr": "Отвори страницу за пријаву", "de": "Anmeldeseite öffnen",
+        ],
         "pair.openManually": [
             "en": "The server sent a link that was not opened automatically. If you trust it, copy it into a browser to confirm the device:",
             "ru": "Сервер прислал ссылку, которая не была открыта автоматически. Если вы ей доверяете, скопируйте её в браузер, чтобы подтвердить устройство:",

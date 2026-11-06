@@ -10,6 +10,10 @@ struct PairingView: View {
     @State private var error: String?
     /// A verification link that failed URLPolicy: shown for copying, never opened.
     @State private var manualLink: String?
+    /// The server's sign-in page, shown inside the app (App Store guideline 4: no trip to
+    /// the default browser). Kept after the sheet is closed so it can be reopened.
+    @State private var signInURL: URL?
+    @State private var presentedSignIn: PresentedURL?
     /// The server's certificate, offered for trust after a strict attempt failed on it.
     @State private var certificate: CertificateInfo?
     /// The server `certificate` was read from: a trusted pin is only ever used for it.
@@ -33,8 +37,12 @@ struct PairingView: View {
                 .padding(.horizontal, 32)
             if let info {
                 Text("\(app.t("pair.deviceCode")): \(info.userCode)").font(.headline)
-                Text(app.t("pair.confirmHint"))
+                Text(app.t(signInURL == nil ? "pair.confirmHint" : "pair.confirmHintInApp"))
                     .multilineTextAlignment(.center).foregroundStyle(.secondary).padding(.horizontal)
+                if let signInURL, presentedSignIn == nil {
+                    Button(app.t("pair.openSignIn")) { presentedSignIn = PresentedURL(url: signInURL) }
+                        .buttonStyle(.bordered)
+                }
                 if let manualLink {
                     Text(app.t("pair.openManually"))
                         .multilineTextAlignment(.center).font(.caption).padding(.horizontal)
@@ -51,6 +59,7 @@ struct PairingView: View {
             if let error = error ?? app.lastError { Text(error).foregroundStyle(.red).font(.caption) }
         }
         .padding()
+        .sheet(item: $presentedSignIn) { SafariView(url: $0.url).ignoresSafeArea() }
         .sheet(isPresented: Binding(get: { certificate != nil }, set: { if !$0 { certificate = nil } })) {
             if let certificate {
                 CertificateTrustView(certificate: certificate, onTrust: trust, onCancel: { self.certificate = nil })
@@ -74,13 +83,18 @@ struct PairingView: View {
         do {
             let info = try await app.startPairing(serverURL: url, pin: pin)
             self.info = info
-            // Only a web page on the server just typed in is handed to the system; any other
-            // scheme or host would reach whatever app claims it.
+            // Only a web page on the server just typed in is shown; any other scheme or host
+            // would reach whatever app claims it.
             if let v = URL(string: info.verificationURI, relativeTo: url)?.absoluteURL,
-               URLPolicy.isOpenable(v, relativeTo: url) { openURL(v) }
-            else { manualLink = info.verificationURI }
+               URLPolicy.isOpenable(v, relativeTo: url) {
+                // In the app, via Safari View Controller. It cannot accept a certificate the
+                // user pinned by hand, so such a server still gets the system browser.
+                if pin == nil { signInURL = v; presentedSignIn = PresentedURL(url: v) } else { openURL(v) }
+            } else { manualLink = info.verificationURI }
             try await app.confirmPairing(serverURL: url, info: info, pin: pin)
+            presentedSignIn = nil; signInURL = nil
         } catch {
+            presentedSignIn = nil; signInURL = nil
             self.info = nil
             if pin == nil, !(error is CancellationError), let untrusted = await app.untrustedCertificate(for: url) {
                 certificateURL = url

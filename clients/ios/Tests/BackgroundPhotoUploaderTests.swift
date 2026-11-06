@@ -67,7 +67,7 @@ final class BackgroundPhotoUploaderTests: XCTestCase {
         job.chunkSize = ChunkedUploader.defaultChunkSize
         let export = root.appendingPathComponent("export")
         try Data(repeating: 0x5a, count: bytes).write(to: export)
-        try uploader.enqueue(job, exportedFile: export)
+        try uploader.enqueue([(job: job, file: export)])
         return (root, settings, api, journal, store, uploader, job)
     }
 
@@ -150,7 +150,7 @@ final class BackgroundPhotoUploaderTests: XCTestCase {
         await uploader.resume()
         let export = root.appendingPathComponent("again")
         try Data(repeating: 0x5a, count: 9).write(to: export)
-        try uploader.enqueue(job, exportedFile: export)
+        try uploader.enqueue([(job: job, file: export)])
         try await waitUntil { try journal.isKnown(assetID: job.assetID, modified: job.modified) }
     }
     func testExpiredAuthenticationKeepsExportAndRefreshesToken() async throws {
