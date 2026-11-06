@@ -16,6 +16,16 @@ All notable changes to this project are documented in this file.
   raised the "deferred" counter.
 - Wails: creating a vault refuses a name already taken in the chosen parent folder.
 
+## 0.1.6 — 2026-11-06
+
+iOS only (App Store / TestFlight).
+
+### Changed
+
+- iOS: connecting to a server shows its sign-in page inside the app (Safari View
+  Controller) instead of switching to the browser. A server with a manually trusted
+  self-signed certificate still opens in the browser.
+
 ## 0.1.5 — 2026-10-30
 
 iOS only (App Store / TestFlight).
