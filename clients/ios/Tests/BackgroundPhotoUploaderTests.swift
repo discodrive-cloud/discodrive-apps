@@ -51,7 +51,7 @@ private final class PhotoServer: @unchecked Sendable {
 
 @MainActor
 final class BackgroundPhotoUploaderTests: XCTestCase {
-    private func fixture(_ server: PhotoServer, bytes: Int = 9) throws -> (URL, AutoUploadSettings, APIClient, UploadJournal, PhotoTransferStore, BackgroundPhotoUploader, PhotoTransfer) {
+    private func fixture(_ server: PhotoServer, bytes: Int = 9, part: PhotoPart? = .original) throws -> (URL, AutoUploadSettings, APIClient, UploadJournal, PhotoTransferStore, BackgroundPhotoUploader, PhotoTransfer) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = try PhotoTransferStore(directory: root)
         let defaults = UserDefaults(suiteName: "photo-tests-" + UUID().uuidString)!
@@ -63,7 +63,7 @@ final class BackgroundPhotoUploaderTests: XCTestCase {
         let api = APIClient(baseURL: URL(string: "https://test.invalid")!, deviceToken: "test", session: URLSession(configuration: config))
         let journal = try UploadJournal(path: root.appendingPathComponent("journal.sqlite").path)
         let uploader = BackgroundPhotoUploader(api: api, store: store, journal: journal, settings: settings, configuration: config)
-        var job = PhotoTransfer(account: api.transferIdentity, assetID: "asset", modified: Date(timeIntervalSince1970: 10), created: Date(), parentID: "folder", name: "photo.dng", sha: "sha", bytes: Int64(bytes))
+        var job = PhotoTransfer(account: api.transferIdentity, assetID: "asset", modified: Date(timeIntervalSince1970: 10), created: Date(), parentID: "folder", name: "photo.dng", sha: "sha", bytes: Int64(bytes), part: part)
         job.chunkSize = ChunkedUploader.defaultChunkSize
         let export = root.appendingPathComponent("export")
         try Data(repeating: 0x5a, count: bytes).write(to: export)
@@ -88,6 +88,19 @@ final class BackgroundPhotoUploaderTests: XCTestCase {
         XCTAssertEqual(server.chunks, [0,1])
         XCTAssertEqual(server.completions, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.assetURL(job).path))
+        try await uploader.logout()
+    }
+
+    /// A job queued by a version before parts (no `part`) is still published, but recorded
+    /// as a former upload so discovery looks at the asset again instead of skipping it.
+    func testFormerVersionJobIsPublishedButLookedAtAgain() async throws {
+        let server = PhotoServer()
+        let (root, settings, _, journal, store, uploader, job) = try fixture(server, part: nil)
+        defer { settings.reset(); try? FileManager.default.removeItem(at: root) }
+        await uploader.restore()
+        try await waitUntil { try store.all(account: job.account).isEmpty }
+        XCTAssertEqual(server.completions, 1)
+        XCTAssertFalse(try journal.isKnown(assetID: job.assetID, modified: job.modified))
         try await uploader.logout()
     }
 
