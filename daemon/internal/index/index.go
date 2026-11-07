@@ -76,10 +76,15 @@ func Open(path string) (*Index, error) {
 	// minutes on that alone, showing an empty file list the entire time. The index is a
 	// cache rebuildable from /sync/changes, so trading a fsync per commit for one at
 	// checkpoints costs nothing worse than re-pulling after a power loss.
+	// temp_store=MEMORY: Android has no /tmp and no TMPDIR, so an operation that needs a
+	// temporary file (a big sort, applying a large batch of changes) failed with
+	// "disk I/O error (6410)" — SQLite could not find a directory for it. The index is
+	// small enough to keep that in memory everywhere.
 	for _, pragma := range []string{
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
+		"PRAGMA temp_store=MEMORY",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()

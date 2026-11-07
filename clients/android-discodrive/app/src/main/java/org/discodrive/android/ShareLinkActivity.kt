@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -20,18 +21,29 @@ import mobile.Mobile
  * [LinkOutbox]; the app and the next share send it.
  */
 class ShareLinkActivity : Activity() {
+    // The screen stays (invisible) until the answer is in, at most ANSWER_TIMEOUT_MS: a toast
+    // shown after it closed comes from a background app, and Android (and vendor skins)
+    // often drop those silently.
+    private val ui = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val text = if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT) else null
         val subject = intent?.getStringExtra(Intent.EXTRA_SUBJECT)
         val app = applicationContext
-        scope.launch {
-            val outcome = save(app, text, subject)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(app, message(app, outcome), if (outcome == LinkShare.Outcome.SAVED || outcome == LinkShare.Outcome.QUEUED) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-            }
+        ui.launch {
+            val outcome = withContext(Dispatchers.IO) { save(app, text, subject) }
+            Toast.makeText(
+                this@ShareLinkActivity, message(app, outcome),
+                if (outcome == LinkShare.Outcome.SAVED || outcome == LinkShare.Outcome.QUEUED) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+            ).show()
+            finish()
         }
-        finish()
+    }
+
+    override fun onDestroy() {
+        ui.cancel()
+        super.onDestroy()
     }
 
     companion object {
