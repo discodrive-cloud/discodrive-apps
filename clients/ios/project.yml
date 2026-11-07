@@ -46,6 +46,8 @@ targets:
         embed: true
       - target: FileProviderUIExt
         embed: true
+      - target: ShareExtension
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios
@@ -88,6 +90,22 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.fileproviderui
         INFOPLIST_FILE: FileProviderUI/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+        excludes: [Info.plist]
+    dependencies:
+      - package: DiscoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.discodrive.ios.share
+        INFOPLIST_FILE: ShareExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: Resources/DiscoDrive.entitlements
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES

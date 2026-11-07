@@ -147,4 +147,7 @@
     <string name="cert_trust">Верујем</string>
     <string name="cert_changed">Сертификат сервера није онај коме сте веровали при упаривању. Неко можда пресреће везу. Ако је сертификат намерно замењен, раскините упаривање и упарите поново да бисте веровали новом.</string>
     <string name="settings_cert_pinned">Поуздан сертификат (SHA-256)</string>
+    <string name="share_saved">✓ Сачувано у DiscoDrive</string>
+    <string name="share_sign_in">Прво се пријавите у DiscoDrive</string>
+    <string name="share_rejected">Овај линк не може да се сачува</string>
 </resources>

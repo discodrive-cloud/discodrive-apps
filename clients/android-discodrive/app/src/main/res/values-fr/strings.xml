@@ -147,4 +147,7 @@
     <string name="cert_trust">Faire confiance</string>
     <string name="cert_changed">Le certificat du serveur n\'est pas celui que vous avez approuvé lors de l\'association. Quelqu\'un intercepte peut-être la connexion. Si le certificat a été remplacé volontairement, dissociez puis associez à nouveau l\'appareil pour approuver le nouveau.</string>
     <string name="settings_cert_pinned">Certificat approuvé (SHA-256)</string>
+    <string name="share_saved">✓ Enregistré dans DiscoDrive</string>
+    <string name="share_sign_in">Connectez-vous d’abord à DiscoDrive</string>
+    <string name="share_rejected">Ce lien ne peut pas être enregistré</string>
 </resources>

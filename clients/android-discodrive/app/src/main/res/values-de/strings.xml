@@ -147,4 +147,7 @@
     <string name="cert_trust">Vertrauen</string>
     <string name="cert_changed">Das Serverzertifikat ist nicht das, dem Sie beim Koppeln vertraut haben. Möglicherweise wird die Verbindung abgefangen. Wurde das Zertifikat absichtlich ersetzt, entkoppeln und erneut koppeln, um dem neuen zu vertrauen.</string>
     <string name="settings_cert_pinned">Vertrauenswürdiges Zertifikat (SHA-256)</string>
+    <string name="share_saved">✓ In DiscoDrive gespeichert</string>
+    <string name="share_sign_in">Melden Sie sich zuerst bei DiscoDrive an</string>
+    <string name="share_rejected">Dieser Link kann nicht gespeichert werden</string>
 </resources>

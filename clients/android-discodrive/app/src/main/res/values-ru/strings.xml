@@ -147,4 +147,7 @@
     <string name="cert_trust">Доверять</string>
     <string name="cert_changed">Сертификат сервера не тот, которому вы доверились при сопряжении. Возможно, соединение перехватывают. Если сертификат заменили намеренно, отвяжите устройство и выполните сопряжение заново, чтобы доверять новому.</string>
     <string name="settings_cert_pinned">Доверенный сертификат (SHA-256)</string>
+    <string name="share_saved">✓ Сохранено в DiscoDrive</string>
+    <string name="share_sign_in">Сначала войдите в DiscoDrive</string>
+    <string name="share_rejected">Эту ссылку нельзя сохранить</string>
 </resources>

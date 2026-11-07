@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- iOS, Android: "Share → DiscoDrive" sends a link from any app to Saved → Links on the
+  server. Without a connection the link waits on the phone and is sent later.
+
 ### Changed
 
 - Android: auto-upload skips photos that are already in the server's gallery,

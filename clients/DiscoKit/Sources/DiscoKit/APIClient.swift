@@ -335,7 +335,7 @@ public actor APIClient {
 
     // Shared authorized request with a body and a single 401 retry.
     @discardableResult
-    private func send(_ method: String, path: String, query: [URLQueryItem] = [],
+    func send(_ method: String, path: String, query: [URLQueryItem] = [],
                       body: Data? = nil, contentType: String? = nil,
                       extraHeaders: [String: String] = [:], ok: Set<Int>, node: Bool = false,
                       uploadProgress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> Data {

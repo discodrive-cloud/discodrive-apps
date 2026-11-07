@@ -54,6 +54,9 @@ class Prefs internal constructor(private val sp: SharedPreferences) {
         }
     }
 
+    /** Links shared to the app that are still waiting to reach the server. */
+    fun linkOutbox(): LinkOutbox = LinkOutbox(sp)
+
     var serverURL: String
         get() = sp.getString("serverURL", "") ?: ""
         set(v) { sp.edit().putString("serverURL", v).apply() }

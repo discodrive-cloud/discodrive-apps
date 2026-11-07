@@ -25,6 +25,20 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- "Share → DiscoDrive": no screen of its own, a toast and back to the sharing app. -->
+        <activity
+            android:name=".ShareLinkActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+        </activity>
         <!-- WorkManager declares this service without a foregroundServiceType, and promoting
              a worker to the foreground with one that the manifest does not list throws.
              Auto-upload is a data sync, so declare it here. -->

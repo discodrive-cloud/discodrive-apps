@@ -42,7 +42,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContent { DiscoDriveTheme { Root(vm, vaultVm) } }
     }
-    override fun onResume() { super.onResume(); vm.openIfPaired() }
+    override fun onResume() { super.onResume(); vm.openIfPaired(); ShareLinkActivity.flushQueued(applicationContext) }
     // The server's event stream is held only while the app is on screen (see SyncEvents).
     override fun onStart() { super.onStart(); SyncEvents.start(this) }
     override fun onStop() { SyncEvents.stop(this); super.onStop() }

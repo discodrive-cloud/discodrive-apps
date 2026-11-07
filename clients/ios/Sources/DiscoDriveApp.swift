@@ -34,6 +34,20 @@ struct DiscoDriveApp: App {
         AutoUploadService.shared.registerBackgroundTask()
     }
 
+    // The share extension shows its one line in the app's language and leaves links it could
+    // not send in the App Group outbox: hand it the language, send what waits.
+    private func sendSharedLinks() {
+        guard let group = AppState.appGroupID else { return }
+        UserDefaults(suiteName: group)?.set(app.language, forKey: "ui_language")
+        guard !Self.flushingLinks, let client = app.client, let outbox = LinkOutbox(appGroup: group) else { return }
+        Self.flushingLinks = true   // one flush at a time: the app becomes active often
+        Task { @MainActor in
+            await LinkShare.flush(outbox: outbox, client: client)
+            Self.flushingLinks = false
+        }
+    }
+    @MainActor private static var flushingLinks = false
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -60,7 +74,7 @@ struct DiscoDriveApp: App {
                 Task { if paired { await files.connect(); await fullSync.resume() } else { _ = await files.disconnect() } }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { AutoUploadService.shared.resumeIfEnabled() }
+                if phase == .active { AutoUploadService.shared.resumeIfEnabled(); sendSharedLinks() }
                 if phase == .background { AutoUploadService.shared.enteredBackground() }
                 Task {
                     if phase == .active { await fullSync.resume(); if await app.refresh() { await files.signal() } }

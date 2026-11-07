@@ -147,4 +147,7 @@
     <string name="cert_trust">Confiar</string>
     <string name="cert_changed">El certificado del servidor no es el que aceptó al vincular. Alguien podría estar interceptando la conexión. Si el certificado se cambió a propósito, desvincule y vuelva a vincular para aceptar el nuevo.</string>
     <string name="settings_cert_pinned">Certificado de confianza (SHA-256)</string>
+    <string name="share_saved">✓ Guardado en DiscoDrive</string>
+    <string name="share_sign_in">Inicie sesión primero en DiscoDrive</string>
+    <string name="share_rejected">Este enlace no se puede guardar</string>
 </resources>

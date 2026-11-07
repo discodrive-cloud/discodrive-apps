@@ -170,4 +170,7 @@
     <string name="cert_trust">Trust</string>
     <string name="cert_changed">The server\'s certificate is not the one you trusted when pairing. Someone may be intercepting the connection. If the certificate was replaced on purpose, unpair and pair again to trust the new one.</string>
     <string name="settings_cert_pinned">Trusted certificate (SHA-256)</string>
+    <string name="share_saved">✓ Saved to DiscoDrive</string>
+    <string name="share_sign_in">Sign in to DiscoDrive first</string>
+    <string name="share_rejected">This link cannot be saved</string>
 </resources>

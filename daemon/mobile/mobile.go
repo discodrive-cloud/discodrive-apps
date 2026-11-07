@@ -331,3 +331,18 @@ func (c *Client) ActivityJSON() string {
 	b, _ := json.Marshal(c.eng.Activity())
 	return string(b)
 }
+
+// SaveLink sends a link shared to the app ("Share → DiscoDrive") to Saved → Links and
+// returns the HTTP status (200 saved, 400 refused for good, 401 not paired; anything else
+// or an error: keep it and try later). sharedAtUnixMs: when a queued link was shared, 0
+// for a fresh share. Call off the UI thread.
+func SaveLink(serverURL, deviceToken, serverPin, link, title string, sharedAtUnixMs int64) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var sharedAt time.Time
+	if sharedAtUnixMs > 0 {
+		sharedAt = time.UnixMilli(sharedAtUnixMs)
+	}
+	code, err := protocol.NewUnscopedPinned(serverURL, deviceToken, serverPin).SaveLink(ctx, link, title, sharedAt)
+	return code, certError(err)
+}
