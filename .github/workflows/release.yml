@@ -306,8 +306,18 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  # Linux desktop client (Wails). WebKitGTK needs CGO, so it cannot be cross-built:
+  # each architecture builds natively on its own runner (arm64 runners are free for
+  # public repos).
   desktop-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -321,19 +331,24 @@ jobs:
           [ -n "$V" ] || V="$(jq -r '.info.productVersion' daemon/cmd/discodrive-wails/wails.json)"
           echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Build Linux binary (Docker/Debian)
-        run: make desktop-linux
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: make desktop-linux LINUX_ARCH="$ARCH"
       - name: Collect artifact
         env:
           VER: ${{ steps.ver.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p out
-          cp dist/linux/DiscoDrive "out/DiscoDrive-$VER-linux-amd64"
-          chmod +x "out/DiscoDrive-$VER-linux-amd64"
+          cp dist/linux/DiscoDrive "out/DiscoDrive-$VER-linux-$ARCH"
+          chmod +x "out/DiscoDrive-$VER-linux-$ARCH"
+          file "out/DiscoDrive-$VER-linux-$ARCH"
           ls -la out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: desktop-linux
+          name: desktop-linux-${{ matrix.arch }}
           path: out/*
+          if-no-files-found: error
 
   android:
     runs-on: ubuntu-latest

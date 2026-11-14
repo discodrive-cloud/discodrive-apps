@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - iOS, Android: "Share → DiscoDrive" sends a link from any app to Saved → Links on the
   server. Without a connection the link waits on the phone and is sent later.
+- Linux: the desktop app is released for arm64 as well as amd64.
 
 ### Changed
 
