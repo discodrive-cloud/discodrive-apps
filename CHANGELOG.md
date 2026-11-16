@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.1.7 — 2026-11-17
+
 ### Added
 
 - iOS, Android: "Share → DiscoDrive" sends a link from any app to Saved → Links on the
