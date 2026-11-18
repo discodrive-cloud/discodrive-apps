@@ -38,7 +38,9 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
         ThemeMode.LIGHT to stringResource(R.string.theme_light),
         ThemeMode.DARK to stringResource(R.string.theme_dark),
     )
-    val currentTheme = uiPrefs.themeMode
+    // State, not a plain read: Android recreates the screen only when light/dark actually
+    // flips (Light -> System on a light phone does not), so the label must update itself.
+    var currentTheme by remember { mutableStateOf(uiPrefs.themeMode) }
     var unpairDialog by remember { mutableStateOf(false) }
 
     // (BCP-47 tag, endonym). null tag = system default.
@@ -97,6 +99,7 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
                                 themeMenu = false
                                 // Saved first: switching recreates the activity, which reads it back.
                                 uiPrefs.themeMode = mode
+                                currentTheme = mode
                                 mode.apply()
                             })
                         }
