@@ -430,6 +430,37 @@ class BrowserViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Copies a file out of the app to where the user picked in the system's save dialog
+     * (Downloads, a file manager's folder, a USB stick). The cached copy stays in app
+     * storage, which no other app can see: without this an APK fetched from the drive
+     * could not reach the installer or a file manager.
+     */
+    fun saveToDevice(id: String, dest: Uri) {
+        val ctx = getApplication<Application>()
+        if (!opened) return
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(loading = true, error = null)
+            var path: String? = null
+            try {
+                path = withBrowser { it.download(id) } ?: return@launch
+                withContext(Dispatchers.IO) {
+                    val out = ctx.contentResolver.openOutputStream(dest, "wt") ?: error("Could not open the destination")
+                    out.use { o -> File(path).inputStream().use { it.copyTo(o) } }
+                }
+                android.widget.Toast.makeText(ctx, R.string.saved_to_device, android.widget.Toast.LENGTH_SHORT).show()
+                withBrowser { it.list(currentId()) }?.let { _ui.value = _ui.value.copy(entries = parse(it)) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // The picker already created an empty file; a half-written copy is worse than none.
+                runCatching { android.provider.DocumentsContract.deleteDocument(ctx.contentResolver, dest) }
+                if (path == null) failed(e) else _ui.value = _ui.value.copy(error = e.message)
+            } finally {
+                _ui.value = _ui.value.copy(loading = false)
+            }
+        }
+    }
+
+    /**
      * Reports an operation's failure. An item the server no longer has is already out of the
      * index by now (the core applied the delete it missed): relist, and say so in words
      * instead of showing the raw 404.

@@ -27,6 +27,9 @@
     <string name="menu_upload">Загрузить</string>
     <string name="menu_settings">Настройки</string>
     <string name="action_open">Открыть</string>
+    <string name="action_save_device">Сохранить на устройство</string>
+    <string name="action_send">Отправить…</string>
+    <string name="saved_to_device">Сохранено</string>
     <string name="action_download">Скачать</string>
     <string name="action_pin">Закрепить</string>
     <string name="action_unpin">Открепить</string>

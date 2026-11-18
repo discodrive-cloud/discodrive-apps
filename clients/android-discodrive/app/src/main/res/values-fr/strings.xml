@@ -27,6 +27,9 @@
     <string name="menu_upload">Téléverser</string>
     <string name="menu_settings">Paramètres</string>
     <string name="action_open">Ouvrir</string>
+    <string name="action_save_device">Enregistrer sur l\'appareil</string>
+    <string name="action_send">Envoyer…</string>
+    <string name="saved_to_device">Enregistré</string>
     <string name="action_download">Télécharger</string>
     <string name="action_pin">Épingler</string>
     <string name="action_unpin">Désépingler</string>

@@ -1,11 +1,9 @@
 package org.discodrive.android
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
-import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -23,7 +21,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -102,12 +99,15 @@ fun PreviewScreen(names: List<String>, initial: Int, load: suspend (Int) -> Stri
                 }
                 preview.image?.let { Image(it.asImageBitmap(), names[index], Modifier.fillMaxWidth().weight(1f), contentScale = ContentScale.Fit) }
                 preview.text?.let { Text(it, Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) }
-                TextButton(onClick = {
-                    val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", File(preview.path))
-                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(File(preview.path).extension.lowercase()) ?: "application/octet-stream"
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
-                        .onFailure { error = it.message }
-                }) { Text(stringResource(R.string.action_open)) }
+                val sendTitle = stringResource(R.string.action_send)
+                Row {
+                    TextButton(onClick = { runCatching { FileIntents.open(context, preview.path) }.onFailure { error = it.message } }) {
+                        Text(stringResource(R.string.action_open))
+                    }
+                    TextButton(onClick = { runCatching { FileIntents.send(context, preview.path, sendTitle) }.onFailure { error = it.message } }) {
+                        Text(sendTitle)
+                    }
+                }
             }
         }
     }

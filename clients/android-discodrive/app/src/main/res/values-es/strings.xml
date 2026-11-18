@@ -27,6 +27,9 @@
     <string name="menu_upload">Subir</string>
     <string name="menu_settings">Ajustes</string>
     <string name="action_open">Abrir</string>
+    <string name="action_save_device">Guardar en el dispositivo</string>
+    <string name="action_send">Enviar…</string>
+    <string name="saved_to_device">Guardado</string>
     <string name="action_download">Descargar</string>
     <string name="action_pin">Fijar</string>
     <string name="action_unpin">Desfijar</string>

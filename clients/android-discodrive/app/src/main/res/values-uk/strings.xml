@@ -27,6 +27,9 @@
     <string name="menu_upload">Вивантажити</string>
     <string name="menu_settings">Налаштування</string>
     <string name="action_open">Відкрити</string>
+    <string name="action_save_device">Зберегти на пристрій</string>
+    <string name="action_send">Надіслати…</string>
+    <string name="saved_to_device">Збережено</string>
     <string name="action_download">Завантажити</string>
     <string name="action_pin">Закріпити</string>
     <string name="action_unpin">Відкріпити</string>

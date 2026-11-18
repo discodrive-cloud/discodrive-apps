@@ -1,8 +1,5 @@
 package org.discodrive.android
 
-import android.content.Context
-import android.content.Intent
-import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +17,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -27,11 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
-import java.io.File
 import kotlinx.coroutines.launch
-
-private const val AUTHORITY = "org.discodrive.android.fileprovider"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +57,15 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.uploadUri(uri)
     }
+    // The system save dialog: the user picks the folder, the app needs no storage permission.
+    // Saveable, since the picker may outlive the activity.
+    var saveFor by rememberSaveable { mutableStateOf<String?>(null) }
+    val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val id = saveFor
+        saveFor = null
+        if (uri != null && id != null) vm.saveToDevice(id, uri)
+    }
+    val sendTitle = stringResource(R.string.action_send)
 
     BackHandler(enabled = !vm.atRoot()) { vm.back() }
 
@@ -148,6 +151,8 @@ fun BrowserScreen(vm: BrowserViewModel, ui: BrowseState, onUnlock: (String, Stri
             Column(Modifier.padding(bottom = 24.dp)) {
                 if (!e.isDir) {
                     sheetItem(stringResource(R.string.action_open)) { sheetFor = null; previewFiles = ui.entries.filter { !it.isDir }; previewIndex = previewFiles.indexOf(e).takeIf { it >= 0 } }
+                    sheetItem(stringResource(R.string.action_save_device)) { sheetFor = null; saveFor = e.id; saver.launch(e.name) }
+                    sheetItem(sendTitle) { sheetFor = null; vm.open(e.id) { path -> runCatching { FileIntents.send(ctx, path, sendTitle) } } }
                     sheetItem(stringResource(R.string.action_download)) { sheetFor = null; vm.download(e.id) }
                     if (e.pinned) sheetItem(stringResource(R.string.action_unpin)) { sheetFor = null; vm.unpin(e.id) }
                     else sheetItem(stringResource(R.string.action_pin)) { sheetFor = null; vm.pin(e.id) }
@@ -270,16 +275,4 @@ private fun MovePicker(vm: BrowserViewModel, moving: Entry, onDismiss: () -> Uni
         confirmButton = { TextButton(onClick = { onPick(stack.last().id) }) { Text(stringResource(R.string.move_here)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
-}
-
-private fun openInApp(ctx: Context, path: String) {
-    val file = File(path)
-    val uri = FileProvider.getUriForFile(ctx, AUTHORITY, file)
-    val ext = file.extension.lowercase()
-    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, mime)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    try { ctx.startActivity(intent) } catch (_: Exception) { }
 }
