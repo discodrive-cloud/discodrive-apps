@@ -8,6 +8,7 @@ struct DiscoDriveApp: App {
     @StateObject private var files: FilesIntegration
     @StateObject private var fullSync: FullSyncController
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(ThemeMode.storageKey) private var theme: ThemeMode = .system
 
     init() {
         KeychainConfig.accessGroup = Bundle.main.object(forInfoDictionaryKey: "DiscoDriveKeychainGroup") as? String
@@ -58,11 +59,13 @@ struct DiscoDriveApp: App {
                     SettingsView()
                 } else if ProcessInfo.processInfo.environment["DISCODRIVE_TEST_SCREEN"] == "autoupload", app.paired {
                     NavigationStack { AutoUploadView() }
-                } else if app.paired { BrowserView() } else { PairingView() }
+                } else if app.paired { BrowserView().reviewPrompt() } else { PairingView() }
                 #else
-                if app.paired { BrowserView() } else { PairingView() }
+                if app.paired { BrowserView().reviewPrompt() } else { PairingView() }
                 #endif
             }
+            // Set on the window's root, so sheets (Settings among them) follow it too.
+            .preferredColorScheme(theme.colorScheme)
             .onOpenURL { url in
                 if url.scheme == "discodrive-ios", url.host == "authenticate" { Task { await files.authenticate(url) } }
             }

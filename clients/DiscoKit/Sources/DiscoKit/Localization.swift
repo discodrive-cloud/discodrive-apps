@@ -849,6 +849,46 @@ public enum L10n {
             "fr": "Langue", "es": "Idioma", "sr": "Језик",
             "de": "Sprache",
         ],
+        "settings.theme": [
+            "en": "Theme", "ru": "Тема", "uk": "Тема",
+            "fr": "Thème", "es": "Tema", "sr": "Тема",
+            "de": "Design",
+        ],
+        "theme.system": [
+            "en": "System default", "ru": "Системная", "uk": "Системна",
+            "fr": "Système", "es": "Predeterminado del sistema", "sr": "Системска",
+            "de": "Systemstandard",
+        ],
+        "theme.light": [
+            "en": "Light", "ru": "Светлая", "uk": "Світла",
+            "fr": "Clair", "es": "Claro", "sr": "Светла",
+            "de": "Hell",
+        ],
+        "theme.dark": [
+            "en": "Dark", "ru": "Тёмная", "uk": "Темна",
+            "fr": "Sombre", "es": "Oscuro", "sr": "Тамна",
+            "de": "Dunkel",
+        ],
+        "settings.rate": [
+            "en": "Rate DiscoDrive", "ru": "Оценить DiscoDrive", "uk": "Оцінити DiscoDrive",
+            "fr": "Noter DiscoDrive", "es": "Valorar DiscoDrive", "sr": "Оцените DiscoDrive",
+            "de": "DiscoDrive bewerten",
+        ],
+        "settings.privacy": [
+            "en": "Privacy policy", "ru": "Политика конфиденциальности", "uk": "Політика конфіденційності",
+            "fr": "Politique de confidentialité", "es": "Política de privacidad", "sr": "Политика приватности",
+            "de": "Datenschutzerklärung",
+        ],
+        "settings.contact": [
+            "en": "Contact us", "ru": "Написать нам", "uk": "Написати нам",
+            "fr": "Nous contacter", "es": "Contacto", "sr": "Контакт",
+            "de": "Kontakt",
+        ],
+        "settings.version": [
+            "en": "Version", "ru": "Версия", "uk": "Версія",
+            "fr": "Version", "es": "Versión", "sr": "Верзија",
+            "de": "Version",
+        ],
         "toolbar.newFolder": [
             "en": "New folder", "ru": "Новая папка", "uk": "Нова папка",
             "fr": "Nouveau dossier", "es": "Nueva carpeta", "sr": "Нова фасцикла",

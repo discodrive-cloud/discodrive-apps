@@ -9,6 +9,7 @@ struct SettingsView: View {
     @EnvironmentObject var fullSync: FullSyncController
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDeletion = false
+    @AppStorage(ThemeMode.storageKey) private var theme: ThemeMode = .system
 
     var body: some View {
         NavigationStack {
@@ -17,6 +18,9 @@ struct SettingsView: View {
                     Picker(app.t("settings.language"), selection: Binding(
                         get: { app.language }, set: { l in Task { await app.setLanguage(l) } })) {
                         ForEach(L10n.supported, id: \.self) { Text(L10n.displayName[$0] ?? $0).tag($0) }
+                    }
+                    Picker(app.t("settings.theme"), selection: $theme) {
+                        ForEach(ThemeMode.allCases) { Text(app.t($0.titleKey)).tag($0) }
                     }
                     NavigationLink(app.t("au.title")) { AutoUploadView() }
                 }
@@ -57,6 +61,16 @@ struct SettingsView: View {
                     }
                 } header: { Text(app.t("diagnostics.title")) }
                   footer: { Text(app.t("diagnostics.hint")) }
+                // The App Store listing links to the same policy; the app points at it too,
+                // and at the one address for questions.
+                Section {
+                    Link(app.t("settings.rate"), destination: AppLinks.writeReview)
+                    Link(app.t("settings.privacy"), destination: AppLinks.privacy(language: app.language))
+                    Link(destination: AppLinks.contact) {
+                        LabeledContent(app.t("settings.contact"), value: AppLinks.contactEmail)
+                    }
+                    LabeledContent(app.t("settings.version"), value: AppLinks.version)
+                }
             }
             .navigationTitle(app.t("settings.title"))
             .navigationBarTitleDisplayMode(.inline)
