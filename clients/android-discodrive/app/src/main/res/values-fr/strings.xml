@@ -61,6 +61,11 @@
     <string name="settings_title">Paramètres</string>
     <string name="settings_language">Langue</string>
     <string name="settings_language_system">Système</string>
+    <string name="settings_theme">Thème</string>
+    <string name="theme_system">Système</string>
+    <string name="theme_light">Clair</string>
+    <string name="theme_dark">Sombre</string>
+    <string name="settings_rate">Noter DiscoDrive</string>
     <string name="settings_server">Serveur</string>
     <string name="settings_unpair">Dissocier</string>
     <string name="settings_unpair_confirm_title">Dissocier l\'appareil ?</string>

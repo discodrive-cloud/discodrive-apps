@@ -61,6 +61,11 @@
     <string name="settings_title">Настройки</string>
     <string name="settings_language">Язык</string>
     <string name="settings_language_system">Системный</string>
+    <string name="settings_theme">Тема</string>
+    <string name="theme_system">Системная</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="settings_rate">Оценить DiscoDrive</string>
     <string name="settings_server">Сервер</string>
     <string name="settings_unpair">Разорвать пару</string>
     <string name="settings_unpair_confirm_title">Разорвать пару с устройством?</string>

@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +55,7 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
     val vaultUi by vaultVm.ui.collectAsState()
     val ctx = LocalContext.current
     var hasPerm by remember { mutableStateOf(vm.hasStoragePermission()) }
-    var showSettings by remember { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     var showAutoUpload by remember { mutableStateOf(false) }
     var showFolderSync by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -67,6 +68,11 @@ fun Root(vm: BrowserViewModel, vaultVm: VaultViewModel) {
     val mediaLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasPerm = vm.hasStoragePermission()
         askedAndRefused = !hasPerm
+    }
+    // A day of use counts once the file browser is reached, paired; the Play build may then
+    // ask for a review (see StoreReview).
+    LaunchedEffect(ui.paired) {
+        if (ui.paired) (ctx as? android.app.Activity)?.let { StoreReview.onActiveSession(it) }
     }
     when {
         ui.paired && (showFolderSync || showAutoUpload) && !hasPerm -> PermissionGate(onBack = { showFolderSync = false; showAutoUpload = false }) {

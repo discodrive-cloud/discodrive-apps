@@ -6,6 +6,8 @@ import org.discodrive.android.autoupload.FolderObservers
 class DiscoDriveApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Before any activity starts, so the first frame is already in the chosen theme.
+        UiPrefs(this).themeMode.apply()
         // Instant auto-upload watches its folders for as long as the process lives, not
         // only while its screen is open: after a relaunch new photos would otherwise wait
         // for the periodic worker, which the system may defer for hours.

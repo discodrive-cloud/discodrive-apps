@@ -31,6 +31,14 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
     var logging by remember { mutableStateOf(prefs.loggingEnabled) }
     BackHandler(onBack = onBack)
     var langMenu by remember { mutableStateOf(false) }
+    val uiPrefs = remember { UiPrefs(context) }
+    var themeMenu by remember { mutableStateOf(false) }
+    val themes = listOf(
+        ThemeMode.SYSTEM to stringResource(R.string.theme_system),
+        ThemeMode.LIGHT to stringResource(R.string.theme_light),
+        ThemeMode.DARK to stringResource(R.string.theme_dark),
+    )
+    val currentTheme = uiPrefs.themeMode
     var unpairDialog by remember { mutableStateOf(false) }
 
     // (BCP-47 tag, endonym). null tag = system default.
@@ -72,6 +80,24 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
                                     if (tag == null) LocaleListCompat.getEmptyLocaleList()
                                     else LocaleListCompat.forLanguageTags(tag)
                                 )
+                            })
+                        }
+                    }
+                }
+            }
+            HorizontalDivider()
+            Column {
+                Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.labelLarge)
+                Box {
+                    Text(themes.first { it.first == currentTheme }.second,
+                        modifier = Modifier.fillMaxWidth().clickable { themeMenu = true }.padding(vertical = 12.dp))
+                    DropdownMenu(expanded = themeMenu, onDismissRequest = { themeMenu = false }) {
+                        themes.forEach { (mode, label) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                                themeMenu = false
+                                // Saved first: switching recreates the activity, which reads it back.
+                                uiPrefs.themeMode = mode
+                                mode.apply()
                             })
                         }
                     }
@@ -146,6 +172,12 @@ fun SettingsScreen(vm: BrowserViewModel, onAutoUpload: () -> Unit, onFolderSync:
                 TextButton(contentPadding = PaddingValues(vertical = 8.dp), onClick = {
                     open(context, Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email")))
                 }) { Text(stringResource(R.string.settings_contact) + " · " + email) }
+                // Play build only: the GitHub APK has no store listing to rate.
+                if (StoreReview.AVAILABLE) {
+                    TextButton(contentPadding = PaddingValues(vertical = 8.dp), onClick = {
+                        StoreReview.openListing(context)
+                    }) { Text(stringResource(R.string.settings_rate)) }
+                }
             }
             Text(
                 stringResource(R.string.settings_version) + " " + BuildConfig.VERSION_NAME,

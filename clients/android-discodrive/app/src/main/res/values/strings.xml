@@ -73,6 +73,11 @@
     <string name="settings_title">Settings</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_system">System default</string>
+    <string name="settings_theme">Theme</string>
+    <string name="theme_system">System default</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_rate">Rate DiscoDrive</string>
     <string name="settings_server">Server</string>
     <string name="settings_unpair">Unpair</string>
     <string name="settings_unpair_confirm_title">Unpair device?</string>

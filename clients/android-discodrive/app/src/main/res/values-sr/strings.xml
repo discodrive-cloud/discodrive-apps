@@ -61,6 +61,11 @@
     <string name="settings_title">Подешавања</string>
     <string name="settings_language">Језик</string>
     <string name="settings_language_system">Системски</string>
+    <string name="settings_theme">Тема</string>
+    <string name="theme_system">Системска</string>
+    <string name="theme_light">Светла</string>
+    <string name="theme_dark">Тамна</string>
+    <string name="settings_rate">Оцените DiscoDrive</string>
     <string name="settings_server">Сервер</string>
     <string name="settings_unpair">Распари</string>
     <string name="settings_unpair_confirm_title">Распарити уређај?</string>
