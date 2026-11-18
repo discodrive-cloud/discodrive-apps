@@ -4,15 +4,26 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Release CI stamps both from the tag (DISCODRIVE_VERSION_NAME / DISCODRIVE_VERSION_CODE);
-// a local build falls back to the values below. A tag that did not bump them used to ship
-// with the old code, and Android refused it as a downgrade.
-val appVersion: String = System.getenv("DISCODRIVE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.0.6"
+// Release CI stamps both from the tag (DISCODRIVE_VERSION_NAME / DISCODRIVE_VERSION_CODE).
+// A local build derives them from the latest v* tag the same way, so it no longer shows a
+// version frozen in this file: on the tag itself "0.1.7", past it "0.1.7-3-gabc1234", with
+// uncommitted changes "-dirty" on top. versionCode = major*1000000 + minor*1000 + patch, as
+// in release.yml.
+val gitVersion: String? = runCatching {
+    providers.exec {
+        commandLine("git", "describe", "--tags", "--match", "v[0-9]*", "--dirty")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim().removePrefix("v").ifEmpty { null }
+}.getOrNull()
+val appVersion: String = System.getenv("DISCODRIVE_VERSION_NAME")?.takeIf { it.isNotBlank() }
+    ?: gitVersion ?: "0.0.0-dev"
 val appVersionCode: Int = System.getenv("DISCODRIVE_VERSION_CODE")?.takeIf { it.isNotBlank() }?.let {
     requireNotNull(it.toIntOrNull()?.takeIf { code -> code > 0 }) {
         "DISCODRIVE_VERSION_CODE must be a positive integer, got '$it'"
     }
-} ?: 3
+} ?: Regex("""^(\d+)\.(\d+)\.(\d+)""").find(appVersion)?.destructured
+    ?.let { (major, minor, patch) -> major.toInt() * 1_000_000 + minor.toInt() * 1_000 + patch.toInt() }
+    ?.takeIf { it > 0 } ?: 1
 
 // Names the APK after the product instead of the module. Both Android apps live in a module
 // called "app", so both built an "app-debug.apk" — and the release workflow copies every APK
@@ -47,9 +58,13 @@ android {
     }
     buildTypes {
         release {
-            // Not debuggable (the release default). R8 stays off: the gomobile bindings
-            // are reached through JNI and would need keep rules first.
-            isMinifyEnabled = false
+            // Not debuggable (the release default). R8 shrinks and obfuscates: Play flags a
+            // bundle without it. The gomobile bindings are reached through JNI by name; the
+            // aar keeps go.** and mobile.** itself, proguard-rules.pro covers our side. The
+            // mapping file goes into the bundle, so Play deobfuscates crash reports.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
