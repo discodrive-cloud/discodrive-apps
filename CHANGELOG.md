@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.1.8 — 2026-11-20
+
+### Added
+
+- iOS, Android: Settings → Theme: System, Light or Dark.
+- iOS, Android (Google Play build): "Rate DiscoDrive" in Settings, and after about a
+  week of regular use the app asks for a review once. iOS Settings also link to the
+  privacy policy and contact, and show the version.
+- Android: "Save to device" saves a file anywhere on the phone (Downloads, a file
+  manager's folder, a memory card); "Send…" passes it to any app.
+- Android (GitHub build): opening an APK in the drive starts the system installer.
+- Android: the GitHub APK can update itself through Obtainium (see the README).
+
+### Changed
+
+- Android: release builds are smaller and start faster (R8).
+
 ## 0.1.7 — 2026-11-17
 
 ### Added
