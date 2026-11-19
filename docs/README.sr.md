@@ -51,6 +51,7 @@
 
 - **macOS** (`.dmg`) је потписан Developer ID-ом и нотаризован код Apple-а, па се отвара без упозорења. **Windows** (`.exe` + инсталер) **није потписан**: при првом покретању SmartScreen ће приказати упозорење.
 - **iOS** није укључен у издања (треба га сам изградити и инсталирати на iPhone помоћу Xcode-а).
+- **Android** (`.apk`) се сам ажурира преко [Obtainium](https://obtainium.imranr.dev)-а: отворите [овај линк](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.discodrive.android%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fdiscodrive-cloud%2Fdiscodrive-apps%22%2C%22author%22%3A%22discodrive-cloud%22%2C%22name%22%3A%22DiscoDrive%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22-full-release%5C%5C%5C%5C.apk%24%5C%22%7D%22%7D) на телефону и Obtainium ће додати DiscoDrive, изабрати прави `.apk` и нудити свако ново издање.
 
 ### 🍺 Homebrew
 

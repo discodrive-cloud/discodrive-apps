@@ -51,6 +51,7 @@ GUI-приложение с моделью **по-требованию**: на m
 
 - **macOS** (`.dmg`) подписан Developer ID и нотаризован Apple — открывается без предупреждений. **Windows** (`.exe` + установщик) **не подписан**: при первом запуске SmartScreen покажет предупреждение.
 - **iOS** в релизы не входит (нужно собрать самостоятельно и установить на iPhone с помощью xcode).
+- **Android** (`.apk`) обновляется сам через [Obtainium](https://obtainium.imranr.dev): откройте [эту ссылку](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.discodrive.android%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fdiscodrive-cloud%2Fdiscodrive-apps%22%2C%22author%22%3A%22discodrive-cloud%22%2C%22name%22%3A%22DiscoDrive%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22-full-release%5C%5C%5C%5C.apk%24%5C%22%7D%22%7D) на телефоне — Obtainium добавит DiscoDrive, выберет нужный `.apk` и будет предлагать каждый новый релиз.
 
 ### 🍺 Homebrew
 

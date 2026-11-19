@@ -56,6 +56,7 @@ Prebuilt desktop clients for macOS, Windows and Linux, the Linux daemon and an `
 
 - **macOS** (`.dmg`) is signed with Developer ID and notarized by Apple, so it opens without warnings. **Windows** (`.exe` + installer) is **unsigned**: on first launch SmartScreen will show a warning.
 - **iOS** is not included in releases (you need to build it yourself and install it on an iPhone via Xcode).
+- **Android** (`.apk`) updates itself with [Obtainium](https://obtainium.imranr.dev): open [this link](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.discodrive.android%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fdiscodrive-cloud%2Fdiscodrive-apps%22%2C%22author%22%3A%22discodrive-cloud%22%2C%22name%22%3A%22DiscoDrive%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22-full-release%5C%5C%5C%5C.apk%24%5C%22%7D%22%7D) on the phone and Obtainium adds DiscoDrive, picks the right `.apk` and offers every new release.
 
 ### 🍺 Homebrew
 
